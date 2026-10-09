@@ -8,11 +8,9 @@
 // and the dashboard settings are already loaded onto env.SETTINGS by withSettings()):
 //   import { shippingEstimate } from './shipping.js';
 //   if (path === '/api/shipping' && req.method === 'GET') return shippingEstimate(req, env);
-// This module reads nimbus_email, nimbus_password, nimbus_origin_pin, nimbus_weight_g from env.SETTINGS,
-// falling back to the NIMBUS_* env vars.
+// Reads env.SETTINGS.shipping { nimbus_email, nimbus_password, origin_pin, weight_g } (set in the admin dashboard),
+// falling back to NIMBUS_EMAIL / NIMBUS_PASSWORD / NIMBUS_ORIGIN_PIN / NIMBUS_WEIGHT_G env vars.
 //
-// Admin dashboard (public/admin.html): add these three fields to the Settings section so they can be changed
-// without a redeploy — see ADMIN_FIELDS at the bottom for the exact keys/labels.
 //
 // NimbusPost API (https://documentation.nimbuspost.com):
 //   POST /v1/users/login            { email, password }                     → { status, data: "<token>" }
@@ -28,12 +26,12 @@ let tok = { value: '', exp: 0, key: '' };
 const cache = new Map();
 
 function cfg(env) {
-  const s = env.SETTINGS || {};
+  const s = (env.SETTINGS && env.SETTINGS.shipping) || {};
   return {
     email: s.nimbus_email || env.NIMBUS_EMAIL || '',
     password: s.nimbus_password || env.NIMBUS_PASSWORD || '',
-    origin: s.nimbus_origin_pin || env.NIMBUS_ORIGIN_PIN || DEFAULT_ORIGIN,
-    weight: Number(s.nimbus_weight_g || env.NIMBUS_WEIGHT_G || 50),
+    origin: s.origin_pin || env.NIMBUS_ORIGIN_PIN || DEFAULT_ORIGIN,
+    weight: Number(s.weight_g || env.NIMBUS_WEIGHT_G || 50),
   };
 }
 
@@ -77,7 +75,7 @@ export async function shippingEstimate(req, env) {
   if (!/^\d{6}$/.test(pin)) return reply({ ok: false, error: 'bad pin' }, 400);
 
   const key = pin + ':' + (cod ? 'cod' : 'prepaid');
-  const hit = cache.get(key);
+  const hit = url.searchParams.get('nocache') ? null : cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return reply({ ...hit.body, cached: true });
 
   try {
@@ -114,11 +112,4 @@ export async function shippingEstimate(req, env) {
   }
 }
 
-// Fields for the admin dashboard settings form (public/admin.html). Store them in the same settings table the
-// WhatsApp/template settings use; `nimbus_password` should be rendered as type="password".
-export const ADMIN_FIELDS = [
-  { key: 'nimbus_email', label: 'NimbusPost email', type: 'email', placeholder: 'login email for app.nimbuspost.com' },
-  { key: 'nimbus_password', label: 'NimbusPost password', type: 'password' },
-  { key: 'nimbus_origin_pin', label: 'Pickup PIN code', type: 'text', placeholder: DEFAULT_ORIGIN, def: DEFAULT_ORIGIN },
-  { key: 'nimbus_weight_g', label: 'Parcel weight (g)', type: 'number', def: 50 },
-];
+// Admin UI: public/admin.html → Settings → "Express shipping (NimbusPost)" (rpc save_shipping / shipping_test).

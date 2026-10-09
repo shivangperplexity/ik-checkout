@@ -13,29 +13,15 @@ src/lib/…                pricing, payu, meta (CAPI), whatsapp, settings, admin
 public/admin.html        admin dashboard
 ```
 
-## Status of this repository
-Imported on 9 Oct 2026 from the Vercel production deployment `dpl_62UhNWEa5rtZCsjQGknvxXDCZBVt`.
-The following files still need to be copied in from Vercel → Deployments → latest → **Source**
-(they could not be pulled automatically):
-
-- [ ] src/lib/address-guard.js
-- [ ] src/lib/admin.js
-- [ ] src/lib/db.js
-- [ ] src/lib/meta.js
-- [ ] src/lib/payu.js
-- [ ] src/lib/pricing.js
-- [ ] src/lib/pricing.orig.js
-- [ ] src/lib/settings.js
-- [ ] src/lib/util.js
-- [ ] src/lib/whatsapp.js
-- [ ] public/admin.html
-
-Until they are in, do **not** connect this repo to the Vercel project (a build from it would be incomplete).
+## Repository ↔ Vercel
+Imported on 9 Oct 2026 from the Vercel production deployment `dpl_62UhNWEa5rtZCsjQGknvxXDCZBVt` (complete).
+The Vercel project's **root directory is `src`** (package.json, vercel.json, api/, lib/, public/ live there).
+Production deploys from `main`.
 
 ## Build 036d changes (this import)
 - `/api/shipping?pin=&cod=` → NimbusPost estimate, one anonymous "Express shipping" option.
-  Reads `nimbus_email`, `nimbus_password`, `nimbus_origin_pin` (default 410206), `nimbus_weight_g` from the
-  dashboard settings (`env.SETTINGS`) or `NIMBUS_*` env vars. See `ADMIN_FIELDS` in shipping.js for the admin form.
+  NimbusPost login, pickup PIN (default 410206) and parcel weight are set in the admin dashboard →
+  Settings → "Express shipping (NimbusPost)" (with a Test button); `NIMBUS_*` env vars work as a fallback.
 - Orders created and completed with `sourceName: "web"` → attributed to the Online Store channel in Shopify
   Analytics; UTMs/landing page also written to the order note.
 - Order attributes: PayU txn id (prepaid), promised delivery date, session id.

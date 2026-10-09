@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ink Kulture · Admin</title><meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0a0a0c;--cream:#faf8f4;--line:#e6e1d6;--mut:#6b7280;--ok:#15803d;--bad:#b3261e;--warn:#b45309;--bg:#f4f1ea}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+.hide{display:none!important}
+#login{min-height:100vh;display:grid;place-items:center;padding:20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
+.login-card{width:100%;max-width:380px;display:grid;gap:12px}
+.login-card img{height:34px;justify-self:start}
+label.f{display:grid;gap:4px;font-size:12px;font-weight:600;color:#333}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=url],input[type=search],select,textarea{width:100%;min-height:40px;padding:8px 10px;border:1px solid #d8d3c6;border-radius:8px;background:#fff;font-size:14px}
+input:focus,select:focus,textarea:focus{outline:2px solid #0a0a0c22;border-color:var(--ink)}
+.btn{min-height:40px;padding:0 16px;border:1px solid var(--ink);border-radius:8px;background:var(--ink);color:#fff;font-weight:700;cursor:pointer}
+.btn.ghost{background:#fff;color:var(--ink)}.btn.sm{min-height:32px;padding:0 10px;font-size:12.5px}.btn.bad{background:#fff;color:var(--bad);border-color:var(--bad)}.btn:disabled{opacity:.5}
+.err{color:var(--bad);font-weight:600;font-size:13px}.ok{color:var(--ok);font-weight:600;font-size:13px}
+header{position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:14px;padding:10px 16px;max-width:1280px;margin:0 auto}
+.bar img{height:26px}.grow{flex:1}
+nav{display:flex;gap:2px;overflow-x:auto;max-width:1280px;margin:0 auto;padding:0 10px}
+nav button{border:0;background:none;padding:10px 12px;font-weight:600;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button.on{color:var(--ink);border-color:var(--ink)}
+nav .dot{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:99px;background:var(--ok);color:#fff;font-size:11px;font-weight:800;text-align:center}
+main{max-width:1280px;margin:0 auto;padding:16px}
+.grid{display:grid;gap:12px}.k4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.two{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.kpi b{display:block;font-size:24px;font-weight:800;margin-top:2px}.kpi span{font-size:12px;color:var(--mut);font-weight:600}
+h2{margin:0 0 10px;font-size:16px}h3{margin:0 0 8px;font-size:14px}
+table{width:100%;border-collapse:collapse}th{text-align:left;font-size:11.5px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.click{cursor:pointer}tr.click:hover{background:var(--cream)}
+.tw{overflow-x:auto}
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11.5px;font-weight:700;background:#ede7dc}
+.pill.low,.pill.ok{background:#e8f5ec;color:var(--ok)}.pill.medium,.pill.warn{background:#fff4e0;color:var(--warn)}.pill.high,.pill.bad{background:#fdecea;color:var(--bad)}
+.mut{color:var(--mut)}.small{font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.chip{border:1px solid #d8d3c6;background:#fff;border-radius:99px;padding:5px 12px;font-weight:600;cursor:pointer;font-size:13px}.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.live{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+.sess{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;display:grid;gap:6px}.sess.act{border-left:4px solid var(--ok)}.sess.old{opacity:.7}.sess.done{border-left:4px solid #6366f1}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;animation:pu 1.4s infinite}@keyframes pu{50%{opacity:.25}}
+.steps{display:flex;gap:3px}.steps i{height:5px;flex:1;border-radius:3px;background:#e6e1d6}.steps i.f{background:var(--ink)}
+.bars .r{display:grid;grid-template-columns:170px 1fr 70px;gap:8px;align-items:center;margin:6px 0;font-size:13px}.bars .t{height:16px;background:#efeadf;border-radius:5px;overflow:hidden}.bars .t u{display:block;height:100%;background:var(--ink);text-decoration:none}
+.drawer{position:fixed;inset:0 0 0 auto;width:min(560px,100%);background:#fff;z-index:50;box-shadow:-10px 0 40px #0004;overflow-y:auto;padding:18px}
+.scrim{position:fixed;inset:0;background:#0006;z-index:40}
+.gauge{height:10px;border-radius:99px;background:linear-gradient(90deg,#15803d,#f59e0b,#b3261e);position:relative}.gauge i{position:absolute;top:-4px;width:4px;height:18px;background:var(--ink);border-radius:2px}
+.fac{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #e6e1d6;font-size:13px}.fac b.p{color:var(--bad)}.fac b.n{color:var(--ok)}
+.sw{position:relative;width:42px;height:24px;display:inline-block;flex:none}.sw input{opacity:0;position:absolute;inset:0;margin:0;cursor:pointer;z-index:2}.sw span{position:absolute;inset:0;background:#cfc9ba;border-radius:99px;transition:.15s}.sw span:before{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:.15s}.sw input:checked+span{background:var(--ok)}.sw input:checked+span:before{left:21px}
+.tpl{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.code{font-family:ui-monospace,monospace;font-size:12.5px;background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:6px 8px;word-break:break-all}
+.up{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}.up img{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#eee}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;z-index:99;font-weight:600}
+@media(max-width:640px){.bars .r{grid-template-columns:110px 1fr 56px}.hdrname{display:none}}
+</style></head><body>
+<div id="login"><form class="card login-card" id="lf">
+  <img src="https://www.inkkulture.in/cdn/shop/t/40/assets/ikl-logo-black.svg" alt="Ink Kulture" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:'INK KULTURE'}))">
+  <h2 style="margin:0">Admin sign in</h2>
+  <label class="f">Email<input type="email" id="em" autocomplete="username" required></label>
+  <label class="f">Password<input type="password" id="pw" autocomplete="current-password" required></label>
+  <p class="err" id="le"></p><button class="btn" id="lb">Sign in</button>
+</form></div>
+
+<div id="app" class="hide">
+<header><div class="bar"><img src="https://www.inkkulture.in/cdn/shop/t/40/assets/ikl-logo-black.svg" alt="Ink Kulture"><span class="hdrname mut small">Checkout admin</span><span class="grow"></span><span class="small mut" id="who"></span><button class="btn ghost sm" id="out">Sign out</button></div>
+<nav id="nav"></nav></header>
+<main id="main"></main></div>
+<div id="ov"></div><div class="toast hide" id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+var TABS=[['live','Live'],['orders','Orders'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['wa','WhatsApp'],['settings','Settings']];
+var tab='live',token='',timer=null,S={filter:'all',days:7,msgTab:false};
+function $(s,r){return (r||document).querySelector(s)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function inr(n){return '₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}
+function ago(t){if(!t)return '-';var d=Math.max(0,Math.floor(Date.now()/1000)-t);return d<60?d+'s ago':d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'}
+function ist(t){return t?new Date(t*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'}
+function toast(m){var t=$('#toast');t.textContent=m;t.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.add('hide')},2600)}
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}return null}
+function rpc(action,data){
+  return fetch('/api/admin/rpc',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(Object.assign({action:action},data||{}))})
+   .then(function(r){if(r.status===401){logout();throw new Error('Session expired')}return r.json()}).then(function(j){if(!j.ok)throw new Error(j.error||'Failed');return j})}
+function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app').classList.add('hide');$('#login').classList.remove('hide')}
+
+/* ---- login ---- */
+$('#lf').addEventListener('submit',function(e){e.preventDefault();$('#le').textContent='';$('#lb').disabled=true;
+ fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('#em').value,password:$('#pw').value})}).then(function(r){return r.json()}).then(function(j){
+  $('#lb').disabled=false;if(!j.ok){$('#le').textContent=j.error||'Sign in failed';return}
+  token=j.token;ls('ik_admin_tok',token);ls('ik_admin_email',j.email);start()}).catch(function(){$('#lb').disabled=false;$('#le').textContent='Network error'})});
+$('#out').onclick=logout;
+function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');$('#who').textContent=ls('ik_admin_email')||'';
+ $('#nav').innerHTML=TABS.map(function(t){return '<button data-t="'+t[0]+'">'+t[1]+(t[0]==='live'?'<span class="dot" id="livedot">0</span>':'')+'</button>'}).join('');
+ $('#nav').onclick=function(e){var b=e.target.closest('button');if(b)go(b.dataset.t)};go(tab);
+ clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;if(tab==='live')loadLive(true);else if(tab==='orders'&&!$('#ov').innerHTML)loadOrders(true)},5000)}
+function go(t){tab=t;[].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t)});
+ $('#main').innerHTML='<p class="mut">Loading…</p>';({live:loadLive,orders:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,wa:loadWa,settings:loadSettings})[t]()}
+function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
+
+/* ---- live ---- */
+var STEPN={cart:'Browsing with cart',open:'Opened checkout',phone:'Entered phone',pin:'Entered PIN',address:'Filled address',pay:'Ready to pay',submit:'Tapped pay',done:'Ordered'};
+var STEPI=['cart','open','phone','pin','address','pay','submit','done'];
+function loadLive(quiet){rpc('live').then(function(j){
+ $('#livedot').textContent=j.active;if(tab!=='live')return;
+ var h='<div class="row" style="margin-bottom:10px"><span class="pulse"></span><b>'+j.active+' shopper'+(j.active===1?'':'s')+' with a cart right now</b><span class="mut small">updates every 5 seconds · last 30 minutes shown</span></div>';
+ h+='<div class="live">'+(j.sessions.length?j.sessions.map(function(s){
+  var cls=s.ordered?'done':s.active?'act':'old',idx=STEPI.indexOf(s.step);
+  return '<div class="sess '+cls+'"><div class="row"><b>'+esc(s.name||(s.phone?'+91 '+s.phone:'Visitor '+s.sid))+'</b><span class="grow"></span>'+(s.ordered?'<span class="pill ok">Ordered '+esc(s.order||'')+'</span>':s.active?'<span class="pill ok"><span class="pulse"></span> live</span>':'<span class="mut small">'+ago(s.last_seen)+'</span>')+'</div>'
+  +'<div class="steps">'+STEPI.map(function(_,i){return '<i class="'+(i<=Math.max(idx,s.max_step)?'f':'')+'"></i>'}).join('')+'</div>'
+  +'<div class="small"><b>'+esc(STEPN[s.step]||s.step)+'</b> · '+esc(s.device||'')+' · '+esc(s.source)+(s.method?' · '+esc(s.method):'')+'</div>'
+  +'<div class="small mut">'+s.cart.map(function(c){return esc(c.t)+' ×'+c.q}).join(', ')+'</div><div class="row"><b>'+inr(s.value/100)+'</b>'+(s.phone?'<span class="grow"></span><a class="small" target="_blank" rel="noopener" href="https://wa.me/91'+s.phone+'">WhatsApp</a>':'')+'</div></div>'}).join(''):'<p class="mut">No recent activity. Open the store in another tab and add something to the cart to see it here.</p>')+'</div>';
+ $('#main').innerHTML=h}).catch(function(e){if(!quiet)fail(e)})}
+
+/* ---- orders ---- */
+var FIL=[['all','All'],['toship','To ship'],['unconfirmed','COD unconfirmed'],['high','High risk'],['shipped','Shipped']];
+function loadOrders(quiet){rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){if(tab!=='orders')return;
+ var keep=quiet&&$('#q')?$('#q').value:S.q||'';
+ var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px"></div>';
+ h+='<div class="card tw"><table><thead><tr><th>Order</th><th>Customer</th><th>Place</th><th>Pay</th><th>Total</th><th>Status</th><th>Risk</th><th>When</th></tr></thead><tbody>'+(j.orders.length?j.orders.map(function(o){
+  var st=o.shipped_at?'<span class="pill ok">Shipped</span>':o.status==='cancelled'?'<span class="pill bad">Cancelled</span>':o.method==='cod'&&!o.confirmed_at?'<span class="pill warn">COD unconfirmed</span>':'<span class="pill">Ready to ship</span>';
+  return '<tr class="click" data-id="'+o.id+'"><td><b>'+esc(o.name)+'</b></td><td>'+esc(o.customer)+'<div class="small mut">+91 '+esc(o.phone)+'</div></td><td>'+esc(o.city)+'<div class="small mut">'+esc(o.pincode)+'</div></td><td>'+(o.method==='cod'?'COD':'Prepaid')+'</td><td>'+inr(o.total)+'</td><td>'+st+'</td><td><span class="pill '+o.level+'">'+o.risk+' · '+o.level+'</span></td><td class="small mut">'+ago(o.created_at)+'</td></tr>'}).join(''):'<tr><td colspan="8" class="mut">No orders yet.</td></tr>')+'</tbody></table></div>';
+ if(quiet&&document.activeElement&&document.activeElement.id==='q')return;
+ $('#main').innerHTML=h;var q=$('#q');q.onkeydown=function(e){if(e.key==='Enter'){S.q=q.value;loadOrders()}};
+ $('#main').onclick=function(e){var c=e.target.closest('.chip');if(c){S.filter=c.dataset.f;loadOrders();return}var r=e.target.closest('tr.click');if(r)openOrder(r.dataset.id)}}).catch(function(e){if(!quiet)fail(e)})}
+var COURIERS=['Delhivery','Bluedart','DTDC','Xpressbees','Ecom Express','Shadowfax','India Post','Amazon Shipping','Other'];
+function close(){$('#ov').innerHTML=''}
+function openOrder(id){
+ $('#ov').innerHTML='<div class="scrim" id="sc"></div><div class="drawer"><p class="mut">Loading…</p></div>';$('#sc').onclick=close;
+ rpc('order',{id:id}).then(function(j){var o=j.order,r=j.risk,sh=j.shop||{},a=sh.shippingAddress||{};
+  var items=(sh.lineItems&&sh.lineItems.nodes||[]).map(function(l){return '<div class="fac"><span>'+esc(l.title)+(l.variantTitle?' · '+esc(l.variantTitle):'')+' ×'+l.quantity+'</span><b>'+inr(l.originalUnitPriceSet.shopMoney.amount*l.quantity)+'</b></div>'}).join('');
+  var fulfilled=o.shipped_at||(sh.displayFulfillmentStatus&&sh.displayFulfillmentStatus!=='UNFULFILLED');
+  var d='<div class="row"><h2 style="margin:0">'+esc(o.name)+'</h2><span class="pill '+r.level+'">Risk '+r.score+' · '+r.level+'</span><span class="grow"></span><button class="btn ghost sm" id="cl">Close</button></div>';
+  d+='<p class="mut small">'+ist(o.created_at)+' · '+(o.method==='cod'?'Cash on delivery':'Prepaid')+' · <b>'+inr(o.total)+'</b></p>';
+  d+='<div class="card" style="margin:10px 0"><h3>Risk check</h3><div class="gauge"><i style="left:calc('+r.score+'% - 2px)"></i></div><p class="small"><b>'+esc(r.advice)+'</b></p>'+(r.factors.length?r.factors.map(function(f){return '<div class="fac"><span>'+esc(f.why)+'</span><b class="'+(f.w>0?'p':'n')+'">'+(f.w>0?'+':'')+f.w+'</b></div>'}).join(''):'<p class="mut small">No risk signals.</p>')+'</div>';
+  d+='<div class="card" style="margin:10px 0"><h3>Customer & address</h3><div class="small">'+esc(a.name||o.customer)+'<br>'+esc([a.address1,a.address2,a.city,a.province,a.zip].filter(Boolean).join(', '))+'<br>+91 '+esc(o.phone)+'</div><div class="row" style="margin-top:8px"><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(o.phone)+'">WhatsApp</a><a class="btn ghost sm" style="display:inline-grid;place-items:center" href="tel:+91'+esc(o.phone)+'">Call</a></div></div>';
+  d+='<div class="card" style="margin:10px 0"><h3>Items</h3>'+(items||'<p class="mut small">'+(sh.error?esc(sh.error):'-')+'</p>')+'</div>';
+  if(o.status==='cancelled')d+='<p class="pill bad">Cancelled</p>';
+  else{
+   d+='<div class="card" style="margin:10px 0"><h3>Actions</h3><div class="row">';
+   if(o.method==='cod'&&!o.confirmed_at)d+='<button class="btn sm" id="cf">Mark COD confirmed</button>';
+   if(!fulfilled)d+='<button class="btn bad sm" id="cx">Cancel order</button>';
+   d+='</div>';
+   if(fulfilled)d+='<p class="ok" style="margin-top:8px">Shipped'+(o.tracking?' · '+esc(o.tracking):'')+'</p>';
+   else{
+    if(o.method==='cod'&&!o.confirmed_at)d+='<p class="small" style="color:var(--warn);font-weight:600;margin:8px 0 0">COD not confirmed yet. You can still ship it, but confirming first is safer.</p>';
+    d+='<div class="grid" style="margin-top:10px"><h3 style="margin:0">Ship this order</h3><label class="f">Courier<select id="sc_co">'+COURIERS.map(function(c){return '<option>'+c+'</option>'}).join('')+'</select></label><label class="f">Tracking / AWB number<input type="text" id="sc_no"></label><label class="f">Tracking link (optional)<input type="url" id="sc_url" placeholder="https://"></label><label class="row small"><input type="checkbox" id="sc_nt" checked> Email the customer from Shopify</label><button class="btn" id="shp">Mark shipped</button></div>';
+   }
+   d+='</div>';
+  }
+  d+='<div class="card" style="margin:10px 0"><h3>WhatsApp with this customer</h3>'+(j.messages.length?j.messages.map(function(m){return '<div class="fac"><span>'+(m.direction==='in'?'← reply ':'→ ')+esc(m.trigger)+' · '+esc(m.template)+'</span><span class="pill '+(m.status==='failed'?'bad':m.status==='read'||m.status==='delivered'?'ok':'')+'">'+esc(m.status)+'</span></div>'}).join(''):'<p class="mut small">No messages yet.</p>')+'</div>';
+  if(j.session)d+='<p class="small mut">Came from <b>'+esc(j.session.source||'direct')+'</b> on '+esc(j.session.device||'?')+'</p>';
+  $('#ov').querySelector('.drawer').innerHTML=d;
+  $('#cl').onclick=close;
+  function act(btn,fn){btn.onclick=function(){btn.disabled=true;fn().then(function(){toast('Done');close();loadOrders()}).catch(function(e){btn.disabled=false;toast(e.message)})}}
+  if($('#cf'))act($('#cf'),function(){return rpc('confirm',{id:id})});
+  if($('#cx'))$('#cx').onclick=function(){if(confirm('Cancel '+o.name+'? Stock is restocked and no refund is issued from here.'))act($('#cx'),function(){return rpc('cancel',{id:id})}),$('#cx').onclick()};
+  if($('#shp'))act($('#shp'),function(){return rpc('ship',{id:id,company:$('#sc_co').value,number:$('#sc_no').value,url:$('#sc_url').value,notify:$('#sc_nt').checked}).then(function(r){var w=r.whatsapp||{};toast(w.ok?'Shipped. WhatsApp sent.':'Shipped.')})});
+ }).catch(function(e){$('#ov').querySelector('.drawer').innerHTML='<p class="err">'+esc(e.message)+'</p><button class="btn ghost sm" id="cl">Close</button>';$('#cl').onclick=close})}
+
+/* ---- abandoned ---- */
+function loadRecovery(){rpc('leads').then(function(j){
+ $('#main').innerHTML='<h2>People who left the checkout popup without ordering</h2><p class="mut small">Phone numbers captured in the last 7 days. Send a WhatsApp nudge (turn the template on in the WhatsApp tab) or open a chat yourself.</p><div class="card tw"><table><thead><tr><th>Name</th><th>Phone</th><th>PIN</th><th>Last step</th><th>Left</th><th>Nudged</th><th></th></tr></thead><tbody>'+(j.leads.length?j.leads.map(function(l){return '<tr><td>'+esc(l.name||'-')+'</td><td>+91 '+esc(l.phone)+'</td><td>'+esc(l.pincode||'-')+'</td><td>'+esc(l.step||'-')+'</td><td class="small mut">'+ago(l.updated_at)+'</td><td class="small mut">'+(l.nudged_at?ago(l.nudged_at):'-')+'</td><td class="row"><button class="btn sm" data-n="'+esc(l.phone)+'">Send nudge</button><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(l.phone)+'">Chat</a></td></tr>'}).join(''):'<tr><td colspan="7" class="mut">No abandoned checkouts.</td></tr>')+'</tbody></table></div>';
+ $('#main').onclick=function(e){var b=e.target.closest('[data-n]');if(!b)return;b.disabled=true;rpc('nudge',{phone:b.dataset.n}).then(function(){toast('Nudge sent');loadRecovery()}).catch(function(x){b.disabled=false;toast(x.message)})}}).catch(fail)}
+
+/* ---- analytics ---- */
+function loadAnalytics(){rpc('analytics',{days:S.days}).then(function(j){var k=j.kpi,top=Math.max(1,j.funnel[0].n);
+ var maxD=Math.max(1,Math.max.apply(null,j.daily.map(function(d){return d.revenue}).concat([1])));
+ var h='<div class="row" style="margin-bottom:12px"><h2 style="margin:0">Analytics</h2><span class="grow"></span><select id="dy" style="width:auto">'+[1,7,14,30,90].map(function(d){return '<option value="'+d+'"'+(d===S.days?' selected':'')+'>Last '+d+' day'+(d>1?'s':'')+'</option>'}).join('')+'</select></div>';
+ h+='<div class="grid k4">'+[['Orders',k.orders],['Revenue',inr(k.revenue)],['Avg order value',inr(k.aov)],['Sessions with cart',k.sessions],['Conversion',k.conv.toFixed(1)+'%'],['COD / Prepaid',k.cod+' / '+k.prepaid],['Cancelled',k.cancelled],['Open abandoned leads',k.open_leads]].map(function(x){return '<div class="card kpi"><span>'+x[0]+'</span><b>'+x[1]+'</b></div>'}).join('')+'</div>';
+ h+='<div class="grid two" style="margin-top:12px"><div class="card bars"><h3>Funnel: how far shoppers got</h3>'+j.funnel.map(function(f,i){var pc=Math.round(f.n/top*100),prev=i?j.funnel[i-1].n:0,dr=i&&prev?Math.round((1-f.n/prev)*100):0;return '<div class="r"><span>'+esc(f.label)+'</span><span class="t"><u style="width:'+pc+'%"></u></span><span><b>'+f.n+'</b>'+(i&&dr>0?' <span class="small" style="color:var(--bad)">−'+dr+'%</span>':'')+'</span></div>'}).join('')+'<p class="small mut">Red % = lost versus the step above.</p></div>';
+ h+='<div class="card bars"><h3>Where people left (did not order)</h3>'+(function(){var m=Math.max.apply(null,j.left.map(function(x){return x.n}).concat([1]));return j.left.map(function(f){return '<div class="r"><span>'+esc(f.label)+'</span><span class="t"><u style="width:'+Math.round(f.n/m*100)+'%;background:var(--bad)"></u></span><span><b>'+f.n+'</b></span></div>'}).join('')})()+'<p class="small mut">Cart value left behind: <b>'+inr(j.left.reduce(function(s,x){return s+x.value},0))+'</b></p></div></div>';
+ h+='<div class="card" style="margin-top:12px"><h3>Revenue by day</h3><div style="display:flex;align-items:flex-end;gap:4px;height:140px">'+(j.daily.length?j.daily.map(function(d){return '<div title="'+d.day+': '+d.orders+' orders, '+inr(d.revenue)+'" style="flex:1;min-width:6px;background:var(--ink);border-radius:4px 4px 0 0;height:'+Math.max(3,Math.round(d.revenue/maxD*100))+'%"></div>'}).join(''):'<span class="mut">No orders in this range.</span>')+'</div>'+(j.daily.length?'<div class="row small mut" style="justify-content:space-between"><span>'+j.daily[0].day+'</span><span>'+j.daily[j.daily.length-1].day+'</span></div>':'')+'</div>';
+ h+='<div class="grid two" style="margin-top:12px"><div class="card"><h3>Traffic source</h3><table><thead><tr><th>Source</th><th>Sessions</th><th>Orders</th><th>Conv.</th></tr></thead><tbody>'+j.sources.map(function(s){return '<tr><td>'+esc(s.s)+'</td><td>'+s.sessions+'</td><td>'+(s.orders||0)+'</td><td>'+(s.sessions?(s.orders/s.sessions*100).toFixed(1):0)+'%</td></tr>'}).join('')+'</tbody></table></div>';
+ h+='<div class="card"><h3>Device</h3><table><thead><tr><th>Device</th><th>Sessions</th><th>Orders</th><th>Conv.</th></tr></thead><tbody>'+j.devices.map(function(s){return '<tr><td>'+esc(s.d)+'</td><td>'+s.sessions+'</td><td>'+(s.orders||0)+'</td><td>'+(s.sessions?(s.orders/s.sessions*100).toFixed(1):0)+'%</td></tr>'}).join('')+'</tbody></table><h3 style="margin-top:14px">WhatsApp messages</h3>'+(j.messages.length?j.messages.map(function(m){return '<div class="fac"><span>'+esc(m.trigger)+'</span><span>'+esc(m.status)+' ×'+m.n+'</span></div>'}).join(''):'<p class="mut small">None sent.</p>')+'</div></div>';
+ $('#main').innerHTML=h;$('#dy').onchange=function(){S.days=+this.value;loadAnalytics()}}).catch(fail)}
+
+/* ---- upsells ---- */
+var UP=[];
+function loadUpsell(){rpc('settings').then(function(j){UP=j.upsells||[];drawUp()}).catch(fail)}
+function drawUp(){
+ var h='<h2>Add-on offers in the checkout popup</h2><p class="mut small">Shoppers see these above the payment options and can add them with one tap. The discount is applied on the server, so it cannot be edited in the browser. Max 2 are shown at a time.</p>';
+ h+='<div class="card" style="margin-bottom:12px"><div class="row"><input type="search" id="ps" placeholder="Search your products to add an offer" style="max-width:340px"><button class="btn sm" id="psb">Search</button></div><div id="pr" class="grid" style="margin-top:10px"></div></div>';
+ h+='<div class="grid">'+(UP.length?UP.map(function(u,i){return '<div class="up"><img src="'+esc(u.image)+'" alt=""><div class="grid"><div class="row"><b>'+esc(u.title)+'</b><span class="mut small">'+inr(u.price)+'</span><span class="grow"></span><label class="row small"><span class="sw"><input type="checkbox" data-i="'+i+'" data-k="enabled"'+(u.enabled!==false?' checked':'')+'><span></span></span>On</label><button class="btn bad sm" data-del="'+i+'">Remove</button></div>'
+  +'<div class="grid k4"><label class="f">Headline<input type="text" data-i="'+i+'" data-k="headline" value="'+esc(u.headline)+'" placeholder="Add a free aftercare balm?"></label><label class="f">Discount %<input type="number" min="0" max="80" data-i="'+i+'" data-k="pct" value="'+(u.pct||0)+'"></label><label class="f">Show when cart is at least ₹<input type="number" min="0" data-i="'+i+'" data-k="minCart" value="'+(u.minCart||0)+'"></label></div></div></div>'}).join(''):'<p class="mut">No offers yet. Search a product above.</p>')+'</div><div class="row" style="margin-top:12px"><button class="btn" id="sv">Save offers</button></div>';
+ $('#main').innerHTML=h;
+ function search(){rpc('products',{q:$('#ps').value}).then(function(j){$('#pr').innerHTML=j.products.map(function(p,i){return '<div class="row"><img src="'+esc(p.image)+'" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover"><span>'+esc(p.title)+' · '+inr(p.price)+'</span><span class="grow"></span><button class="btn ghost sm" data-add="'+i+'">Add</button></div>'}).join('')||'<span class="mut">No results</span>';
+  $('#pr').onclick=function(e){var b=e.target.closest('[data-add]');if(!b)return;var p=j.products[b.dataset.add];if(UP.some(function(u){return u.variantId===p.variantId}))return toast('Already added');UP.push({variantId:p.variantId,title:p.title,image:p.image,price:+p.price,pct:10,headline:'Add this to your order',enabled:true,minCart:0});drawUp()}}).catch(function(e){toast(e.message)})}
+ $('#psb').onclick=search;$('#ps').onkeydown=function(e){if(e.key==='Enter')search()};
+ $('#main').oninput=function(e){var t=e.target;if(t.dataset.k==null)return;UP[+t.dataset.i][t.dataset.k]=t.type==='checkbox'?t.checked:t.type==='number'?+t.value:t.value};
+ $('#main').onclick=function(e){var d=e.target.closest('[data-del]');if(d){UP.splice(+d.dataset.del,1);drawUp()}};
+ $('#sv').onclick=function(){rpc('save_upsells',{upsells:UP}).then(function(){toast('Saved. Live in the popup within ~15 seconds.')}).catch(function(e){toast(e.message)})}}
+
+/* ---- whatsapp ---- */
+var W=null;
+function loadWa(){rpc('settings').then(function(j){W=j;drawWa()}).catch(fail)}
+function drawWa(){var w=W.wa;
+ var h='<div class="row" style="margin-bottom:10px"><h2 style="margin:0">WhatsApp</h2><span class="pill '+(w.connected?'ok':'warn')+'">'+(w.connected?'Connected':'Not connected')+'</span><span class="grow"></span><button class="chip'+(S.msgTab?'':' on')+'" id="t1">Setup & templates</button><button class="chip'+(S.msgTab?' on':'')+'" id="t2">Message log</button></div>';
+ if(S.msgTab){$('#main').innerHTML=h+'<p class="mut">Loading…</p>';bindWaTabs();rpc('messages').then(function(j){$('#main').innerHTML=h+'<div class="card tw"><table><thead><tr><th>Time</th><th></th><th>Phone</th><th>Message</th><th>Template</th><th>Order</th><th>Status</th></tr></thead><tbody>'+(j.messages.length?j.messages.map(function(m){return '<tr><td class="small mut">'+ist(m.ts)+'</td><td>'+(m.direction==='in'?'←':'→')+'</td><td>+91 '+esc(m.phone)+'</td><td>'+esc(trLabel(m.trigger))+'</td><td class="small">'+esc(m.template)+'</td><td>'+esc(m.order_name)+'</td><td><span class="pill '+(m.status==='failed'?'bad':m.status==='read'||m.status==='delivered'?'ok':m.status==='skipped'?'warn':'')+'">'+esc(m.status)+'</span>'+(m.error?'<div class="small err">'+esc(m.error)+'</div>':'')+'</td></tr>'}).join(''):'<tr><td colspan="7" class="mut">Nothing sent yet.</td></tr>')+'</tbody></table></div>';bindWaTabs()}).catch(fail);return}
+ h+='<div class="grid two"><div class="card grid"><h3>1. Connect WhatsApp Cloud API</h3><p class="small mut" style="margin:0">From Meta Business, WhatsApp, API setup. The token is stored encrypted-at-rest in your database and never shown again.</p>'
+  +'<label class="f">Phone number ID<input type="text" id="w_pid" value="'+esc(w.phone_id)+'"></label><label class="f">WhatsApp Business Account ID (to list templates)<input type="text" id="w_waba" value="'+esc(w.waba_id)+'"></label>'
+  +'<label class="f">Permanent access token<input type="password" id="w_tok" value="'+esc(w.token)+'" autocomplete="off" placeholder="'+(w.has_token?'saved':'paste token')+'"></label><label class="f">App secret (verifies webhook)<input type="password" id="w_sec" value="'+esc(w.app_secret)+'" autocomplete="off"></label>'
+  +'<label class="f">Your WhatsApp number for alerts (10 digits)<input type="text" id="w_adm" value="'+esc(w.admin_phone)+'" inputmode="numeric"></label><label class="f">Template language code<input type="text" id="w_lang" value="'+esc(w.lang)+'"></label>'
+  +'<div class="row"><button class="btn" id="w_sv">Save</button><button class="btn ghost" id="w_ts">Test connection</button></div><div id="w_out" class="small"></div></div>'
+  +'<div class="card grid"><h3>2. Webhook (for Confirm / Cancel taps and delivery status)</h3><p class="small mut" style="margin:0">In Meta, WhatsApp, Configuration, add this callback and subscribe to <b>messages</b>.</p><label class="f">Callback URL<div class="code">'+esc(W.webhook)+'</div></label><label class="f">Verify token<div class="code">'+esc(w.verify_token||'(saved after you press Save)')+'</div></label></div></div>';
+ h+='<h3 style="margin:18px 0 8px">3. Which message goes to whom</h3><p class="small mut">Each row is a WhatsApp template you must create and get approved in Meta. Type its exact name. Variables are filled in the order shown ({{1}}, {{2}}, …). Templates with buttons need two quick-reply buttons: Confirm, then Cancel.</p><div class="grid" id="tpls">'
+ +W.triggers.map(function(t){return '<div class="tpl" data-k="'+t.key+'"><div class="row"><b>'+esc(t.label)+'</b><span class="pill">to: '+esc(t.to)+'</span><span class="grow"></span><label class="row small"><span class="sw"><input type="checkbox" class="en"'+(t.enabled?' checked':'')+'><span></span></span>Send</label></div><div class="small mut">When: '+esc(t.when)+'</div>'
+  +'<div class="grid k4"><label class="f">Template name<input type="text" class="nm" value="'+esc(t.name)+'"></label><label class="f">Language<input type="text" class="lg" value="'+esc(t.lang)+'"></label><label class="f" style="grid-column:span 2">Variables in order ({{1}}, {{2}}…)<input type="text" class="vr" value="'+esc(t.vars.join(', '))+'"></label></div>'
+  +'<div class="small mut">Available: '+t.allVars.map(function(v){return '<code>'+v+'</code> '+esc(W.var_labels[v]||'')}).join(' · ')+(t.buttons?' · <b>Has Confirm/Cancel buttons</b>':'')+'</div><div class="row"><input type="text" class="tt" placeholder="Test number (10 digits)" style="max-width:200px"><button class="btn ghost sm tb">Send test</button></div></div>'}).join('')
+ +'</div><div class="row" style="margin-top:12px"><button class="btn" id="t_sv">Save templates</button></div>';
+ $('#main').innerHTML=h;bindWaTabs();
+ $('#w_sv').onclick=function(){rpc('save_wa',{phone_id:$('#w_pid').value,waba_id:$('#w_waba').value,token:$('#w_tok').value,app_secret:$('#w_sec').value,admin_phone:$('#w_adm').value,lang:$('#w_lang').value}).then(function(){toast('Saved');loadWa()}).catch(function(e){toast(e.message)})};
+ $('#w_ts').onclick=function(){$('#w_out').textContent='Testing…';rpc('wa_test').then(function(j){$('#w_out').innerHTML='<span class="ok">Connected: '+esc(j.name||'')+' '+esc(j.number||'')+' (quality '+esc(j.quality||'?')+')</span>'+(j.templates.length?'<div style="margin-top:6px">Your templates:</div>'+j.templates.map(function(t){return '<div class="fac"><span>'+esc(t.name)+' <span class="mut">'+esc(t.language||'')+'</span></span><span class="pill '+(t.status==='APPROVED'?'ok':t.status==='REJECTED'?'bad':'warn')+'">'+esc(t.status)+'</span></div>'}).join(''):'<div class="small mut">Add the WhatsApp Business Account ID to list templates.</div>')}).catch(function(e){$('#w_out').innerHTML='<span class="err">'+esc(e.message)+'</span>'})};
+ $('#t_sv').onclick=function(){var o={};[].forEach.call(document.querySelectorAll('.tpl'),function(r){o[r.dataset.k]={enabled:$('.en',r).checked,name:$('.nm',r).value,lang:$('.lg',r).value,vars:$('.vr',r).value.split(',').map(function(x){return x.trim()}).filter(Boolean)}});rpc('save_triggers',{triggers:o}).then(function(){toast('Templates saved')}).catch(function(e){toast(e.message)})};
+ $('#tpls').onclick=function(e){var b=e.target.closest('.tb');if(!b)return;var r=b.closest('.tpl');b.disabled=true;rpc('wa_send_test',{trigger:r.dataset.k,to:$('.tt',r).value}).then(function(j){toast(j.ok?'Test sent':j.skipped?'Skipped: '+j.skipped:'Failed. See the message log.')}).catch(function(x){toast(x.message)}).then(function(){b.disabled=false})}}
+function trLabel(k){var t=(W&&W.triggers||[]).filter(function(x){return x.key===k})[0];return t?t.label:k==='reply'?'Customer reply':k}
+function bindWaTabs(){$('#t1').onclick=function(){S.msgTab=false;drawWa()};$('#t2').onclick=function(){S.msgTab=true;drawWa()}}
+
+/* ---- settings ---- */
+function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{};
+ $('#main').innerHTML='<div class="grid two"><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
+ +[['gpay','Google Pay'],['phonepe','PhonePe'],['paytm','Paytm'],['any','Any UPI app']].map(function(a){return '<label class="f">'+a[1]+'<input type="url" class="lg" data-k="'+a[0]+'" value="'+esc(L[a[0]])+'" placeholder="https://cdn.shopify.com/..."></label>'}).join('')+'<button class="btn" id="lg_sv">Save logos</button></div>'
+ +'<div class="card grid"><h3>Express shipping (NimbusPost)</h3><p class="small mut" style="margin:0">The checkout shows one option, "Express shipping", with the fastest Delhivery / Xpressbees delivery date for the customer\'s PIN. Enter your NimbusPost login (the one for app.nimbuspost.com) and the pickup PIN. '+(j.shipping&&j.shipping.connected?'<b style="color:#16a34a">Connected</b>':'<b>Not set: customers see "2–5 business days"</b>')+'</p>'
+ +'<label class="f">NimbusPost email<input type="email" id="sh_email" value="'+esc((j.shipping||{}).nimbus_email||'')+'" autocomplete="off"></label>'
+ +'<label class="f">NimbusPost password<input type="password" id="sh_pass" value="'+esc((j.shipping||{}).nimbus_password||'')+'" autocomplete="new-password"></label>'
+ +'<div class="grid two"><label class="f">Pickup PIN code<input id="sh_pin" inputmode="numeric" maxlength="6" value="'+esc((j.shipping||{}).origin_pin||'410206')+'"></label><label class="f">Parcel weight (g)<input id="sh_wt" type="number" min="10" value="'+esc(String((j.shipping||{}).weight_g||50))+'"></label></div>'
+ +'<div class="grid two"><button class="btn" id="sh_sv">Save</button><button class="btn" id="sh_test" style="background:#444">Test with PIN 411001</button></div><p class="small mut" id="sh_out"></p></div>'
+ +'<div class="card grid"><h3>Change password</h3><label class="f">Current password<input type="password" id="p0" autocomplete="current-password"></label><label class="f">New password (8+ characters)<input type="password" id="p1" autocomplete="new-password"></label><button class="btn" id="pw_sv">Change password</button><p class="small mut">Signed in as '+esc(j.email||'')+'. The starter password is a test one: change it before you go live.</p></div></div>';
+ $('#lg_sv').onclick=function(){var l={};[].forEach.call(document.querySelectorAll('.lg'),function(i){l[i.dataset.k]=i.value});rpc('save_logos',{logos:l}).then(function(){toast('Saved')}).catch(function(e){toast(e.message)})};
+ $('#sh_sv').onclick=function(){rpc('save_shipping',{nimbus_email:$('#sh_email').value,nimbus_password:$('#sh_pass').value,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
+ $('#sh_test').onclick=function(){$('#sh_out').textContent='Checking NimbusPost…';rpc('shipping_test',{pin:'411001'}).then(function(r){$('#sh_out').textContent=r.ok?(r.serviceable?'OK: Express shipping, arrives by '+r.edd+' ('+r.courier+')':'NimbusPost answered, but neither Delhivery nor Xpressbees serve 411001'):'Failed: '+(r.error||'unknown')}).catch(function(e){$('#sh_out').textContent='Failed: '+e.message})};
+ $('#pw_sv').onclick=function(){rpc('change_password',{current:$('#p0').value,next:$('#p1').value}).then(function(){toast('Password changed');$('#p0').value=$('#p1').value=''}).catch(function(e){toast(e.message)})}}).catch(fail)}
+
+token=ls('ik_admin_tok')||'';if(token){rpc('live').then(start).catch(function(){})}
+})();
+</script></body></html>
