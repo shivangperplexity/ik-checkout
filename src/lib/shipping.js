@@ -49,14 +49,25 @@ async function token(c) {
   return tok.value;
 }
 
-// NimbusPost returns edd as "YYYY-MM-DD" for most couriers, sometimes "3-5 days". Normalise to a date.
+// NimbusPost's serviceability rows name the estimate differently per courier/version: edd, etd, tat,
+// estimated_delivery_days, delivery_days, expected_delivery … and the value is either a date
+// ("2026-10-13", "13-10-2026", "Oct 13, 2026"), a day count ("3", "3-5 days", "3 Days"), or empty.
+const EDD_KEYS = ['edd', 'etd', 'tat', 'estimated_delivery_days', 'estimated_delivery', 'expected_delivery_date', 'expected_delivery', 'delivery_days', 'delivery_time', 'days'];
+function eddRaw(c) {
+  for (const k of EDD_KEYS) if (c[k] !== undefined && c[k] !== null && String(c[k]).trim() !== '') return c[k];
+  return '';
+}
 function eddDate(edd) {
-  if (!edd) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(edd));
+  if (edd === undefined || edd === null || edd === '') return null;
+  const s = String(edd).trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);                       // 2026-10-13
   if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-  const d = /(\d+)\s*(?:-\s*\d+)?\s*day/i.exec(String(edd));
-  if (d) { const t = new Date(); t.setUTCDate(t.getUTCDate() + Number(d[1])); return t; }
-  return null;
+  m = /^(\d{2})[-/](\d{2})[-/](\d{4})/.exec(s);                      // 13-10-2026
+  if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  const d = /^(\d+(?:\.\d+)?)\s*(?:-\s*\d+)?\s*(?:days?|d)?\s*$/i.exec(s); // "3", "3-5 days"
+  if (d) { const t = new Date(); t.setUTCDate(t.getUTCDate() + Math.ceil(Number(d[1]))); return t; }
+  const p = Date.parse(s);                                             // "Oct 13, 2026"
+  return Number.isNaN(p) ? null : new Date(p);
 }
 const fmt = d => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
 
@@ -93,9 +104,10 @@ export async function shippingEstimate(req, env) {
     if (!j.status || !Array.isArray(j.data)) throw new Error('serviceability failed');
 
     const ours = j.data.filter(x => COURIERS.test(String(x.name || '')));
-    const dates = ours.map(x => eddDate(x.edd)).filter(Boolean).sort((a, b) => a - b);
+    const dates = ours.map(x => eddDate(eddRaw(x))).filter(Boolean).sort((a, b) => a - b);
+    const debug = url.searchParams.get('nocache') ? { couriers: j.data.map(x => x.name), sample: ours[0] || j.data[0] || null } : undefined;
     if (!ours.length) {
-      const body = { ok: true, serviceable: false, edd: '' }; // nothing we ship with reaches this PIN
+      const body = { ok: true, serviceable: false, edd: '', debug }; // nothing we ship with reaches this PIN
       cache.set(key, { at: Date.now(), body });
       return reply(body);
     }
@@ -103,8 +115,8 @@ export async function shippingEstimate(req, env) {
     const days = best ? Math.max(1, Math.round((best - Date.now()) / 86400000)) : null;
     const body = { ok: true, serviceable: true, edd: best ? fmt(best) : '', days,
       // internal, for your dashboard/booking — not shown to the shopper
-      courier: ours.sort((a, b) => (eddDate(a.edd) || 9e15) - (eddDate(b.edd) || 9e15))[0].name };
-    cache.set(key, { at: Date.now(), body });
+      courier: ours.slice().sort((a, b) => (eddDate(eddRaw(a)) || 9e15) - (eddDate(eddRaw(b)) || 9e15))[0].name, debug };
+    if (!debug) cache.set(key, { at: Date.now(), body });
     return reply(body);
   } catch (e) {
     // Never block checkout on a courier API: the theme shows "Express shipping · 2–5 business days".
