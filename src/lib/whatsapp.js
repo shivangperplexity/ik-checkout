@@ -110,13 +110,14 @@ export async function leadMedia(env, phone) {
   }
 }
 
-/** A Shopify cart permalink that rebuilds this lead's cart on any device (falls back to the store's /cart). */
+/** A Shopify cart permalink that rebuilds this lead's cart on any device. storefront=true lands on the store's cart
+    page (where the IK checkout opens), not Shopify's own checkout. Falls back to the store's /cart. */
 export async function cartLink(env, phone) {
   const store = String(env.STORE_URL || 'https://www.inkkulture.in').replace(/\/$/, '');
   try {
     const row = env.DB ? await env.DB.prepare('SELECT cart_json FROM leads WHERE phone=?').bind(String(phone)).first() : null;
     const lines = JSON.parse(row?.cart_json || '[]').filter((l) => l && /^\d+$/.test(String(l.variant_id)) && !l.upsell);
-    if (lines.length) return `${store}/cart/${lines.slice(0, 20).map((l) => `${l.variant_id}:${Math.max(1, Number(l.quantity) || 1)}`).join(',')}?utm_source=whatsapp&utm_medium=nudge`;
+    if (lines.length) return `${store}/cart/${lines.slice(0, 20).map((l) => `${l.variant_id}:${Math.max(1, Number(l.quantity) || 1)}`).join(',')}?storefront=true&utm_source=whatsapp&utm_medium=nudge`;
   } catch (e) { console.error('cartLink', e.message); }
   return store + '/cart';
 }
@@ -140,6 +141,16 @@ export const clearMetaCache = () => metaCache.clear();
 
 const clean = (x) => String(x ?? '-').replace(/[\r\n\t]+/g, ' ').replace(/ {4,}/g, '   ').trim().slice(0, 900) || '-';
 
+/* WhatsApp image headers take JPEG/PNG under 5 MB. Shopify's CDN can serve any product photo as a resized
+   progressive JPEG, so WebP/HEIC uploads and huge originals still arrive. */
+export function waImage(url) {
+  try {
+    const u = new URL(url);
+    if (/(^|\.)cdn\.shopify\.com$/.test(u.hostname) || u.pathname.startsWith('/cdn/shop/')) { u.searchParams.set('width', '1000'); u.searchParams.set('format', 'pjpg'); }
+    return u.toString();
+  } catch { return url; }
+}
+
 /** Build and send one template on the Cloud API. keys/values are the checkout's variables in {{1}}..{{n}} order. */
 export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang }) {
   let tpl = null;
@@ -151,10 +162,12 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
   const header = comps.find((c) => c.type === 'HEADER');
   const buttons = comps.find((c) => c.type === 'BUTTONS')?.buttons || [];
   const components = [];
+  /* A URL button with {{1}} (e.g. a Go4WhatsUp short link) needs a value this checkout has no source for. */
+  if (buttons.some((b) => b.type === 'URL' && /{{\s*\d+\s*}}/.test(b.url || ''))) throw new Error(`template "${name}" has a dynamic link button this checkout can't fill`);
 
   if (!tpl ? image : header?.format === 'IMAGE') {
     if (!image) throw new Error(`template "${name}" has an image header but no image was found`);
-    components.push({ type: 'header', parameters: [{ type: 'image', image: { link: image } }] });
+    components.push({ type: 'header', parameters: [{ type: 'image', image: { link: waImage(image) } }] });
   }
 
   const named = tpl?.parameter_format === 'NAMED';
@@ -215,7 +228,10 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
   let templateName = pickVariant(cfg, phone);
   /* Not yet approved? A rotation variant falls back to the base template; the base falls back to the trigger's
      older approved template (e.g. a reworded version still in review). */
-  const fallbackFor = (n) => (n !== cfg.name ? cfg.name : (t.fallback && t.fallback !== n ? t.fallback : null));
+  const plain = (n) => String(n || '').replace(/_img$/, '');
+  const candidates = (n) => [...new Set([n, plain(n), cfg.name, plain(cfg.name), t.fallback].filter(Boolean))];
+  /* Worth trying the next template: not approved yet, an image version with no picture to send, or a button we can't fill. */
+  const RETRY = /not found or not approved|image header but no image|dynamic link button/;
   const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });
 
   try {
@@ -243,33 +259,31 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     }
     for (const k of ['confirm', 'pay', 'btnurl']) if (cfg.vars.includes(k) && !v[k]) v[k] = env.STORE_URL || 'https://www.inkkulture.in';
 
-    if (t.media && !image) { await logMsg(env, { ...base(), status: 'failed', error: 'template needs a header image: none found on the order and WA_HEADER_IMAGE is not set' }); return { ok: false }; }
+    if (t.media && !image && viaG4w(env)) { await logMsg(env, { ...base(), status: 'failed', error: 'template needs a header image: none found on the order and WA_HEADER_IMAGE is not set' }); return { ok: false }; }
 
     let wamid = '';
     if (viaG4w(env)) {
       const body = Object.fromEntries(cfg.vars.filter((k) => k !== 'btnurl').map((k) => [k, v[k] ?? '-']));
       const button = cfg.vars.includes('btnurl') ? { btnurl: v.btnurl } : {};
       const send = (name) => g4w.sendTemplate(env, { name, to: phone, body, button, fileUrl: t.media ? image : '' });
+      /* A rotation variant still awaiting approval must not cost a send: walk down to an approved one. */
       let r;
-      try {
-        r = await send(templateName);
-      } catch (e) {
-        /* A rotation variant still awaiting approval must not cost a send: retry once on the base template. */
-        const fb = fallbackFor(templateName);
-        if (!fb || !/not found or not approved/.test(String(e.message))) throw e;
-        templateName = fb;
-        r = await send(templateName);
+      const list = candidates(templateName);
+      for (let i = 0; i < list.length; i++) {
+        templateName = list[i];
+        try { r = await send(templateName); break; } catch (e) {
+          if (i === list.length - 1 || !RETRY.test(String(e.message))) throw e;
+        }
       }
       wamid = r.wamid;
     } else {
       const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', orderId: t.buttons ? orderId : '', lang: cfg.lang });
-      try {
-        wamid = await send(templateName);
-      } catch (e) {
-        const fb = fallbackFor(templateName);
-        if (!fb || !/not found or not approved/.test(String(e.message))) throw e;
-        templateName = fb;
-        wamid = await send(templateName);
+      const list = candidates(templateName);
+      for (let i = 0; i < list.length; i++) {
+        templateName = list[i];
+        try { wamid = await send(templateName); break; } catch (e) {
+          if (i === list.length - 1 || !RETRY.test(String(e.message))) throw e;
+        }
       }
     }
     if (t.buttons && orderId && orderId !== '0') await rememberPending(env, phone, orderId, orderName || v.order);

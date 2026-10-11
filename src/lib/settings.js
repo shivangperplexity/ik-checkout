@@ -15,10 +15,12 @@ export const TRIGGERS = {
   cod_to_prepaid: { label: 'Convert COD to prepaid (discount offer)', to: 'Customer', when: 'COD order still unconfirmed after COD_CONVERT_HOURS (off unless that env var is set)', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay'], media: true, marketing: true, def: 'cod_to_prepaid', on: true },
   prepaid_paid: { label: 'Prepaid payment received', to: 'Customer', when: 'After a successful UPI / card payment', vars: ['name', 'order', 'total'], def: 'order_paid', on: false },
   order_shipped: { label: 'Order shipped', to: 'Customer', when: 'When you mark an order shipped in this dashboard', vars: ['name', 'order', 'courier', 'tracking'], def: 'order_shipped', on: false },
-  abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '45 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], media: true, marketing: true, def: 'checkout_reminder', on: false,
+  abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '45 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], media: true, marketing: true, def: 'checkout_reminder_img', fallback: 'checkout_reminder_commitment', on: false,
     /* One of these is picked per phone per day. checkout_reminder_regret and checkout_reminder_overthink are
        approved too but left out (they lean on a how-long-it-lasts joke); add either name back to use them. */
-    variants: ['checkout_reminder', 'checkout_reminder_commitment', 'checkout_reminder_ghosted', 'checkout_reminder_softlaunch', 'checkout_reminder_talkstage', 'checkout_reminder_redflag'] },
+    /* *_img = the same text with the cart's tattoo design as the photo; while one is in review (or a cart has no
+       picture) the send falls back to its text version. */
+    variants: ['checkout_reminder_img', 'checkout_reminder_commitment_img', 'checkout_reminder_ghosted_img', 'checkout_reminder_softlaunch_img', 'checkout_reminder_talkstage_img', 'checkout_reminder_redflag_img', 'checkout_reminder_maincharacter_img', 'checkout_reminder_horoscope_img', 'checkout_reminder_bluetick_img', 'checkout_reminder_khanakhaya_img', 'checkout_reminder_lostfound_img', 'checkout_reminder_cliffhanger_img'] },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
