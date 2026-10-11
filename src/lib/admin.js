@@ -587,7 +587,9 @@ const ACTIONS = {
       pct: String(env.COD_CONVERT_DISCOUNT || 10), newtotal: '449.00', confirm: env.STORE_URL, pay: env.STORE_URL };
     /* Image-header templates need a picture: use a real product shot for the test. */
     if (TRIGGERS[key].media && !env.WA_HEADER_IMAGE) sample.image = (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '';
-    const forced = { ...env, SETTINGS: { ...env.SETTINGS, templates: { ...env.SETTINGS.templates, [key]: { ...(env.SETTINGS.templates?.[key] || {}), enabled: true, name: triggerConfig(env, key).name } } } };
+    /* b.template: test one exact template (no rotation) instead of whatever today's rotation picks for this number. */
+    const pick = /^[a-z0-9_]{1,512}$/.test(String(b.template || '')) ? String(b.template) : '';
+    const forced = { ...env, SETTINGS: { ...env.SETTINGS, templates: { ...env.SETTINGS.templates, [key]: { ...(env.SETTINGS.templates?.[key] || {}), enabled: true, name: pick || triggerConfig(env, key).name, ...(pick ? { variants: [pick] } : {}) } } } };
     const r = await fireTrigger(forced, key, { to, vars: sample, orderId: '0', orderName: '#TEST' });
     return r;
   },
