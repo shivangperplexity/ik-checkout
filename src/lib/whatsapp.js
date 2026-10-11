@@ -170,8 +170,9 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || !j.messages?.[0]?.id) {
-    const m = j.error?.error_data?.details || j.error?.message || 'HTTP ' + res.status;
-    if (/132001|does not exist/i.test(m + (j.error?.code || ''))) throw new Error(`template "${name}" not found or not approved: ${m}`);
+    const e = j.error || {};
+    const m = [e.message || 'HTTP ' + res.status, e.error_data?.details, `code ${e.code ?? '?'}${e.error_subcode ? '/' + e.error_subcode : ''}`, e.fbtrace_id ? 'trace ' + e.fbtrace_id : ''].filter(Boolean).join(' · ');
+    if (/132001|does not exist/i.test(m)) throw new Error(`template "${name}" not found or not approved: ${m}`);
     if (j.error?.code === 10 || j.error?.code === 200) throw new Error(`${m}. Press Test connection to see which permission or link is missing.`);
     throw new Error(m);
   }
