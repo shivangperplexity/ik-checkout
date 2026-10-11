@@ -4,8 +4,10 @@ import { confirmLink, payLink } from './wa-token.js';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
-/** True when outbound WhatsApp goes through Go4WhatsUp instead of Meta direct. Nothing changes until G4W keys are set. */
-export const viaG4w = (env) => !!(env.G4W_API_KEY && env.G4W_SECURE_KEY);
+/** Meta details saved in the dashboard (phone number ID + permanent token) always win over Go4WhatsUp. */
+export const metaFromDashboard = (env) => !!(env.SETTINGS?.wa?.phone_id && env.SETTINGS?.wa?.token);
+/** True when outbound WhatsApp goes through Go4WhatsUp instead of Meta direct. */
+export const viaG4w = (env) => !!(env.G4W_API_KEY && env.G4W_SECURE_KEY) && !metaFromDashboard(env);
 /** Any transport configured at all. */
 export const waConnected = (env) => viaG4w(env) || !!(env.WA_PHONE_ID && env.WA_TOKEN);
 
@@ -108,6 +110,72 @@ export async function leadMedia(env, phone) {
   }
 }
 
+/* ---------------- Meta Cloud API: read each template's real shape ---------------- */
+
+/* Templates made in Go4WhatsUp may use named variables ({{name}}) or numbered ones ({{1}}), any language code,
+   and an image header. Reading the approved template from Meta means we always send exactly what it expects. */
+const metaCache = new Map();
+export async function metaTemplate(env, name) {
+  if (!env.WA_WABA_ID) return null;
+  const hit = metaCache.get(name);
+  if (hit && Date.now() - hit.at < 600000) return hit.t;
+  const j = await waGet(env, `${env.WA_WABA_ID}/message_templates?name=${encodeURIComponent(name)}&fields=name,language,status,parameter_format,components&limit=50`);
+  const all = (j.data || []).filter((x) => x.name === name);
+  const t = all.find((x) => x.status === 'APPROVED') || all[0] || null;
+  metaCache.set(name, { at: Date.now(), t });
+  return t;
+}
+export const clearMetaCache = () => metaCache.clear();
+
+const clean = (x) => String(x ?? '-').replace(/[\r\n\t]+/g, ' ').replace(/ {4,}/g, '   ').trim().slice(0, 900) || '-';
+
+/** Build and send one template on the Cloud API. keys/values are the checkout's variables in {{1}}..{{n}} order. */
+export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang }) {
+  let tpl = null;
+  try { tpl = await metaTemplate(env, name); } catch (e) { console.error('metaTemplate', name, e.message); }
+  if (env.WA_WABA_ID && tpl === null) throw new Error(`template "${name}" not found or not approved in WhatsApp Manager`);
+  if (tpl && tpl.status !== 'APPROVED') throw new Error(`template "${name}" not found or not approved (status ${tpl.status})`);
+  const comps = tpl?.components || [];
+  const body = comps.find((c) => c.type === 'BODY');
+  const header = comps.find((c) => c.type === 'HEADER');
+  const buttons = comps.find((c) => c.type === 'BUTTONS')?.buttons || [];
+  const components = [];
+
+  if (!tpl ? image : header?.format === 'IMAGE') {
+    if (!image) throw new Error(`template "${name}" has an image header but no image was found`);
+    components.push({ type: 'header', parameters: [{ type: 'image', image: { link: image } }] });
+  }
+
+  const named = tpl?.parameter_format === 'NAMED';
+  const text = body?.text || '';
+  if (named) {
+    const names = (body?.example?.body_text_named_params || []).map((x) => x.param_name);
+    const found = names.length ? names : [...new Set([...text.matchAll(/{{\s*([a-z0-9_]+)\s*}}/gi)].map((m) => m[1]))];
+    if (found.length) components.push({ type: 'body', parameters: found.map((n, i) => ({ type: 'text', parameter_name: n, text: clean(keys.includes(n) ? values[keys.indexOf(n)] : values[i]) })) });
+  } else {
+    const count = tpl ? Math.max(0, ...[...text.matchAll(/{{\s*(\d+)\s*}}/g)].map((m) => Number(m[1]))) : values.length;
+    if (count) components.push({ type: 'body', parameters: Array.from({ length: count }, (_, i) => ({ type: 'text', text: clean(values[i]) })) });
+  }
+
+  /* Quick replies carry the order id, so a tap maps to exactly one order. */
+  const qr = tpl ? buttons.map((b, i) => ({ b, i })).filter((x) => x.b.type === 'QUICK_REPLY') : (orderId ? [{ b: { text: 'Yes' }, i: 0 }, { b: { text: 'No' }, i: 1 }] : []);
+  if (orderId && orderId !== '0') for (const { b, i } of qr) {
+    const act = /\b(no|cancel)\b/i.test(b.text || '') ? 'CANCEL' : 'CONFIRM';
+    components.push({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: act + ':' + orderId }] });
+  }
+
+  const res = await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: '91' + phone, type: 'template', template: { name, language: { code: tpl?.language || lang || 'en' }, components } }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j.messages?.[0]?.id) {
+    const m = j.error?.error_data?.details || j.error?.message || 'HTTP ' + res.status;
+    throw new Error(/132001|does not exist/i.test(m + (j.error?.code || '')) ? `template "${name}" not found or not approved: ${m}` : m);
+  }
+  return j.messages[0].id;
+}
+
 /* Stable per-recipient, per-day pick: a retry the same day repeats the same copy, a nudge next week differs. */
 function hashStr(s) {
   let h = 2166136261;
@@ -175,20 +243,14 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName 
       }
       wamid = r.wamid;
     } else {
-      const components = [];
-      if (t.media && image) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: image } }] });
-      if (cfg.vars.length) components.push({ type: 'body', parameters: cfg.vars.map((k) => ({ type: 'text', text: String(v[k] ?? '-').slice(0, 300) || '-' })) });
-      if (t.buttons && orderId) {
-        components.push({ type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'CONFIRM:' + orderId }] });
-        components.push({ type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: 'CANCEL:' + orderId }] });
+      const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', orderId: t.buttons ? orderId : '', lang: cfg.lang });
+      try {
+        wamid = await send(templateName);
+      } catch (e) {
+        if (templateName === cfg.name || !/not found or not approved/.test(String(e.message))) throw e;
+        templateName = cfg.name;
+        wamid = await send(templateName);
       }
-      const res = await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
-        body: JSON.stringify({ messaging_product: 'whatsapp', to: '91' + phone, type: 'template', template: { name: templateName, language: { code: cfg.lang }, components } }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j.messages?.[0]?.id) throw new Error(j.error?.message || 'HTTP ' + res.status);
-      wamid = j.messages[0].id;
     }
     if (t.buttons && orderId && orderId !== '0') await rememberPending(env, phone, orderId, orderName || v.order);
     await logMsg(env, { ...base(), status: 'sent', wamid });

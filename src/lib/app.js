@@ -284,23 +284,33 @@ async function handleWa(req, env, ctx) {
   ctx.waitUntil(
     (async () => {
       for (const st of parseStatuses(payload)) await env.DB.prepare('UPDATE messages SET status=?, error=CASE WHEN ?<>\'\' THEN ? ELSE error END WHERE wamid=?').bind(st.status, st.error, st.error, st.id).run();
-      for (const rep of replies) await logMsg(env, { direction: 'in', phone: rep.from.replace(/^91/, ''), trigger: 'reply', template: rep.action, status: 'received', orderName: '' });
+      /* Typed replies ("yes", "cancel", STOP) and buttons whose payload was lost go through the same safe rules as
+         Go4WhatsUp: whole-message match only, applied to the order we last asked that number about. */
+      const others = [];
+      for (const e of payload.entry || []) for (const c of e.changes || []) for (const m of c.value?.messages || []) {
+        const p = m.button?.payload || m.interactive?.button_reply?.id || '';
+        if (/^(CONFIRM|CANCEL):/.test(p)) continue;
+        const text = m.button?.text || m.interactive?.button_reply?.title || m.text?.body || '';
+        const from = String(m.from || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+        if (text && /^\d{10}$/.test(from)) others.push({ from, text: String(text).slice(0, 300) });
+      }
+      if (others.length) { const { processInbound } = await import('./wa-g4w.js'); await processInbound(env, others); }
+      const { applyAction } = await import('./wa-g4w.js');
       for (const rep of replies) {
         const row = await env.DB.prepare('SELECT * FROM orders WHERE order_id=?').bind(rep.orderId).first();
         if (!row || row.method !== 'cod' || rep.from !== '91' + row.phone) continue;
-        const gid = `gid://shopify/Order/${rep.orderId}`;
-        if (rep.action === 'CONFIRM') {
-          await removeTags(env, gid, ['cod-unconfirmed']);
-          await addTags(env, gid, ['cod-confirmed']);
-          await env.DB.prepare('UPDATE orders SET confirmed_at=? WHERE order_id=?').bind(now(), rep.orderId).run();
-          await sendText(env, rep.from, `Thanks ${row.first_name}! Order ${row.order_name} is confirmed. We'll ship it soon.`);
-        } else if (!row.confirmed_at) {
-          await removeTags(env, gid, ['cod-unconfirmed']);
-          await addTags(env, gid, ['cod-cancelled-by-customer']);
-          await cancelOrder(env, gid, 'Customer cancelled via WhatsApp');
-          await env.DB.prepare("UPDATE orders SET status='cancelled' WHERE order_id=?").bind(rep.orderId).run();
-          await sendText(env, rep.from, `Order ${row.order_name} has been cancelled.`);
+        let result;
+        try { result = await applyAction(env, row, rep.action); } catch (e) {
+          await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'reply', template: rep.action, status: 'failed', orderName: row.order_name, error: String(e.message || e) });
+          await sendText(env, rep.from, `We could not update order ${row.order_name} automatically. Our team will message you shortly.`);
+          continue;
         }
+        await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(String(rep.orderId)).run();
+        await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'reply', template: rep.action, status: result, orderName: row.order_name });
+        if (result === 'confirmed') await sendText(env, rep.from, `Thanks ${row.first_name}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
+        else if (result === 'cancelled') await sendText(env, rep.from, `Order ${row.order_name} has been cancelled. You can order again anytime at inkkulture.in`);
+        else if (result === 'already-confirmed') await sendText(env, rep.from, `Order ${row.order_name} is already confirmed. We'll ship it soon.`);
+        else if (result === 'already-cancelled') await sendText(env, rep.from, `Order ${row.order_name} was already cancelled.`);
       }
     })().catch((e) => console.error('wa', e)),
   );

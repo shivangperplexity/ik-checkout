@@ -84,38 +84,44 @@ export async function handleG4w(req0, env0, ctx) {
       await logMsg(env, { direction: 'in', trigger: 'g4w-raw', status: 'unparsed', preview: raw.slice(0, 300) });
       return;
     }
-    for (const m of msgs) {
-      const action = replyAction(m.text);
-      await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action || '', status: 'received', preview: m.text });
-      if (action === 'STOP') {
-        await env.DB.prepare('INSERT INTO wa_optout (phone, at) VALUES (?,?) ON CONFLICT(phone) DO UPDATE SET at=excluded.at').bind(m.from, now()).run();
-        await sendText(env, '91' + m.from, 'You will not get offers from Ink Kulture on WhatsApp any more. Order updates still come here. Reply START to undo.');
-        continue;
-      }
-      if (action === 'START') {
-        await env.DB.prepare('DELETE FROM wa_optout WHERE phone=?').bind(m.from).run();
-        await sendText(env, '91' + m.from, 'Done, you are subscribed to Ink Kulture updates again.');
-        continue;
-      }
-      if (!action) continue;
-      const row = await resolveOrder(env, m.from);
-      if (!row || row.method !== 'cod') continue;
-      let result;
-      try { result = await applyAction(env, row, action); } catch (e) {
-        await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action, status: 'failed', orderName: row.order_name, error: String(e.message || e) });
-        await sendText(env, '91' + m.from, `We could not update order ${row.order_name} automatically. Our team will message you shortly.`);
-        continue;
-      }
-      await clearPending(env, m.from);
-      await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action, status: result, orderName: row.order_name });
-      if (result === 'confirmed') await sendText(env, '91' + m.from, `Thanks ${row.first_name || ''}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
-      else if (result === 'cancelled') await sendText(env, '91' + m.from, `Order ${row.order_name} has been cancelled. You can order again anytime at inkkulture.in`);
-      else if (result === 'already-confirmed') await sendText(env, '91' + m.from, `Order ${row.order_name} is already confirmed. We'll ship it soon.`);
-      else if (result === 'already-cancelled') await sendText(env, '91' + m.from, `Order ${row.order_name} was already cancelled.`);
-    }
+    await processInbound(env, msgs);
   })().catch((e) => console.error('g4w', e)));
 
   return new Response('ok');
+}
+
+
+/** Shared by the Go4WhatsUp webhook and the Meta webhook: act on customer replies ({ from: 10 digits, text }). */
+export async function processInbound(env, msgs) {
+  for (const m of msgs) {
+    const action = replyAction(m.text);
+    await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action || '', status: 'received', preview: m.text });
+    if (action === 'STOP') {
+      await env.DB.prepare('INSERT INTO wa_optout (phone, at) VALUES (?,?) ON CONFLICT(phone) DO UPDATE SET at=excluded.at').bind(m.from, now()).run();
+      await sendText(env, '91' + m.from, 'You will not get offers from Ink Kulture on WhatsApp any more. Order updates still come here. Reply START to undo.');
+      continue;
+    }
+    if (action === 'START') {
+      await env.DB.prepare('DELETE FROM wa_optout WHERE phone=?').bind(m.from).run();
+      await sendText(env, '91' + m.from, 'Done, you are subscribed to Ink Kulture updates again.');
+      continue;
+    }
+    if (!action) continue;
+    const row = await resolveOrder(env, m.from);
+    if (!row || row.method !== 'cod') continue;
+    let result;
+    try { result = await applyAction(env, row, action); } catch (e) {
+      await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action, status: 'failed', orderName: row.order_name, error: String(e.message || e) });
+      await sendText(env, '91' + m.from, `We could not update order ${row.order_name} automatically. Our team will message you shortly.`);
+      continue;
+    }
+    await clearPending(env, m.from);
+    await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action, status: result, orderName: row.order_name });
+    if (result === 'confirmed') await sendText(env, '91' + m.from, `Thanks ${row.first_name || ''}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
+    else if (result === 'cancelled') await sendText(env, '91' + m.from, `Order ${row.order_name} has been cancelled. You can order again anytime at inkkulture.in`);
+    else if (result === 'already-confirmed') await sendText(env, '91' + m.from, `Order ${row.order_name} is already confirmed. We'll ship it soon.`);
+    else if (result === 'already-cancelled') await sendText(env, '91' + m.from, `Order ${row.order_name} was already cancelled.`);
+  }
 }
 
 /* ---------------- one-tap link ---------------- */

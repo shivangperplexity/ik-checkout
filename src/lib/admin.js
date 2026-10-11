@@ -2,7 +2,7 @@ import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
-import { fireTrigger, waGet, logMsg, viaG4w } from './whatsapp.js';
+import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
 
@@ -251,7 +251,8 @@ const ACTIONS = {
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */
-      g4w: { on: viaG4w(env), webhook: env.G4W_WEBHOOK_SECRET ? `${String(env.WORKER_URL || 'https://ik-checkout.vercel.app').replace(/\/$/, '')}/api/wa/g4w?k=${env.G4W_WEBHOOK_SECRET}` : '',
+      transport: metaFromDashboard({ SETTINGS: s }) ? 'meta' : viaG4w({ ...env, SETTINGS: s }) ? 'g4w' : ((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) ? 'meta' : 'none',
+      g4w: { on: viaG4w({ ...env, SETTINGS: s }), webhook: env.G4W_WEBHOOK_SECRET ? `${String(env.WORKER_URL || 'https://ik-checkout.vercel.app').replace(/\/$/, '')}/api/wa/g4w?k=${env.G4W_WEBHOOK_SECRET}` : '',
         ids: Object.entries(s.g4w_ids || {}).map(([n, id]) => n + ' = ' + id).join('\n'),
         header_image: !!env.WA_HEADER_IMAGE, autocancel_hours: Number(env.COD_AUTOCANCEL_HOURS || 0), convert_hours: Number(env.COD_CONVERT_HOURS || 0), convert_pct: Number(env.COD_CONVERT_DISCOUNT || 10) },
       triggers: Object.entries(TRIGGERS).map(([key, t]) => ({ key, label: t.label, to: t.to, when: t.when, buttons: !!t.buttons, allVars: t.vars, ...triggerConfig({ ...env, SETTINGS: s }, key) })),
@@ -320,6 +321,7 @@ const ACTIONS = {
       return { ok: true, name: 'Go4WhatsUp', number: '+91 99874 53483', quality: cr.error && tl.error ? 'API blocked by plan' : 'connected', templates };
     }
     if (!env.WA_PHONE_ID || !env.WA_TOKEN) throw new Error('Add Phone number ID and access token first');
+    clearMetaCache();
     const me = await waGet(env, `${env.WA_PHONE_ID}?fields=display_phone_number,verified_name,quality_rating`);
     let templates = [];
     if (env.WA_WABA_ID) {
@@ -360,6 +362,14 @@ const ACTIONS = {
       await logMsg(env, { phone: to, trigger: 'try', template: name, status: 'failed', error: String(e.message || e) });
       return { sent: false, api: b.plain ? 'sendTemplate' : image ? 'sendAttachmentWithVariable' : 'sendTemplateWithVariable', used_id: id || '(looked up by name)', vars: b.plain ? {} : body, image: b.plain ? '' : image, error: String(e.message || e) };
     }
+  },
+  /* Point the WhatsApp account's webhooks at this app (POST /{waba}/subscribed_apps), so replies reach /api/wa/webhook. */
+  async wa_subscribe(env) {
+    if (!env.WA_WABA_ID || !env.WA_TOKEN) throw new Error('Save the WhatsApp Business Account ID and the access token first');
+    const res = await fetch(`https://graph.facebook.com/v21.0/${env.WA_WABA_ID}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}` } });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.success) throw new Error(j.error?.message || 'HTTP ' + res.status);
+    return { ok: true };
   },
   async wa_send_test(env, b) {
     const key = String(b.trigger);
