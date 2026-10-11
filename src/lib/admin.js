@@ -524,6 +524,31 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, waba: w.waba_id, phone_id: w.phone_id, pin };
   },
+  async wa_template_detail(env, b) {
+    const { templateDetails } = await import('./wa-migrate.js');
+    const s = await getSettings(env, true);
+    const names = String(b.names || '').split(',').map((x) => x.trim()).filter(Boolean);
+    return { templates: await templateDetails(env, s.wa.waba_id || env.WA_WABA_ID, names) };
+  },
+  /* Submit new templates (b.templates = [{name, category, parameter_format, components}]) to the current account. */
+  async wa_create_templates(env, b) {
+    const { createTemplate, accessibleAccounts } = await import('./wa-migrate.js');
+    const s = await getSettings(env, true);
+    const waba = s.wa.waba_id || env.WA_WABA_ID;
+    const list = Array.isArray(b.templates) ? b.templates.slice(0, 4) : [];
+    if (!list.length) throw new Error('No templates given');
+    let appId = '';
+    try { appId = (await accessibleAccounts(env)).appId; } catch { /* only needed for image headers */ }
+    if (!appId) appId = String(b.app_id || '');
+    const sampleImage = b.sample_image || env.WA_HEADER_IMAGE || (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '';
+    const out = [];
+    for (const tpl of list) {
+      if (!/^[a-z0-9_]{1,512}$/.test(tpl.name || '')) { out.push({ name: tpl.name, status: 'FAILED', error: 'name must be lowercase letters, digits and _' }); continue; }
+      try { const r = await createTemplate(env, { waba, appId, tpl, sampleImage }); out.push({ name: tpl.name, status: r.status || 'PENDING', category: r.category || '', id: r.id }); }
+      catch (e) { out.push({ name: tpl.name, status: 'FAILED', error: String(e.message || e).slice(0, 300) }); }
+    }
+    return { created: out };
+  },
   async wa_copy_templates(env) {
     const { copyTemplates, accessibleAccounts } = await import('./wa-migrate.js');
     const s = await getSettings(env, true);

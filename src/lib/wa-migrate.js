@@ -74,3 +74,25 @@ export async function copyTemplates(env, { from, to, appId, fallbackImage, max =
   }
   return { copied: done, remaining: Math.max(0, todo.length - Math.min(max, todo.length)), total: src.length };
 }
+
+/** Full content of templates in one account (for writing new ones in the same format). */
+export async function templateDetails(env, waba, names = []) {
+  const rows = (await g(env, `${waba}/message_templates?fields=name,language,category,status,parameter_format,components&limit=200`)).data || [];
+  return rows.filter((t) => !names.length || names.includes(t.name));
+}
+
+/**
+ * Submit one new template. An IMAGE header needs a sample upload handle; `sampleImage` (a public URL) is uploaded
+ * through the app's Resumable Upload session. Returns Meta's { id, status, category }.
+ */
+export async function createTemplate(env, { waba, appId, tpl, sampleImage }) {
+  const components = [];
+  for (const c of tpl.components || []) {
+    const x = { ...c };
+    if (x.type === 'HEADER' && x.format === 'IMAGE') x.example = { header_handle: [await imageHandle(env, appId, sampleImage)] };
+    components.push(x);
+  }
+  const body = { name: tpl.name, language: tpl.language || 'en', category: tpl.category || 'MARKETING', components };
+  if (tpl.parameter_format) body.parameter_format = tpl.parameter_format;
+  return g(env, `${waba}/message_templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
