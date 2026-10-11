@@ -325,12 +325,34 @@ const ACTIONS = {
     }
     if (!env.WA_PHONE_ID || !env.WA_TOKEN) throw new Error('Add Phone number ID and access token first');
     clearMetaCache();
-    const me = await waGet(env, `${env.WA_PHONE_ID}?fields=display_phone_number,verified_name,quality_rating`);
+    /* Plain-language checks of everything Meta needs before a message can go out. */
+    const checks = [];
+    const row = (name, ok, note) => checks.push({ name, language: note || '', status: ok ? 'WORKS' : 'BLOCKED' });
+    let appId = '';
+    try {
+      const d = (await waGet(env, `debug_token?input_token=${encodeURIComponent(env.WA_TOKEN)}`)).data || {};
+      appId = String(d.app_id || '');
+      const scopes = d.granular_scopes || [];
+      const has = (sc) => scopes.find((x) => x.scope === sc);
+      const forWaba = (sc) => { const x = has(sc); return x && (!x.target_ids || !env.WA_WABA_ID || x.target_ids.includes(String(env.WA_WABA_ID))); };
+      row('Token is valid', !!d.is_valid, d.expires_at ? 'expires ' + new Date(d.expires_at * 1000).toISOString().slice(0, 10) : 'never expires');
+      row('Permission to SEND messages (whatsapp_business_messaging)', forWaba('whatsapp_business_messaging'), has('whatsapp_business_messaging') && !forWaba('whatsapp_business_messaging') ? 'granted, but not for this WhatsApp account: assign the account to the system user, then make a new token' : has('whatsapp_business_messaging') ? '' : 'missing: generate a new token and tick it');
+      row('Permission to read templates (whatsapp_business_management)', forWaba('whatsapp_business_management'), has('whatsapp_business_management') ? '' : 'missing: generate a new token and tick it');
+    } catch (e) { row('Token check', false, e.message); }
+    let me = {};
+    try { me = await waGet(env, `${env.WA_PHONE_ID}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,platform_type,status`); row('Phone number ID works', true, `${me.display_phone_number || ''} ${me.verified_name || ''} · ${me.platform_type || ''} ${me.status || ''}`.trim()); }
+    catch (e) { row('Phone number ID works', false, e.message); }
+    if (env.WA_WABA_ID) {
+      try { const nums = (await waGet(env, `${env.WA_WABA_ID}/phone_numbers?fields=id,display_phone_number`)).data || []; row('Phone number belongs to this WhatsApp account', nums.some((n) => String(n.id) === String(env.WA_PHONE_ID)), nums.map((n) => n.display_phone_number + ' = ' + n.id).join(', ')); }
+      catch (e) { row('Phone number belongs to this WhatsApp account', false, e.message); }
+      try { const apps = (await waGet(env, `${env.WA_WABA_ID}/subscribed_apps`)).data || []; const ids = apps.map((a) => String(a.whatsapp_business_api_data?.id || a.id || '')); row('Your app is linked to the WhatsApp account', appId ? ids.includes(appId) : apps.length > 0, appId && !ids.includes(appId) ? 'press "Connect replies to this WhatsApp account"' : apps.map((a) => a.whatsapp_business_api_data?.name || '').filter(Boolean).join(', ')); }
+      catch (e) { row('Your app is linked to the WhatsApp account', false, e.message); }
+    } else row('WhatsApp Business Account ID saved', false, 'add it in card 1');
     let templates = [];
     if (env.WA_WABA_ID) {
       try { templates = (await waGet(env, `${env.WA_WABA_ID}/message_templates?fields=name,status,language,category&limit=100`)).data || []; } catch (e) { templates = [{ name: 'Could not list templates: ' + e.message, status: '' }]; }
     }
-    return { ok: true, number: me.display_phone_number, name: me.verified_name, quality: me.quality_rating, templates };
+    return { ok: true, number: me.display_phone_number || '', name: me.verified_name || '', quality: me.quality_rating || '?', templates: [...checks, ...templates] };
   },
   /* template name -> Go4WhatsUp template _id, for plans where the listing API is blocked */
   async save_g4w_ids(env, b) {
