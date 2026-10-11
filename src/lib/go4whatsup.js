@@ -83,8 +83,14 @@ export async function sendTemplate(env, { name, id = '', to, body = {}, header =
   };
   if (fileUrl) payload.fileurl = fileUrl;
   const j = await g4w(env, fileUrl ? 'sendAttachmentWithVariable' : 'sendTemplateWithVariable', payload);
-  if (raw) return { ok: true, response: j, payload };
+  if (raw) return { ok: true, response: j, payload, api: fileUrl ? 'sendAttachmentWithVariable' : 'sendTemplateWithVariable' };
   return { ok: true, wamid: j.message?.whatsappMsgId || j.message?.wamid || j.whatsappMsgId || '' };
+}
+
+/** Plain sendTemplate by id, raw answer (dashboard test only). */
+export async function sendTemplatePlainRaw(env, { id, to }) {
+  const payload = { templateId: id, mobileNo: to91(to) };
+  return { ok: true, response: await g4w(env, 'sendTemplate', payload), payload, api: 'sendTemplate' };
 }
 
 /** Template with no variables at all. */

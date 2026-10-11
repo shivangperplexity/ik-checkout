@@ -349,14 +349,16 @@ const ACTIONS = {
     for (const k of Object.keys(TRIGGERS)) { const c = triggerConfig(env, k); if (c.name === name || (c.variants || []).includes(name)) { vars = c.vars; media = !!TRIGGERS[k].media; } }
     const sample = { name: 'Shivang', order: '#TEST', items: 'God\u2019s Plan Script', total: '449.00', link: env.STORE_URL || 'https://www.inkkulture.in', confirm: env.STORE_URL, pay: env.STORE_URL, pct: '10', newtotal: '404.10', courier: 'Delhivery', tracking: 'TEST123' };
     const body = Object.fromEntries(vars.map((k) => [k, sample[k] ?? '-']));
-    const image = media ? (env.WA_HEADER_IMAGE || (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '') : '';
+    const image = media && !b.noimage ? (env.WA_HEADER_IMAGE || (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '') : '';
     try {
-      const r = await g4w.sendTemplate(env, { name, id, to, body, fileUrl: image, raw: true });
+      const r = b.plain
+        ? await g4w.sendTemplatePlainRaw(env, { id: id || (await g4w.templateId(env, name)), to })
+        : await g4w.sendTemplate(env, { name, id, to, body, fileUrl: image, raw: true });
       await logMsg(env, { phone: to, trigger: 'try', template: name, status: 'sent', preview: JSON.stringify(body).slice(0, 300) });
-      return { sent: true, used_id: r.payload.templateId, vars: body, image, response: r.response };
+      return { sent: true, used_id: r.payload.templateId, api: r.api, vars: b.plain ? {} : body, image: b.plain ? '' : image, response: r.response };
     } catch (e) {
       await logMsg(env, { phone: to, trigger: 'try', template: name, status: 'failed', error: String(e.message || e) });
-      return { sent: false, used_id: id || '(looked up by name)', vars: body, image, error: String(e.message || e) };
+      return { sent: false, api: b.plain ? 'sendTemplate' : image ? 'sendAttachmentWithVariable' : 'sendTemplateWithVariable', used_id: id || '(looked up by name)', vars: b.plain ? {} : body, image: b.plain ? '' : image, error: String(e.message || e) };
     }
   },
   async wa_send_test(env, b) {
