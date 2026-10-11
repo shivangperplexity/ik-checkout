@@ -146,7 +146,9 @@ const clean = (x) => String(x ?? '-').replace(/[\r\n\t]+/g, ' ').replace(/ {4,}/
 export function waImage(url) {
   try {
     const u = new URL(url);
-    if (/(^|\.)cdn\.shopify\.com$/.test(u.hostname) || u.pathname.startsWith('/cdn/shop/')) { u.searchParams.set('width', '1000'); u.searchParams.set('format', 'pjpg'); }
+    /* WhatsApp shows template header photos as a ~1.91:1 banner and crops anything else. Pad the design onto a
+       white 1200x628 canvas (Shopify's pad_color) so the whole tattoo is visible. */
+    if (/(^|\.)cdn\.shopify\.com$/.test(u.hostname) || u.pathname.startsWith('/cdn/shop/')) { u.searchParams.set('width', '1200'); u.searchParams.set('height', '628'); u.searchParams.set('pad_color', 'ffffff'); u.searchParams.set('format', 'pjpg'); }
     return u.toString();
   } catch { return url; }
 }
@@ -228,8 +230,9 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
   let templateName = pickVariant(cfg, phone);
   /* Not yet approved? A rotation variant falls back to the base template; the base falls back to the trigger's
      older approved template (e.g. a reworded version still in review). */
-  const plain = (n) => String(n || '').replace(/_img$/, '');
-  const candidates = (n) => [...new Set([n, plain(n), cfg.name, plain(cfg.name), t.fallback].filter(Boolean))];
+  /* x_offer -> x_img -> x: photo+offer, photo only, text only. */
+  const alts = (n) => [n, String(n || '').replace(/_offer$/, '_img'), String(n || '').replace(/_(offer|img)$/, '')];
+  const candidates = (n) => [...new Set([...alts(n), ...alts(cfg.name), t.fallback].filter(Boolean))];
   /* Worth trying the next template: not approved yet, an image version with no picture to send, or a button we can't fill. */
   const RETRY = /not found or not approved|image header but no image|dynamic link button/;
   const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });

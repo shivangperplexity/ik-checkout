@@ -671,7 +671,8 @@ export async function runAutomations(env) {
   const out = { nudged: 0, reminded: 0 };
   const t = now();
   if (triggerConfig(env, 'abandoned_cart').enabled) {
-    const rows = (await env.DB.prepare("SELECT * FROM leads WHERE status='open' AND nudged_at IS NULL AND updated_at<? AND updated_at>? LIMIT 30").bind(t - 45 * 60, t - 6 * 3600).all()).results;
+    /* 20 minutes after the shopper went quiet (the cron runs every 5 minutes). */
+    const rows = (await env.DB.prepare("SELECT * FROM leads WHERE status='open' AND nudged_at IS NULL AND updated_at<? AND updated_at>? LIMIT 30").bind(t - 20 * 60, t - 6 * 3600).all()).results;
     for (const l of rows) {
       await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(t, l.phone).run();
       await fireTrigger(env, 'abandoned_cart', { to: l.phone, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: await cartLink(env, l.phone) } });

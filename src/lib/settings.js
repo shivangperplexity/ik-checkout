@@ -13,18 +13,23 @@ export const TRIGGERS = {
   cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm_v2', fallback: 'cod_order_confirm', on: true },
   cod_reminder: { label: 'COD reminder (not confirmed)', to: 'Customer', when: 'COD order still unconfirmed after 20h (checked every cron run)', vars: ['name', 'order', 'total'], buttons: true, def: 'cod_order_reminder', on: false },
   cod_to_prepaid: { label: 'Convert COD to prepaid (discount offer)', to: 'Customer', when: 'COD order still unconfirmed after COD_CONVERT_HOURS (off unless that env var is set)', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay'], media: true, marketing: true, def: 'cod_to_prepaid', on: true },
-  prepaid_paid: { label: 'Prepaid payment received', to: 'Customer', when: 'After a successful UPI / card payment', vars: ['name', 'order', 'total'], def: 'order_paid', on: false },
+  prepaid_paid: { label: 'Prepaid order confirmed', to: 'Customer', when: 'Right after a successful UPI / card payment', vars: ['name', 'order', 'total'], def: 'order_paid', on: true },
   order_shipped: { label: 'Order shipped', to: 'Customer', when: 'When you mark an order shipped in this dashboard', vars: ['name', 'order', 'courier', 'tracking'], def: 'order_shipped', on: false },
-  abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '45 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], media: true, marketing: true, def: 'checkout_reminder_img', fallback: 'checkout_reminder_commitment', on: false,
+  abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '20 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], media: true, marketing: true, def: 'checkout_reminder_offer', fallback: 'checkout_reminder_commitment', on: false,
     /* One of these is picked per phone per day. checkout_reminder_regret and checkout_reminder_overthink are
        approved too but left out (they lean on a how-long-it-lasts joke); add either name back to use them. */
-    /* *_img = the same text with the cart's tattoo design as the photo; while one is in review (or a cart has no
-       picture) the send falls back to its text version. */
-    variants: ['checkout_reminder_img', 'checkout_reminder_commitment_img', 'checkout_reminder_ghosted_img', 'checkout_reminder_softlaunch_img', 'checkout_reminder_talkstage_img', 'checkout_reminder_redflag_img', 'checkout_reminder_maincharacter_img', 'checkout_reminder_horoscope_img', 'checkout_reminder_bluetick_img', 'checkout_reminder_khanakhaya_img', 'checkout_reminder_lostfound_img', 'checkout_reminder_cliffhanger_img'] },
+    /* *_offer = tattoo photo + the B1G1 / 10%-prepaid offer line; *_img = photo only; plain = text only. A send walks
+       offer -> img -> text while one is in review, or when a cart has no picture. */
+    variants: ['checkout_reminder_offer', 'checkout_reminder_commitment_offer', 'checkout_reminder_ghosted_offer', 'checkout_reminder_softlaunch_offer', 'checkout_reminder_talkstage_offer', 'checkout_reminder_redflag_offer', 'checkout_reminder_maincharacter_offer', 'checkout_reminder_horoscope_offer', 'checkout_reminder_bluetick_offer', 'checkout_reminder_khanakhaya_offer', 'checkout_reminder_lostfound_offer', 'checkout_reminder_cliffhanger_offer'] },
+  /* Shipment updates from NimbusPost tracking (lib/wa-ship.js, checked on the cron). */
+  ship_picked: { label: 'Shipment picked up', to: 'Customer', when: 'Courier picks the parcel up (NimbusPost "Pickup Done")', vars: ['name', 'order', 'courier', 'edd', 'track'], def: 'ship_picked_up', on: true },
+  ship_transit: { label: 'Shipment in transit', to: 'Customer', when: 'Moving through the courier network (6h+ after pickup)', vars: ['name', 'order', 'location', 'edd', 'track'], def: 'ship_in_transit', on: true },
+  ship_ofd: { label: 'Out for delivery', to: 'Customer', when: 'Courier marks it out for delivery (once a day)', vars: ['name', 'order', 'track'], def: 'ship_out_for_delivery', on: true },
+  ship_failed: { label: 'Delivery attempt failed (re-attempt)', to: 'Customer', when: 'Courier could not deliver; skipped if the customer refused / cancelled with OTP', vars: ['name', 'order', 'track'], def: 'ship_delivery_failed', on: true },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
-export const VAR_LABELS = { name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
+export const VAR_LABELS = { edd: 'Expected delivery date', location: 'Last scan city', track: 'Tracking link', name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
   confirm: 'One-tap confirm link (automatic)', pay: 'Pay-online link (automatic)', pct: 'Prepaid discount %', newtotal: 'Total if paid online (Rs)', btnurl: 'Confirm link for a Dynamic URL button (automatic)' };
 
 const DEFAULTS = {
