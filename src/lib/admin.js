@@ -568,7 +568,13 @@ const ACTIONS = {
   async ship_probe(env, b) {
     const { gql } = await import('./shopify.js');
     const { nimbus } = await import('./shipping.js');
-    const d = await gql(env, `{ orders(first: 15, reverse: true, sortKey: CREATED_AT, query: "fulfillment_status:shipped OR fulfillment_status:partial") { nodes { name displayFulfillmentStatus fulfillments(first: 3) { status displayStatus createdAt trackingInfo { company number url } } } } }`);
+    if (b.ndr) {
+      const n = await nimbus(env, 'ndr').catch((e) => ({ error: e.message }));
+      const list = Array.isArray(n.data) ? n.data : n.data?.data || [];
+      return { ndr_keys: list[0] ? Object.keys(list[0]) : [], ndr: list.slice(0, 20).map((x) => ({ status: x.status, reason: x.reason || x.ndr_reason || x.remarks || x.message, attempts: x.attempts || x.attempt_count, history: (x.history || x.ndr_history || []).slice(0, 5) })), error: n.error || '' };
+    }
+    const q = String(b.q || 'fulfillment_status:shipped OR fulfillment_status:partial').replace(/"/g, '');
+    const d = await gql(env, `query($q:String){ orders(first: ${Math.min(50, Number(b.n) || 15)}, reverse: true, sortKey: CREATED_AT, query: $q) { nodes { name displayFulfillmentStatus fulfillments(first: 3) { status displayStatus createdAt trackingInfo { company number url } } } } }`, { q });
     const rows = d.orders.nodes.map((o) => ({ order: o.name, status: o.displayFulfillmentStatus, f: o.fulfillments.map((f) => ({ status: f.status, display: f.displayStatus, at: f.createdAt, t: f.trackingInfo.map((x) => ({ company: x.company, number: x.number, url: (x.url || '').replace(/[?#].*$/, '') })) })) }));
     const awb = String(b.awb || rows.flatMap((r) => r.f.flatMap((f) => f.t.map((x) => x.number))).find(Boolean) || '');
     const scrub = (v, k = '') => {
