@@ -407,24 +407,54 @@ const ACTIONS = {
     const { accessibleAccounts } = await import('./wa-migrate.js');
     return await accessibleAccounts(env);
   },
-  async wa_finish_migration(env) {
+  /* Switch to a number in another WhatsApp account the business owns (the old number moved, or a new SIM).
+     b.number: the number to use (optional, last 10 digits are matched). b.waba: account ID, if the token's account list misses it. */
+  async wa_finish_migration(env, b = {}) {
     const { accessibleAccounts } = await import('./wa-migrate.js');
     const s = await getSettings(env, true);
     const w = { ...s.wa };
-    const old = String(w.waba_id || '');
-    let target = '';
-    try { target = digits((await waGet(env, `${w.phone_id}?fields=display_phone_number`)).display_phone_number); } catch { /* old id may be gone after the move */ }
-    if (!target) target = digits(w.number || '917559353503');
-    w.number = target;
+    const cur = String(w.waba_id || '');
+    /* the account templates get copied from: the partner-run one, kept across repeated presses */
+    const old = String(w.prev_waba || cur);
+    const want = digits(b.number).slice(-10);
     const { accounts } = await accessibleAccounts(env);
-    const hit = accounts.filter((a) => a.id !== old && a.id !== String(w.prev_waba || '')).map((a) => ({ a, n: (a.numbers || []).find((n) => digits(n.display_phone_number).endsWith(target.slice(-10))) })).find((x) => x.n);
-    if (!hit) throw new Error(`Not moved yet: +${target} is not in any other WhatsApp account this token can reach. Finish the move in Meta (API Setup → Add phone number), and make sure the system user has the new WhatsApp account assigned, then try again.`);
-    w.prev_waba = old; w.waba_id = hit.a.id; w.phone_id = String(hit.n.id);
+    const extra = digits(b.waba);
+    if (extra && !accounts.some((a) => a.id === extra)) {
+      const acc = { id: extra, name: '', numbers: [] };
+      try { acc.name = (await waGet(env, `${extra}?fields=name`)).name || ''; } catch { /* name hidden */ }
+      try { acc.numbers = (await waGet(env, `${extra}/phone_numbers?fields=id,display_phone_number,verified_name,status,platform_type`)).data || []; } catch (e) { throw new Error(`Can't read WhatsApp account ${extra}: ${e.message}. Assign it to the system user (Business settings → System users → Assign assets).`); }
+      accounts.push(acc);
+    }
+    const pool = accounts.filter((a) => a.id !== old).flatMap((a) => (a.numbers || []).map((n) => ({ a, n })));
+    let hit;
+    if (want) hit = pool.find((x) => digits(x.n.display_phone_number).endsWith(want));
+    else if (pool.length === 1) hit = pool[0];
+    else hit = pool.find((x) => digits(x.n.display_phone_number).endsWith('7559353503'));
+    if (!hit) {
+      const seen = pool.map((x) => x.n.display_phone_number).join(', ');
+      throw new Error(want
+        ? `+91 ${want} isn't in any WhatsApp account this token can reach${seen ? ` (found: ${seen})` : ''}. Add it in Meta (app → WhatsApp → API Setup → Add phone number), assign the new WhatsApp account to the system user, then try again.`
+        : pool.length ? `Several numbers found (${seen}). Type the one to use and press again.` : 'No new WhatsApp account found. Add the number in Meta (app → WhatsApp → API Setup → Add phone number) and assign the new WhatsApp account to the system user, then try again.');
+    }
+    const phoneId = String(hit.n.id);
+    /* A number added through API Setup is verified but not always registered for sending. Register it with a
+       new two-step PIN (shown once, kept in settings) unless Meta already reports it as connected. */
+    let registered = String(hit.n.status || '').toUpperCase() === 'CONNECTED';
+    let pin = '', regError = '';
+    if (!registered) {
+      pin = w.pin && w.pin_phone === phoneId ? w.pin : String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+      const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/register`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', pin }) });
+      const j = await res.json().catch(() => ({}));
+      registered = !!j.success;
+      if (!registered) regError = j.error?.error_user_msg || j.error?.message || 'HTTP ' + res.status;
+      else { w.pin = pin; w.pin_phone = phoneId; }
+    }
+    w.prev_waba = old; w.waba_id = hit.a.id; w.phone_id = phoneId; w.number = digits(hit.n.display_phone_number);
     await putSetting(env, 'wa', w);
     clearMetaCache();
-    let linked = true;
-    try { await fetch(`https://graph.facebook.com/v21.0/${hit.a.id}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}` } }); } catch { linked = false; }
-    return { ok: true, waba: hit.a.id, name: hit.a.name, phone_id: String(hit.n.id), number: hit.n.display_phone_number, status: hit.n.status, from: old, linked };
+    let linked = false;
+    try { const r = await fetch(`https://graph.facebook.com/v21.0/${hit.a.id}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}` } }); linked = !!(await r.json().catch(() => ({}))).success; } catch { /* shown as not linked */ }
+    return { ok: true, waba: hit.a.id, name: hit.a.name, phone_id: phoneId, number: hit.n.display_phone_number, status: hit.n.status, from: old, linked, registered, pin: registered && pin ? pin : '', reg_error: regError };
   },
   async wa_copy_templates(env) {
     const { copyTemplates, accessibleAccounts } = await import('./wa-migrate.js');
