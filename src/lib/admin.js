@@ -2,7 +2,8 @@ import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
-import { fireTrigger, waGet, logMsg } from './whatsapp.js';
+import { fireTrigger, waGet, logMsg, viaG4w } from './whatsapp.js';
+import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -236,7 +237,7 @@ const ACTIONS = {
     const l = await env.DB.prepare('SELECT * FROM leads WHERE phone=?').bind(String(b.phone)).first();
     if (!l) throw new Error('Lead not found');
     const r = await fireTrigger(env, 'abandoned_cart', { to: l.phone, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: env.STORE_URL + '/cart' } });
-    if (r.skipped) throw new Error(r.skipped === 'disabled' ? 'Turn on the "Abandoned checkout nudge" template first (WhatsApp tab)' : r.skipped === 'nowa' ? 'WhatsApp is not connected yet' : 'No phone');
+    if (r.skipped) throw new Error(r.skipped === 'disabled' ? 'Turn on the "Abandoned checkout nudge" template first (WhatsApp tab)' : r.skipped === 'nowa' ? 'WhatsApp is not connected yet' : r.skipped === 'optout' ? 'This customer replied STOP to WhatsApp offers' : 'No phone');
     await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(now(), l.phone).run();
     return { ok: !!r.ok };
   },
@@ -247,8 +248,11 @@ const ACTIONS = {
     const s = await getSettings(env, true);
     const w = s.wa;
     return {
-      wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) },
+      wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
+      /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */
+      g4w: { on: viaG4w(env), webhook: env.G4W_WEBHOOK_SECRET ? `${String(env.WORKER_URL || 'https://ik-checkout.vercel.app').replace(/\/$/, '')}/api/wa/g4w?k=${env.G4W_WEBHOOK_SECRET}` : '',
+        header_image: !!env.WA_HEADER_IMAGE, autocancel_hours: Number(env.COD_AUTOCANCEL_HOURS || 0), convert_hours: Number(env.COD_CONVERT_HOURS || 0), convert_pct: Number(env.COD_CONVERT_DISCOUNT || 10) },
       triggers: Object.entries(TRIGGERS).map(([key, t]) => ({ key, label: t.label, to: t.to, when: t.when, buttons: !!t.buttons, allVars: t.vars, ...triggerConfig({ ...env, SETTINGS: s }, key) })),
       var_labels: VAR_LABELS,
       upsells: s.upsells, upi_logos: s.upi_logos, email: s.admin?.email,
@@ -283,11 +287,28 @@ const ACTIONS = {
   },
   async save_triggers(env, b) {
     const t = {};
-    for (const [k, v] of Object.entries(b.triggers || {})) if (TRIGGERS[k]) t[k] = { enabled: !!v.enabled, name: String(v.name || '').trim().slice(0, 100), lang: String(v.lang || 'en').slice(0, 10), vars: (v.vars || []).filter((x) => TRIGGERS[k].vars.includes(x)) };
+    const prev = (await getSettings(env, true)).templates || {};
+    for (const [k, v] of Object.entries(b.triggers || {})) if (TRIGGERS[k]) {
+      t[k] = { enabled: !!v.enabled, name: String(v.name || '').trim().slice(0, 100), lang: String(v.lang || 'en').slice(0, 10), vars: (v.vars || []).filter((x) => TRIGGERS[k].vars.includes(x)) };
+      /* keep a saved rotation list (templates.<key>.variants) unless the dashboard sends a new one */
+      const variants = Array.isArray(v.variants) ? v.variants : prev[k]?.variants;
+      if (Array.isArray(variants)) t[k].variants = variants.map((x) => String(x).trim().slice(0, 100)).filter(Boolean).slice(0, 12);
+    }
     await putSetting(env, 'templates', t);
     return { ok: true };
   },
   async wa_test(env) {
+    if (viaG4w(env)) {
+      g4w.clearTemplateCache();
+      const [cr, list] = await Promise.all([g4w.credits(env).catch((e) => ({ error: e.message })), g4w.listTemplates(env)]);
+      const bal = cr?.message?.credits ?? cr?.message?.balance ?? cr?.credits ?? cr?.balance;
+      const names = new Set(list.map((x) => String(x.templateName || x.name || '').toLowerCase()));
+      const wanted = new Set();
+      for (const k of Object.keys(TRIGGERS)) { const c = triggerConfig(env, k); if (c.enabled) { wanted.add(c.name); (c.variants || []).forEach((n) => wanted.add(n)); } }
+      const templates = [...list.map((x) => ({ name: x.templateName || x.name, language: x.language || '', status: 'APPROVED' })),
+        ...[...wanted].filter((n) => !names.has(String(n).toLowerCase())).map((n) => ({ name: n, language: 'needed by an active message', status: 'NOT APPROVED YET' }))];
+      return { ok: true, name: 'Go4WhatsUp', number: '+91 99874 53483', quality: bal !== undefined ? 'credits ' + bal : (cr?.error ? 'credits check failed: ' + cr.error : 'ok'), templates };
+    }
     if (!env.WA_PHONE_ID || !env.WA_TOKEN) throw new Error('Add Phone number ID and access token first');
     const me = await waGet(env, `${env.WA_PHONE_ID}?fields=display_phone_number,verified_name,quality_rating`);
     let templates = [];
@@ -301,7 +322,10 @@ const ACTIONS = {
     if (!TRIGGERS[key]) throw new Error('Unknown template');
     const to = cleanPhone(b.to) || cleanPhone(env.WA_ADMIN_PHONE);
     if (!to) throw new Error('Enter a 10-digit number to send the test to');
-    const sample = { name: 'Test', order: '#TEST', total: '499.00', courier: 'Delhivery', tracking: 'TEST123', items: 'Test item', link: env.STORE_URL, method: 'COD', risk: '40 (medium)', reasons: 'test' };
+    const sample = { name: 'Test', order: '#TEST', total: '499.00', courier: 'Delhivery', tracking: 'TEST123', items: 'Test item', link: env.STORE_URL, method: 'COD', risk: '40 (medium)', reasons: 'test',
+      pct: String(env.COD_CONVERT_DISCOUNT || 10), newtotal: '449.00', confirm: env.STORE_URL, pay: env.STORE_URL };
+    /* Image-header templates need a picture: use a real product shot for the test. */
+    if (TRIGGERS[key].media && !env.WA_HEADER_IMAGE) sample.image = (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '';
     const forced = { ...env, SETTINGS: { ...env.SETTINGS, templates: { ...env.SETTINGS.templates, [key]: { ...(env.SETTINGS.templates?.[key] || {}), enabled: true, name: triggerConfig(env, key).name } } } };
     const r = await fireTrigger(forced, key, { to, vars: sample, orderId: '0', orderName: '#TEST' });
     return r;

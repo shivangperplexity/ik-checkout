@@ -1,14 +1,29 @@
 // Dashboard-editable settings (stored in the settings table) layered over env vars.
+//
+// Variable names matter on the Go4WhatsUp path: they are sent as named key/value pairs and must match the
+// variable names typed into their template designer, in {{1}}..{{n}} order (Meta maps by position).
+// Special names, filled by fireTrigger itself (callers never pass them):
+//   confirm  - signed one-tap link to /api/wa/act (confirm / cancel), built from orderId
+//   pay      - signed prepaid-conversion link to /api/wa/pay, built from orderId
+//   items    - cart summary from the Shopify order, or from the lead's saved cart
+//   btnurl   - the confirm link again, for a Call-To-Action button whose URL Type is "Dynamic"
+// media:true = the template has an image header: the first item's design, falling back to WA_HEADER_IMAGE.
+// marketing:true = MARKETING category; never sent to a number that replied STOP.
 export const TRIGGERS = {
-  cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'total'], buttons: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm', on: true },
-  cod_reminder: { label: 'COD reminder (not confirmed)', to: 'Customer', when: 'COD order still unconfirmed after 24h (checked every cron run)', vars: ['name', 'order', 'total'], buttons: true, def: 'cod_order_reminder', on: false },
+  cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm', on: true },
+  cod_reminder: { label: 'COD reminder (not confirmed)', to: 'Customer', when: 'COD order still unconfirmed after 20h (checked every cron run)', vars: ['name', 'order', 'total'], buttons: true, def: 'cod_order_reminder', on: false },
+  cod_to_prepaid: { label: 'Convert COD to prepaid (discount offer)', to: 'Customer', when: 'COD order still unconfirmed after COD_CONVERT_HOURS (off unless that env var is set)', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay'], media: true, marketing: true, def: 'cod_to_prepaid', on: true },
   prepaid_paid: { label: 'Prepaid payment received', to: 'Customer', when: 'After a successful UPI / card payment', vars: ['name', 'order', 'total'], def: 'order_paid', on: false },
   order_shipped: { label: 'Order shipped', to: 'Customer', when: 'When you mark an order shipped in this dashboard', vars: ['name', 'order', 'courier', 'tracking'], def: 'order_shipped', on: false },
-  abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '45 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], def: 'checkout_reminder', on: false },
+  abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '45 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], media: true, marketing: true, def: 'checkout_reminder', on: false,
+    /* One of these is picked per phone per day. checkout_reminder_regret and checkout_reminder_overthink are
+       approved too but left out (they lean on a how-long-it-lasts joke); add either name back to use them. */
+    variants: ['checkout_reminder', 'checkout_reminder_commitment', 'checkout_reminder_ghosted', 'checkout_reminder_softlaunch', 'checkout_reminder_talkstage', 'checkout_reminder_redflag'] },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
-export const VAR_LABELS = { name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons' };
+export const VAR_LABELS = { name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
+  confirm: 'One-tap confirm link (automatic)', pay: 'Pay-online link (automatic)', pct: 'Prepaid discount %', newtotal: 'Total if paid online (Rs)', btnurl: 'Confirm link for a Dynamic URL button (automatic)' };
 
 const DEFAULTS = {
   wa: { phone_id: '', token: '', waba_id: '', verify_token: '', app_secret: '', admin_phone: '', lang: 'en' },
@@ -55,6 +70,11 @@ export function triggerConfig(env, key) {
     enabled: c.enabled !== undefined ? !!c.enabled : (key === 'cod_confirm' ? !!(envName || c.name || true) : t.on),
     name: c.name || envName || t.def,
     lang: c.lang || env.WA_LANG || 'en',
-    vars: Array.isArray(c.vars) && c.vars.length ? c.vars : t.vars,
+    /* A saved list from before a template gained variables (e.g. cod_confirm without items/confirm) would
+       send the wrong set, so a saved list is only used when it still covers every variable the template has. */
+    vars: Array.isArray(c.vars) && c.vars.length && t.vars.every((v) => c.vars.includes(v)) ? c.vars : t.vars,
+    /* Several approved templates saying the same thing in different voices; one is picked per recipient
+       per day so a repeat abandoner is not sent the same line twice. */
+    variants: Array.isArray(c.variants) && c.variants.length ? c.variants : (t.variants || []),
   };
 }

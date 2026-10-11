@@ -26,3 +26,11 @@ Production deploys from `main`.
   Analytics; UTMs/landing page also written to the order note.
 - Order attributes: PayU txn id (prepaid), promised delivery date, session id.
 - Buyer validation accepts Shopify-style `first_name` / `last_name` from the Build 036 theme.
+
+## WhatsApp via Go4WhatsUp (Oct 2026)
+Sending switches from Meta direct to Go4WhatsUp as soon as `G4W_API_KEY` + `G4W_SECURE_KEY` are set; the Meta path stays as fallback.
+- `lib/go4whatsup.js` transport (send by template `_id`, named variables, image header via `sendAttachmentWithVariable`), inbound parser.
+- `lib/whatsapp.js` `fireTrigger`: design image + cart summary from the order/lead, signed `confirm`/`pay` links, abandoned-cart template rotation (per phone per day, pending variants fall back), STOP opt-out for marketing templates.
+- `lib/wa-g4w.js` `/api/wa/g4w?k=<G4W_WEBHOOK_SECRET>` (button taps / replies, STOP/START), `/api/wa/act` one-tap confirm page (acts only on a tap, never on link previews), `autoCancelStale` (`COD_AUTOCANCEL_HOURS`, off by default).
+- `lib/wa-convert.js` COD → prepaid: `/api/wa/pay` (PayU form, `COD_CONVERT_DISCOUNT`% off product subtotal), `/api/wa/paid` (claims once; Shopify order edit only committed if the edited total equals the payment, otherwise still marked paid and tagged `prepaid-needs-attention`), cron offer (`COD_CONVERT_HOURS`, off by default).
+- Env: `G4W_API_KEY`, `G4W_SECURE_KEY`, `G4W_WEBHOOK_SECRET`, optional `WA_HEADER_IMAGE`, `COD_CONVERT_HOURS`, `COD_CONVERT_DISCOUNT`, `COD_AUTOCANCEL_HOURS`, `WA_LINK_SECRET`.

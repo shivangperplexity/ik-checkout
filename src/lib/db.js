@@ -29,6 +29,18 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking TEXT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminded_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS rl (ip TEXT, hr BIGINT, n INTEGER, PRIMARY KEY (ip, hr))`,
+  /* WhatsApp via Go4WhatsUp. Their API drops quick-reply payloads, so a button tap arrives as label + phone
+     only; wa_pending remembers which order we last asked that phone to confirm. */
+  `CREATE TABLE IF NOT EXISTS wa_pending (phone TEXT PRIMARY KEY, order_id TEXT, order_name TEXT, sent_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS idx_wa_pending_order ON wa_pending (order_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders (phone, created_at)`,
+  /* Numbers that replied STOP: no more marketing templates (order confirmations still go out). */
+  `CREATE TABLE IF NOT EXISTS wa_optout (phone TEXT PRIMARY KEY, at BIGINT)`,
+  /* COD -> prepaid conversion */
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_txnid TEXT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS converted_at BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_paise BIGINT`,
 ];
 
 let ready;
