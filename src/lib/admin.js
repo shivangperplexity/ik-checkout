@@ -444,7 +444,8 @@ const ACTIONS = {
     let registered = String(hit.n.status || '').toUpperCase() === 'CONNECTED';
     let pin = '', regError = '';
     if (!registered) {
-      pin = w.pin && w.pin_phone === phoneId ? w.pin : String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+      /* reuse the saved PIN: a number moved between accounts keeps its two-step PIN */
+      pin = w.pin || String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
       const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/register`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', pin }) });
       const j = await res.json().catch(() => ({}));
       registered = !!j.success;
