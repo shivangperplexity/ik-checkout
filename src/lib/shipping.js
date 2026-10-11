@@ -125,3 +125,12 @@ export async function shippingEstimate(req, env) {
 }
 
 // Admin UI: public/admin.html → Settings → "Express shipping (NimbusPost)" (rpc save_shipping / shipping_test).
+
+/** Authenticated NimbusPost API call (same login as the delivery estimate). path like 'shipments/track/<awb>'. */
+export async function nimbus(env, path, init = {}) {
+  const t = await token(cfg(env));
+  const r = await fetch(`${NB}/${path}`, { ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}`, ...(init.headers || {}) } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.status === false) throw new Error(`NimbusPost ${path}: ${j.message || r.status}`);
+  return j;
+}

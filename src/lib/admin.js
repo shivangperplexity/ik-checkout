@@ -563,6 +563,24 @@ const ACTIONS = {
     }
     return { created: out };
   },
+  /* Read-only: what tracking data looks like (Shopify fulfilments + one NimbusPost tracking reply), with names,
+     phones and addresses stripped. Used to map NimbusPost statuses to WhatsApp updates. */
+  async ship_probe(env, b) {
+    const { gql } = await import('./shopify.js');
+    const { nimbus } = await import('./shipping.js');
+    const d = await gql(env, `{ orders(first: 15, reverse: true, sortKey: CREATED_AT, query: "fulfillment_status:shipped OR fulfillment_status:partial") { nodes { name displayFulfillmentStatus fulfillments(first: 3) { status displayStatus createdAt trackingInfo { company number url } } } } }`);
+    const rows = d.orders.nodes.map((o) => ({ order: o.name, status: o.displayFulfillmentStatus, f: o.fulfillments.map((f) => ({ status: f.status, display: f.displayStatus, at: f.createdAt, t: f.trackingInfo.map((x) => ({ company: x.company, number: x.number, url: (x.url || '').replace(/[?#].*$/, '') })) })) }));
+    const awb = String(b.awb || rows.flatMap((r) => r.f.flatMap((f) => f.t.map((x) => x.number))).find(Boolean) || '');
+    const scrub = (v, k = '') => {
+      if (Array.isArray(v)) return v.slice(0, 25).map((x) => scrub(x));
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([kk, vv]) => [kk, scrub(vv, kk)]));
+      if (/name|phone|mobile|address|email|consignee|customer|pincode|pin|city|state|lat|lng|signature|otp/i.test(k) && !/courier|status|warehouse/i.test(k)) return v ? '<hidden>' : v;
+      return v;
+    };
+    let track = null, err = '';
+    if (awb) { try { track = scrub(await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)); } catch (e) { err = e.message; } }
+    return { orders: rows, awb, track, error: err };
+  },
   async wa_copy_templates(env) {
     const { copyTemplates, accessibleAccounts } = await import('./wa-migrate.js');
     const s = await getSettings(env, true);
