@@ -252,6 +252,7 @@ const ACTIONS = {
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */
       g4w: { on: viaG4w(env), webhook: env.G4W_WEBHOOK_SECRET ? `${String(env.WORKER_URL || 'https://ik-checkout.vercel.app').replace(/\/$/, '')}/api/wa/g4w?k=${env.G4W_WEBHOOK_SECRET}` : '',
+        ids: Object.entries(s.g4w_ids || {}).map(([n, id]) => n + ' = ' + id).join('\n'),
         header_image: !!env.WA_HEADER_IMAGE, autocancel_hours: Number(env.COD_AUTOCANCEL_HOURS || 0), convert_hours: Number(env.COD_CONVERT_HOURS || 0), convert_pct: Number(env.COD_CONVERT_DISCOUNT || 10) },
       triggers: Object.entries(TRIGGERS).map(([key, t]) => ({ key, label: t.label, to: t.to, when: t.when, buttons: !!t.buttons, allVars: t.vars, ...triggerConfig({ ...env, SETTINGS: s }, key) })),
       var_labels: VAR_LABELS,
@@ -299,15 +300,24 @@ const ACTIONS = {
   },
   async wa_test(env) {
     if (viaG4w(env)) {
+      /* Probe each Go4WhatsUp API separately: plans differ in which ones they allow. */
       g4w.clearTemplateCache();
-      const [cr, list] = await Promise.all([g4w.credits(env).catch((e) => ({ error: e.message })), g4w.listTemplates(env)]);
-      const bal = cr?.message?.credits ?? cr?.message?.balance ?? cr?.credits ?? cr?.balance;
-      const names = new Set(list.map((x) => String(x.templateName || x.name || '').toLowerCase()));
+      const cr = await g4w.credits(env).then((j) => ({ j })).catch((e) => ({ error: e.message }));
+      const tl = await g4w.listTemplates(env).then((list) => ({ list })).catch((e) => ({ error: e.message }));
+      const bal = cr.j?.message?.credits ?? cr.j?.message?.balance ?? cr.j?.credits ?? cr.j?.balance;
+      const manual = env.SETTINGS?.g4w_ids || {};
+      const list = tl.list || [];
+      const names = new Set([...list.map((x) => String(x.templateName || x.name || '').toLowerCase()), ...Object.keys(manual)]);
       const wanted = new Set();
       for (const k of Object.keys(TRIGGERS)) { const c = triggerConfig(env, k); if (c.enabled) { wanted.add(c.name); (c.variants || []).forEach((n) => wanted.add(n)); } }
-      const templates = [...list.map((x) => ({ name: x.templateName || x.name, language: x.language || '', status: 'APPROVED' })),
-        ...[...wanted].filter((n) => !names.has(String(n).toLowerCase())).map((n) => ({ name: n, language: 'needed by an active message', status: 'NOT APPROVED YET' }))];
-      return { ok: true, name: 'Go4WhatsUp', number: '+91 99874 53483', quality: bal !== undefined ? 'credits ' + bal : (cr?.error ? 'credits check failed: ' + cr.error : 'ok'), templates };
+      const templates = [
+        { name: 'API check: wallet credits (getOrgCredits)', language: cr.error || (bal !== undefined ? 'balance ' + bal : ''), status: cr.error ? 'BLOCKED' : 'WORKS' },
+        { name: 'API check: list templates (getApproveTemplates)', language: tl.error || list.length + ' approved', status: tl.error ? 'BLOCKED' : 'WORKS' },
+        ...list.map((x) => ({ name: x.templateName || x.name, language: x._id ? 'id ' + x._id : '', status: 'APPROVED' })),
+        ...Object.entries(manual).filter(([n]) => !list.some((x) => String(x.templateName || x.name || '').toLowerCase() === n)).map(([n, id]) => ({ name: n, language: 'id ' + id + ' (typed in)', status: 'APPROVED' })),
+        ...[...wanted].filter((n) => !names.has(String(n).toLowerCase())).map((n) => ({ name: n, language: 'needed by an active message', status: tl.error ? 'ID NEEDED' : 'NOT APPROVED YET' })),
+      ];
+      return { ok: true, name: 'Go4WhatsUp', number: '+91 99874 53483', quality: cr.error && tl.error ? 'API blocked by plan' : 'connected', templates };
     }
     if (!env.WA_PHONE_ID || !env.WA_TOKEN) throw new Error('Add Phone number ID and access token first');
     const me = await waGet(env, `${env.WA_PHONE_ID}?fields=display_phone_number,verified_name,quality_rating`);
@@ -316,6 +326,17 @@ const ACTIONS = {
       try { templates = (await waGet(env, `${env.WA_WABA_ID}/message_templates?fields=name,status,language,category&limit=100`)).data || []; } catch (e) { templates = [{ name: 'Could not list templates: ' + e.message, status: '' }]; }
     }
     return { ok: true, number: me.display_phone_number, name: me.verified_name, quality: me.quality_rating, templates };
+  },
+  /* template name -> Go4WhatsUp template _id, for plans where the listing API is blocked */
+  async save_g4w_ids(env, b) {
+    const ids = {};
+    for (const line of String(b.text || '').split(/\n+/)) {
+      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*[=:,\s]\s*([A-Za-z0-9_-]{6,})\s*$/);
+      if (m) ids[m[1].toLowerCase()] = m[2];
+    }
+    await putSetting(env, 'g4w_ids', ids);
+    g4w.clearTemplateCache();
+    return { ok: true, count: Object.keys(ids).length };
   },
   async wa_send_test(env, b) {
     const key = String(b.trigger);

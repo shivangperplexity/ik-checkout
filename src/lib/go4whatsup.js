@@ -43,6 +43,9 @@ export const getTemplate = (env, templateId) => g4w(env, 'getTemplate', { templa
 /* You send by _id, never by name. Cache the name -> _id map for 10 minutes per warm instance. */
 let idCache = { at: 0, map: null };
 export async function templateId(env, name) {
+  /* IDs typed into the dashboard win: some Go4WhatsUp plans block the template-listing API but still allow sending. */
+  const manual = env.SETTINGS?.g4w_ids?.[String(name).toLowerCase()];
+  if (manual) return manual;
   if (!idCache.map || Date.now() - idCache.at > 600000) {
     const rows = await listTemplates(env);
     idCache = { at: Date.now(), map: new Map(rows.filter((t) => t && t._id).map((t) => [String(t.templateName || t.name || '').toLowerCase(), t._id])) };
