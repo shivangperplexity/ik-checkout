@@ -355,9 +355,11 @@ const ACTIONS = {
       const fund = await field('primary_funding_id');
       const obo = await field('on_behalf_of_business_info');
       row('Owner of this WhatsApp account', !owner?.error, owner?.error || `${owner?.name || '?'} (${owner?.id || ''})${own && !own.error ? ' · ' + own : ''}`);
-      row('Managed by a partner on your behalf', !(obo && !obo.error && (obo.id || obo.name)), obo?.error ? 'cannot read: ' + obo.error : obo && (obo.id || obo.name) ? `yes: ${obo.name || obo.id}. Only that partner's app can send` : 'no');
+      /* Meta fills on_behalf_of with the owner itself on accounts the business owns directly: that is not a partner. */
+      const partner = obo && !obo.error && (obo.id || obo.name) && !(owner && !owner.error && ((obo.id && obo.id === owner.id) || (!obo.id && obo.name === owner.name))) && own !== 'SELF';
+      row('Managed by a partner on your behalf', !partner, obo?.error ? 'cannot read: ' + obo.error : partner ? `yes: ${obo.name || obo.id}. Only that partner's app can send` : 'no (you own it)');
       row('Account review / verification', !(review && !review.error && review === 'REJECTED'), `review ${review?.error ? '?' : review || '?'} · business verification ${verif?.error ? '?' : verif || '?'}`);
-      row('Payment method readable', !!fund && !fund.error, fund?.error ? 'hidden: ' + fund.error + ' (often means a partner such as AiSensy pays for this account through its own credit line)' : fund ? 'funding id ' + fund : 'none set: add a card in WhatsApp Manager → Payment settings');
+      row('Payment method readable', !!fund && !fund.error, fund?.error ? 'hidden: ' + fund.error.slice(0, 60) + (partner ? ' (a partner such as AiSensy likely pays through its own credit line)' : ' (normal for your own account: check WhatsApp Manager → Payment settings has a card)') : fund ? 'funding id ' + fund : 'none set: add a card in WhatsApp Manager → Payment settings');
       try { const apps = (await waGet(env, `${env.WA_WABA_ID}/subscribed_apps`)).data || []; const ids = apps.map((a) => String(a.whatsapp_business_api_data?.id || a.id || '')); row('Your app is linked to the WhatsApp account', appId ? ids.includes(appId) : apps.length > 0, appId && !ids.includes(appId) ? 'press "Connect replies to this WhatsApp account"' : apps.map((a) => a.whatsapp_business_api_data?.name || '').filter(Boolean).join(', ')); }
       catch (e) { row('Your app is linked to the WhatsApp account', false, e.message); }
     } else row('WhatsApp Business Account ID saved', false, 'add it in card 1');
