@@ -345,13 +345,18 @@ const ACTIONS = {
     if (env.WA_WABA_ID) {
       try { const nums = (await waGet(env, `${env.WA_WABA_ID}/phone_numbers?fields=id,display_phone_number`)).data || []; row('Phone number belongs to this WhatsApp account', nums.some((n) => String(n.id) === String(env.WA_PHONE_ID)), nums.map((n) => n.display_phone_number + ' = ' + n.id).join(', ')); }
       catch (e) { row('Phone number belongs to this WhatsApp account', false, e.message); }
-      try {
-        const w = await waGet(env, `${env.WA_WABA_ID}?fields=name,currency,account_review_status,business_verification_status,primary_funding_id,owner_business_info,on_behalf_of_business_info,ownership_type`);
-        const obo = w.on_behalf_of_business_info;
-        row('Who controls this WhatsApp account', !obo, `owner: ${w.owner_business_info?.name || '?'}${obo ? ` · managed on behalf of ${obo.name || obo.id} (a partner owns it: only the partner's app can send)` : ''}${w.ownership_type ? ' · ' + w.ownership_type : ''}`);
-        row('Account review / business verification', w.account_review_status !== 'REJECTED', `review ${w.account_review_status || '?'} · verification ${w.business_verification_status || '?'}`);
-        row('Payment method on the WhatsApp account', !!w.primary_funding_id, w.primary_funding_id ? 'funding id ' + w.primary_funding_id + ' (check in WhatsApp Manager → Payment methods whose card or credit line it is)' : 'none: add a card in WhatsApp Manager → Payment methods');
-      } catch (e) { row('WhatsApp account details', false, e.message); }
+      /* One field at a time: some fields are only visible to a Business Solution Provider, and one refusal must not hide the rest. */
+      const field = async (f) => { try { return (await waGet(env, `${env.WA_WABA_ID}?fields=${f}`))[f.split('{')[0]]; } catch (e) { return { error: e.message.slice(0, 120) }; } };
+      const owner = await field('owner_business_info');
+      const own = await field('ownership_type');
+      const review = await field('account_review_status');
+      const verif = await field('business_verification_status');
+      const fund = await field('primary_funding_id');
+      const obo = await field('on_behalf_of_business_info');
+      row('Owner of this WhatsApp account', !owner?.error, owner?.error || `${owner?.name || '?'} (${owner?.id || ''})${own && !own.error ? ' · ' + own : ''}`);
+      row('Managed by a partner on your behalf', !(obo && !obo.error && (obo.id || obo.name)), obo?.error ? 'cannot read: ' + obo.error : obo && (obo.id || obo.name) ? `yes: ${obo.name || obo.id}. Only that partner's app can send` : 'no');
+      row('Account review / verification', !(review && !review.error && review === 'REJECTED'), `review ${review?.error ? '?' : review || '?'} · business verification ${verif?.error ? '?' : verif || '?'}`);
+      row('Payment method readable', !!fund && !fund.error, fund?.error ? 'hidden: ' + fund.error + ' (often means a partner such as AiSensy pays for this account through its own credit line)' : fund ? 'funding id ' + fund : 'none set: add a card in WhatsApp Manager → Payment settings');
       try { const apps = (await waGet(env, `${env.WA_WABA_ID}/subscribed_apps`)).data || []; const ids = apps.map((a) => String(a.whatsapp_business_api_data?.id || a.id || '')); row('Your app is linked to the WhatsApp account', appId ? ids.includes(appId) : apps.length > 0, appId && !ids.includes(appId) ? 'press "Connect replies to this WhatsApp account"' : apps.map((a) => a.whatsapp_business_api_data?.name || '').filter(Boolean).join(', ')); }
       catch (e) { row('Your app is linked to the WhatsApp account', false, e.message); }
     } else row('WhatsApp Business Account ID saved', false, 'add it in card 1');
