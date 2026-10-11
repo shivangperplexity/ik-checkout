@@ -5,7 +5,7 @@ import { handleG4w, handleAct, autoCancelStale } from '../lib/wa-g4w.js';
 import { handlePay, handlePaid, offerPrepaidConversion } from '../lib/wa-convert.js';
 
 // Vercel only routes single-segment /api/<x> to this file, so vercel.json rewrites two-segment paths
-// (/api/payu/return, /api/wa/webhook, /api/wa/g4w, /api/wa/act, /api/wa/pay, /api/wa/paid, /api/admin/leads,
+// (/api/payu/return, /api/wa/webhook, /api/wa/g4w, /api/wa/act, /api/wa/addr, /api/wa/pay, /api/wa/paid, /api/admin/leads,
 // /api/pincode/<pin>) to /api/x?a=<seg1>&b=<seg2>. Rebuild the original path here so lib/app.js can route on it.
 export default {
   async fetch(request) {
@@ -27,6 +27,7 @@ export default {
       /* WhatsApp via Go4WhatsUp: inbound replies, one-tap confirm, COD -> prepaid. */
       if (path === '/api/wa/g4w') return await handleG4w(req, env, ctx);
       if (path === '/api/wa/act') return await handleAct(req, env);
+      if (path === '/api/wa/addr') { const { handleAddr } = await import('../lib/wa-address.js'); return await handleAddr(req, env); }
       if (path === '/api/wa/pay') return await handlePay(req, env);
       if (path === '/api/wa/paid' && req.method === 'POST') return await handlePaid(req, env, ctx);
     } catch (e) {

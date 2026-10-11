@@ -117,7 +117,11 @@ export async function processInbound(env, msgs) {
     }
     await clearPending(env, m.from);
     await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action, status: result, orderName: row.order_name });
-    if (result === 'confirmed') await sendText(env, '91' + m.from, `Thanks ${row.first_name || ''}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
+    if (result === 'confirmed') {
+      await sendText(env, '91' + m.from, `Thanks ${row.first_name || ''}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
+      const { sendAddressCheck } = await import('./wa-address.js');
+      await sendAddressCheck(env, row);
+    }
     else if (result === 'cancelled') await sendText(env, '91' + m.from, `Order ${row.order_name} has been cancelled. You can order again anytime at inkkulture.in`);
     else if (result === 'already-confirmed') await sendText(env, '91' + m.from, `Order ${row.order_name} is already confirmed. We'll ship it soon.`);
     else if (result === 'already-cancelled') await sendText(env, '91' + m.from, `Order ${row.order_name} was already cancelled.`);
@@ -175,7 +179,18 @@ export async function handleAct(req, env0) {
   }
   await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(orderId).run().catch(() => {});
   await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'link', template: action, status: result, orderName: row.order_name });
-  if (result === 'confirmed') return page(`Order ${name} confirmed`, "Thank you! We'll pack it and ship it soon.");
+  if (result === 'confirmed') {
+    /* Show where it is going, with a way to fix it. Read live from Shopify; nothing is stored here. */
+    let extra = '';
+    try {
+      const { fmtAddress, editable } = await import('./wa-address.js');
+      const { orderDetail } = await import('./shopify.js');
+      const { addrLink } = await import('./wa-token.js');
+      const o = await orderDetail(env, orderId);
+      if (o?.shippingAddress && editable(o)) extra = `<p style="text-align:left;background:rgba(127,127,127,.08);border-radius:12px;padding:12px 14px;margin:0 0 14px"><b>Delivering to</b><br>${esc(fmtAddress(o.shippingAddress)).replace(/\n/g, '<br>')}</p><a class="btn n" href="${esc(await addrLink(env, orderId))}">Edit address</a>`;
+    } catch (e) { console.error('act addr', orderId, e.message); }
+    return page(`Order ${name} confirmed`, "Thank you! We'll pack it and ship it soon.", extra);
+  }
   if (result === 'cancelled') return page(`Order ${name} cancelled`, 'Your order has been cancelled. You can order again anytime.', `<a class="btn y" href="${esc(env.STORE_URL || 'https://www.inkkulture.in')}">Back to Ink Kulture</a>`);
   if (result === 'already-paid') return page(`Order ${name}`, 'Paid online. Thank you! We will ship it soon.');
   return page(`Order ${name}`, result === 'already-confirmed' ? 'Already confirmed. Thank you!' : 'This order was already cancelled.');

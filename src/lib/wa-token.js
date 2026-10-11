@@ -41,3 +41,16 @@ export async function payLink(env, orderId) {
   if (!sig || !base(env)) return '';
   return `${base(env)}/api/wa/pay?o=${orderId}&s=${sig}`;
 }
+
+/* Address-edit links get their own prefix too: a confirm or pay link can never open the address form, or back. */
+export const signAddr = (env, orderId) => sign(env, 'addr:', orderId);
+export async function verifyAddr(env, orderId, sig) {
+  const want = await signAddr(env, orderId);
+  return !!want && safeEqual(want, String(sig || ''));
+}
+/** The "Edit address" link sent after a customer confirms a COD order. */
+export async function addrLink(env, orderId) {
+  const sig = await signAddr(env, orderId);
+  if (!sig || !base(env)) return '';
+  return `${base(env)}/api/wa/addr?o=${orderId}&s=${sig}`;
+}

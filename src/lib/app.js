@@ -289,12 +289,15 @@ async function handleWa(req, env, ctx) {
       const others = [];
       for (const e of payload.entry || []) for (const c of e.changes || []) for (const m of c.value?.messages || []) {
         const p = m.button?.payload || m.interactive?.button_reply?.id || '';
-        if (/^(CONFIRM|CANCEL):/.test(p)) continue;
+        if (/^(CONFIRM|CANCEL|ADDR_OK|ADDR_EDIT):/.test(p)) continue;
         const text = m.button?.text || m.interactive?.button_reply?.title || m.text?.body || '';
         const from = String(m.from || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
         if (text && /^\d{10}$/.test(from)) others.push({ from, text: String(text).slice(0, 300) });
       }
       if (others.length) { const { processInbound } = await import('./wa-g4w.js'); await processInbound(env, others); }
+      /* "Address is correct" / "Edit address" taps on the post-confirm address check. */
+      const addr = await import('./wa-address.js');
+      for (const rep of addr.parseAddrReplies(payload)) await addr.handleAddressReply(env, rep);
       const { applyAction } = await import('./wa-g4w.js');
       for (const rep of replies) {
         const row = await env.DB.prepare('SELECT * FROM orders WHERE order_id=?').bind(rep.orderId).first();
@@ -307,7 +310,7 @@ async function handleWa(req, env, ctx) {
         }
         await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(String(rep.orderId)).run();
         await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'reply', template: rep.action, status: result, orderName: row.order_name });
-        if (result === 'confirmed') await sendText(env, rep.from, `Thanks ${row.first_name}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
+        if (result === 'confirmed') { await sendText(env, rep.from, `Thanks ${row.first_name}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`); await addr.sendAddressCheck(env, row); }
         else if (result === 'cancelled') await sendText(env, rep.from, `Order ${row.order_name} has been cancelled. You can order again anytime at inkkulture.in`);
         else if (result === 'already-confirmed') await sendText(env, rep.from, `Order ${row.order_name} is already confirmed. We'll ship it soon.`);
         else if (result === 'already-cancelled') await sendText(env, rep.from, `Order ${row.order_name} was already cancelled.`);
