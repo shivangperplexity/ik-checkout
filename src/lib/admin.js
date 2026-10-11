@@ -338,6 +338,27 @@ const ACTIONS = {
     g4w.clearTemplateCache();
     return { ok: true, count: Object.keys(ids).length };
   },
+  /* Dashboard "Try a template": send one template by name + ID to one number and show Go4WhatsUp's raw answer. */
+  async wa_try_template(env, b) {
+    if (!viaG4w(env)) throw new Error('Go4WhatsUp keys are not set in Vercel');
+    const name = String(b.name || '').trim(), id = String(b.id || '').trim(), to = cleanPhone(b.to);
+    if (!name) throw new Error('Enter the template name');
+    if (!to) throw new Error('Enter a 10-digit number');
+    /* variables: the ones the checkout uses for this template, else the reminder set */
+    let vars = ['name', 'items', 'link'], media = true;
+    for (const k of Object.keys(TRIGGERS)) { const c = triggerConfig(env, k); if (c.name === name || (c.variants || []).includes(name)) { vars = c.vars; media = !!TRIGGERS[k].media; } }
+    const sample = { name: 'Shivang', order: '#TEST', items: 'God\u2019s Plan Script', total: '449.00', link: env.STORE_URL || 'https://www.inkkulture.in', confirm: env.STORE_URL, pay: env.STORE_URL, pct: '10', newtotal: '404.10', courier: 'Delhivery', tracking: 'TEST123' };
+    const body = Object.fromEntries(vars.map((k) => [k, sample[k] ?? '-']));
+    const image = media ? (env.WA_HEADER_IMAGE || (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '') : '';
+    try {
+      const r = await g4w.sendTemplate(env, { name, id, to, body, fileUrl: image, raw: true });
+      await logMsg(env, { phone: to, trigger: 'try', template: name, status: 'sent', preview: JSON.stringify(body).slice(0, 300) });
+      return { sent: true, used_id: r.payload.templateId, vars: body, image, response: r.response };
+    } catch (e) {
+      await logMsg(env, { phone: to, trigger: 'try', template: name, status: 'failed', error: String(e.message || e) });
+      return { sent: false, used_id: id || '(looked up by name)', vars: body, image, error: String(e.message || e) };
+    }
+  },
   async wa_send_test(env, b) {
     const key = String(b.trigger);
     if (!TRIGGERS[key]) throw new Error('Unknown template');

@@ -72,10 +72,10 @@ const pairs = (o) => Object.entries(o || {}).map(([variableKey, v]) => ({ variab
  * key is ignored server-side. Unverified: the signed link in the body is what actually carries the
  * guarantee.
  */
-export async function sendTemplate(env, { name, to, body = {}, header = {}, button = {}, fileUrl = '' }) {
+export async function sendTemplate(env, { name, id = '', to, body = {}, header = {}, button = {}, fileUrl = '', raw = false }) {
   const hasButton = Object.keys(button).length > 0;
   const payload = {
-    templateId: await templateId(env, name),
+    templateId: id || (await templateId(env, name)),
     mobileNo: to91(to),
     variablesHeader: pairs(header),
     variablesBody: pairs({ ...body, ...button }),
@@ -83,6 +83,7 @@ export async function sendTemplate(env, { name, to, body = {}, header = {}, butt
   };
   if (fileUrl) payload.fileurl = fileUrl;
   const j = await g4w(env, fileUrl ? 'sendAttachmentWithVariable' : 'sendTemplateWithVariable', payload);
+  if (raw) return { ok: true, response: j, payload };
   return { ok: true, wamid: j.message?.whatsappMsgId || j.message?.wamid || j.whatsappMsgId || '' };
 }
 
