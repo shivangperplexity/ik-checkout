@@ -7,6 +7,7 @@ import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
 
 const now = () => Math.floor(Date.now() / 1000);
+const digits = (x) => String(x || '').replace(/\D/g, '');
 export const STEPS = ['cart', 'open', 'phone', 'pin', 'address', 'pay', 'submit', 'done'];
 const STEP_LABEL = { cart: 'Cart (has items)', open: 'Opened checkout popup', phone: 'Entered phone number', pin: 'Entered PIN code', address: 'Filled address', pay: 'Chose payment method', submit: 'Tapped pay / place order', done: 'Order placed' };
 
@@ -401,6 +402,38 @@ const ACTIONS = {
     }
   },
   /* Point the WhatsApp account's webhooks at this app (POST /{waba}/subscribed_apps), so replies reach /api/wa/webhook. */
+  /* ---- moving the number into an account the business owns ---- */
+  async wa_accounts(env) {
+    const { accessibleAccounts } = await import('./wa-migrate.js');
+    return await accessibleAccounts(env);
+  },
+  async wa_finish_migration(env) {
+    const { accessibleAccounts } = await import('./wa-migrate.js');
+    const s = await getSettings(env, true);
+    const w = { ...s.wa };
+    const old = String(w.waba_id || '');
+    let target = '';
+    try { target = digits((await waGet(env, `${w.phone_id}?fields=display_phone_number`)).display_phone_number); } catch { /* old id may be gone after the move */ }
+    if (!target) target = digits(w.number || '917559353503');
+    w.number = target;
+    const { accounts } = await accessibleAccounts(env);
+    const hit = accounts.filter((a) => a.id !== old && a.id !== String(w.prev_waba || '')).map((a) => ({ a, n: (a.numbers || []).find((n) => digits(n.display_phone_number).endsWith(target.slice(-10))) })).find((x) => x.n);
+    if (!hit) throw new Error(`Not moved yet: +${target} is not in any other WhatsApp account this token can reach. Finish the move in Meta (API Setup → Add phone number), and make sure the system user has the new WhatsApp account assigned, then try again.`);
+    w.prev_waba = old; w.waba_id = hit.a.id; w.phone_id = String(hit.n.id);
+    await putSetting(env, 'wa', w);
+    clearMetaCache();
+    let linked = true;
+    try { await fetch(`https://graph.facebook.com/v21.0/${hit.a.id}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}` } }); } catch { linked = false; }
+    return { ok: true, waba: hit.a.id, name: hit.a.name, phone_id: String(hit.n.id), number: hit.n.display_phone_number, status: hit.n.status, from: old, linked };
+  },
+  async wa_copy_templates(env) {
+    const { copyTemplates, accessibleAccounts } = await import('./wa-migrate.js');
+    const s = await getSettings(env, true);
+    if (!s.wa.prev_waba) throw new Error('Press "I\'ve moved the number: finish setup" first');
+    const { appId } = await accessibleAccounts({ ...env, WA_TOKEN: s.wa.token || env.WA_TOKEN }).catch(() => ({ appId: '' }));
+    const fallbackImage = env.WA_HEADER_IMAGE || (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '';
+    return await copyTemplates({ ...env, WA_TOKEN: s.wa.token || env.WA_TOKEN }, { from: s.wa.prev_waba, to: s.wa.waba_id, appId, fallbackImage, max: 3 });
+  },
   async wa_subscribe(env) {
     if (!env.WA_WABA_ID || !env.WA_TOKEN) throw new Error('Save the WhatsApp Business Account ID and the access token first');
     const res = await fetch(`https://graph.facebook.com/v21.0/${env.WA_WABA_ID}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}` } });
