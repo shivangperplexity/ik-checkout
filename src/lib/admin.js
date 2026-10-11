@@ -458,6 +458,71 @@ const ACTIONS = {
     try { const r = await fetch(`https://graph.facebook.com/v21.0/${hit.a.id}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}` } }); linked = !!(await r.json().catch(() => ({}))).success; } catch { /* shown as not linked */ }
     return { ok: true, waba: hit.a.id, name: hit.a.name, phone_id: phoneId, number: hit.n.display_phone_number, status: hit.n.status, from: old, linked, registered, pin: registered && pin ? pin : '', reg_error: regError };
   },
+  /* ---- Meta's supported number migration between two WhatsApp accounts the token can manage ----
+     Keeps display name, quality, limits and approved templates. Needs: display name approved, two-step
+     verification turned OFF on the number, and a payment method (card or prepaid funds) on the destination. */
+  async wa_move_check(env, b) {
+    const s = await getSettings(env, true);
+    const w = s.wa || {};
+    const dest = digits(b.dest);
+    const out = { number: '', name_status: '', dest_ok: false, dest_name: '', notes: [] };
+    try {
+      const p = await waGet(env, `${w.phone_id}?fields=display_phone_number,verified_name,name_status,status`);
+      out.number = p.display_phone_number; out.name_status = p.name_status || '';
+      if (!/APPROVED|AVAILABLE_WITHOUT_REVIEW/.test(out.name_status)) out.notes.push(`Display name "${p.verified_name}" is ${out.name_status || 'not approved yet'}. Meta only allows the move once it is approved.`);
+    } catch (e) { out.notes.push('Could not read the current number: ' + e.message); }
+    if (dest) {
+      try { const d = await waGet(env, `${dest}?fields=name`); out.dest_ok = true; out.dest_name = d.name || ''; } catch (e) { out.notes.push(`Can't reach WhatsApp account ${dest}: ${e.message}`); }
+      if (dest === String(w.waba_id)) out.notes.push('That is the account the number is already in.');
+    } else out.notes.push('Enter the WhatsApp account ID to move to.');
+    out.notes.push('Before sending the code: WhatsApp Manager → Phone numbers → ⚙ on the number → Two-step verification → Turn off.');
+    return out;
+  },
+  async wa_move_start(env, b) {
+    const s = await getSettings(env, true);
+    const w = { ...s.wa };
+    const dest = digits(b.dest);
+    if (!dest) throw new Error('Enter the WhatsApp account ID to move to');
+    if (dest === String(w.waba_id)) throw new Error('The number is already in that account');
+    const num = digits(b.number || w.number).slice(-10);
+    if (!/^\d{10}$/.test(num)) throw new Error('Enter the 10-digit number to move');
+    const post = async (path, body) => {
+      const r = await fetch(`https://graph.facebook.com/v21.0/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error((j.error?.error_user_msg || j.error?.message || 'HTTP ' + r.status) + (j.error?.code ? ` (#${j.error.code}${j.error.error_subcode ? '/' + j.error.error_subcode : ''})` : ''));
+      return j;
+    };
+    /* Meta requires an app subscribed to the destination's webhooks before a Cloud API number can move in. */
+    await post(`${dest}/subscribed_apps`).catch(() => {});
+    const m = await post(`${dest}/phone_numbers`, { cc: '91', phone_number: num, migrate_phone_number: true });
+    if (!m.id) throw new Error('Meta did not return a phone number ID');
+    await post(`${m.id}/request_code`, { code_method: b.voice ? 'VOICE' : 'SMS', language: 'en_US' });
+    w.move = { dest, phone_id: String(m.id), from_waba: String(w.waba_id || ''), number: num, at: Date.now() };
+    await putSetting(env, 'wa', w);
+    return { ok: true, phone_id: String(m.id), sent: b.voice ? 'call' : 'SMS', to: '+91 ' + num };
+  },
+  async wa_move_verify(env, b) {
+    const s = await getSettings(env, true);
+    const w = { ...s.wa };
+    const mv = w.move;
+    if (!mv?.phone_id) throw new Error('Press "Send code" first');
+    const code = digits(b.code);
+    if (code.length !== 6) throw new Error('Enter the 6-digit code from the SMS');
+    const post = async (path, body) => {
+      const r = await fetch(`https://graph.facebook.com/v21.0/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${env.WA_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error((j.error?.error_user_msg || j.error?.message || 'HTTP ' + r.status) + (j.error?.code ? ` (#${j.error.code}${j.error.error_subcode ? '/' + j.error.error_subcode : ''})` : ''));
+      return j;
+    };
+    await post(`${mv.phone_id}/verify_code`, { code });
+    const pin = w.pin || String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    await post(`${mv.phone_id}/register`, { messaging_product: 'whatsapp', pin });
+    w.prev_waba = mv.from_waba || w.waba_id; w.waba_id = mv.dest; w.phone_id = mv.phone_id; w.pin = pin; w.pin_phone = mv.phone_id; w.number = '91' + mv.number;
+    delete w.move;
+    await putSetting(env, 'wa', w);
+    clearMetaCache();
+    return { ok: true, waba: w.waba_id, phone_id: w.phone_id, pin };
+  },
   async wa_copy_templates(env) {
     const { copyTemplates, accessibleAccounts } = await import('./wa-migrate.js');
     const s = await getSettings(env, true);
