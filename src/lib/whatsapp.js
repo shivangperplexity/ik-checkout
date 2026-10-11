@@ -110,6 +110,17 @@ export async function leadMedia(env, phone) {
   }
 }
 
+/** A Shopify cart permalink that rebuilds this lead's cart on any device (falls back to the store's /cart). */
+export async function cartLink(env, phone) {
+  const store = String(env.STORE_URL || 'https://www.inkkulture.in').replace(/\/$/, '');
+  try {
+    const row = env.DB ? await env.DB.prepare('SELECT cart_json FROM leads WHERE phone=?').bind(String(phone)).first() : null;
+    const lines = JSON.parse(row?.cart_json || '[]').filter((l) => l && /^\d+$/.test(String(l.variant_id)) && !l.upsell);
+    if (lines.length) return `${store}/cart/${lines.slice(0, 20).map((l) => `${l.variant_id}:${Math.max(1, Number(l.quantity) || 1)}`).join(',')}?utm_source=whatsapp&utm_medium=nudge`;
+  } catch (e) { console.error('cartLink', e.message); }
+  return store + '/cart';
+}
+
 /* ---------------- Meta Cloud API: read each template's real shape ---------------- */
 
 /* Templates made in Go4WhatsUp may use named variables ({{name}}) or numbered ones ({{1}}), any language code,
@@ -192,12 +203,13 @@ export function pickVariant(cfg, phone, day = new Date().toISOString().slice(0, 
 }
 
 /** Fire a configured trigger. vars = {name, order, ...}; to = 10-digit phone (or admin phone for admin_* triggers). Never throws. */
-export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName }) {
+export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName, force = false }) {
   const { TRIGGERS, triggerConfig } = await import('./settings.js');
   const t = TRIGGERS[key];
   if (!t) return { skipped: 'unknown' };
   const cfg = triggerConfig(env, key);
-  if (!cfg.enabled) return { skipped: 'disabled' };
+  /* force: a person pressed a button in the dashboard. The on/off switch only governs automatic sends. */
+  if (!cfg.enabled && !force) return { skipped: 'disabled' };
   const phone = String(to || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
   const v = { ...vars };
   let templateName = pickVariant(cfg, phone);

@@ -2,7 +2,7 @@ import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
-import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache } from './whatsapp.js';
+import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
 
@@ -149,6 +149,13 @@ async function liveData(env) {
     sid: s.sid.slice(0, 8), phone: s.phone, name: s.name, device: s.device, step: s.step || 'cart', max_step: s.max_step, method: s.method, source: s.source || 'direct',
     cart: JSON.parse(s.cart_json || '[]'), value: num(s.cart_value), ordered: !!s.ordered, order: s.order_name, last_seen: num(s.last_seen), first_seen: num(s.first_seen), active: t - num(s.last_seen) < 90,
   }));
+  /* When each phone was last nudged, so the Live tab can show it next to the Nudge button. */
+  const phones = [...new Set(mapped.map((s) => s.phone).filter(Boolean))];
+  if (phones.length) {
+    const ls = (await env.DB.prepare(`SELECT phone, nudged_at FROM leads WHERE phone IN (${phones.map(() => '?').join(',')})`).bind(...phones).all()).results;
+    const by = Object.fromEntries(ls.map((l) => [l.phone, num(l.nudged_at) || null]));
+    mapped.forEach((s) => { s.nudged_at = s.phone ? by[s.phone] || null : null; });
+  }
   return { now: t, active: mapped.filter((s) => s.active && !s.ordered).length, sessions: mapped };
 }
 
@@ -234,13 +241,20 @@ const ACTIONS = {
     const rows = (await env.DB.prepare("SELECT phone,name,pincode,cart_json,utm_json,step,updated_at,nudged_at FROM leads WHERE status='open' AND updated_at>? ORDER BY updated_at DESC LIMIT 200").bind(now() - 7 * 86400).all()).results;
     return { leads: rows.map((l) => ({ ...l, cart: JSON.parse(l.cart_json || '[]').length, updated_at: num(l.updated_at), nudged_at: num(l.nudged_at) || null })) };
   },
+  /* Manual nudge from the Abandoned or Live tab. Works even when automatic nudges are switched off. */
   async nudge(env, b) {
-    const l = await env.DB.prepare('SELECT * FROM leads WHERE phone=?').bind(String(b.phone)).first();
-    if (!l) throw new Error('Lead not found');
-    const r = await fireTrigger(env, 'abandoned_cart', { to: l.phone, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: env.STORE_URL + '/cart' } });
-    if (r.skipped) throw new Error(r.skipped === 'disabled' ? 'Turn on the "Abandoned checkout nudge" template first (WhatsApp tab)' : r.skipped === 'nowa' ? 'WhatsApp is not connected yet' : r.skipped === 'optout' ? 'This customer replied STOP to WhatsApp offers' : 'No phone');
-    await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(now(), l.phone).run();
-    return { ok: !!r.ok };
+    const phone = cleanPhone(b.phone);
+    if (!phone) throw new Error('No valid phone number');
+    const l = await env.DB.prepare('SELECT * FROM leads WHERE phone=?').bind(phone).first();
+    const sess = l ? null : await env.DB.prepare('SELECT name FROM sessions WHERE phone=? ORDER BY last_seen DESC LIMIT 1').bind(phone).first();
+    const name = String((l?.name || sess?.name || '').split(' ')[0] || 'there');
+    const done = await env.DB.prepare("SELECT order_name FROM orders WHERE phone=? AND created_at>? AND status NOT IN ('pending_payment','failed') ORDER BY created_at DESC LIMIT 1").bind(phone, now() - 6 * 3600).first();
+    if (done && !b.anyway) throw new Error(`This customer already ordered (${done.order_name}) in the last 6 hours`);
+    const r = await fireTrigger(env, 'abandoned_cart', { to: phone, vars: { name, items: 'your Ink Kulture cart', link: await cartLink(env, phone) }, force: true });
+    if (r.skipped) throw new Error(r.skipped === 'nowa' ? 'WhatsApp is not connected yet' : r.skipped === 'optout' ? 'This customer replied STOP to WhatsApp offers' : r.skipped === 'nophone' ? 'No phone' : 'Not sent: ' + r.skipped);
+    if (!r.ok) throw new Error('WhatsApp refused it: ' + (r.error || 'see the message log'));
+    if (l) await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(now(), phone).run();
+    return { ok: true, template: r.template };
   },
   async messages(env) {
     return { messages: (await env.DB.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 150').all()).results };
@@ -618,7 +632,7 @@ export async function runAutomations(env) {
     const rows = (await env.DB.prepare("SELECT * FROM leads WHERE status='open' AND nudged_at IS NULL AND updated_at<? AND updated_at>? LIMIT 30").bind(t - 45 * 60, t - 6 * 3600).all()).results;
     for (const l of rows) {
       await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(t, l.phone).run();
-      await fireTrigger(env, 'abandoned_cart', { to: l.phone, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: env.STORE_URL + '/cart' } });
+      await fireTrigger(env, 'abandoned_cart', { to: l.phone, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: await cartLink(env, l.phone) } });
       out.nudged++;
     }
   }
