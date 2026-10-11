@@ -201,6 +201,9 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName 
   const phone = String(to || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
   const v = { ...vars };
   let templateName = pickVariant(cfg, phone);
+  /* Not yet approved? A rotation variant falls back to the base template; the base falls back to the trigger's
+     older approved template (e.g. a reworded version still in review). */
+  const fallbackFor = (n) => (n !== cfg.name ? cfg.name : (t.fallback && t.fallback !== n ? t.fallback : null));
   const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });
 
   try {
@@ -240,8 +243,9 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName 
         r = await send(templateName);
       } catch (e) {
         /* A rotation variant still awaiting approval must not cost a send: retry once on the base template. */
-        if (templateName === cfg.name || !/not found or not approved/.test(String(e.message))) throw e;
-        templateName = cfg.name;
+        const fb = fallbackFor(templateName);
+        if (!fb || !/not found or not approved/.test(String(e.message))) throw e;
+        templateName = fb;
         r = await send(templateName);
       }
       wamid = r.wamid;
@@ -250,8 +254,9 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName 
       try {
         wamid = await send(templateName);
       } catch (e) {
-        if (templateName === cfg.name || !/not found or not approved/.test(String(e.message))) throw e;
-        templateName = cfg.name;
+        const fb = fallbackFor(templateName);
+        if (!fb || !/not found or not approved/.test(String(e.message))) throw e;
+        templateName = fb;
         wamid = await send(templateName);
       }
     }
