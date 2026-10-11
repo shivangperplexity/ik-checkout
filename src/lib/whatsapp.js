@@ -44,6 +44,29 @@ export function parseReplies(payload) {
   return out;
 }
 
+/**
+ * Drop inbound messages this app has already handled (Meta retries / duplicate deliveries), so a tap or a typed
+ * reply is acted on exactly once. Returns a copy of the payload with only first-seen messages; statuses untouched.
+ */
+export async function dedupeInbound(env, payload) {
+  if (!env.DB) return payload;
+  const t = Math.floor(Date.now() / 1000);
+  const out = JSON.parse(JSON.stringify(payload || {}));
+  for (const e of out.entry || []) for (const c of e.changes || []) {
+    const msgs = c.value?.messages;
+    if (!Array.isArray(msgs) || !msgs.length) continue;
+    const keep = [];
+    for (const m of msgs) {
+      if (!m.id) { keep.push(m); continue; }
+      const claim = await env.DB.prepare('INSERT INTO wa_seen (id, at) VALUES (?, ?) ON CONFLICT (id) DO NOTHING RETURNING id').bind(String(m.id), t).first();
+      if (claim) keep.push(m);
+    }
+    c.value.messages = keep;
+  }
+  if (Math.random() < 0.02) await env.DB.prepare('DELETE FROM wa_seen WHERE at < ?').bind(t - 7 * 86400).run().catch(() => {});
+  return out;
+}
+
 export function parseStatuses(payload) {
   const out = [];
   for (const e of payload.entry || []) for (const c of e.changes || []) for (const st of c.value?.statuses || []) out.push({ id: st.id, status: st.status, error: st.errors?.[0]?.title || '' });

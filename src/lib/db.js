@@ -36,6 +36,8 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders (phone, created_at)`,
   /* Numbers that replied STOP: no more marketing templates (order confirmations still go out). */
   `CREATE TABLE IF NOT EXISTS wa_optout (phone TEXT PRIMARY KEY, at BIGINT)`,
+  /* Inbound WhatsApp message ids already handled: Meta can deliver the same webhook more than once. */
+  `CREATE TABLE IF NOT EXISTS wa_seen (id TEXT PRIMARY KEY, at BIGINT)`,
   /* WhatsApp shipment updates: one row per shipped order. sent = JSON of which updates went out. No address data. */
   `CREATE TABLE IF NOT EXISTS ship_track (order_id TEXT PRIMARY KEY, awb TEXT, courier TEXT, url TEXT, status TEXT, sent TEXT, checked_at BIGINT, done BOOLEAN DEFAULT FALSE, updated_at BIGINT)`,
   /* COD -> prepaid conversion */

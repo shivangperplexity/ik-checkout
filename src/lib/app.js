@@ -3,7 +3,7 @@ import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder
 import { priceCart, quoteBoth, rupees } from './pricing.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase } from './meta.js';
-import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg } from './whatsapp.js';
+import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings } from './settings.js';
 import { handleLogin, handleRpc, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
 import { shippingEstimate } from './shipping.js';
@@ -279,10 +279,12 @@ async function handleWa(req, env, ctx) {
   }
   const raw = await req.text();
   if (!(await verifySignature(env, req, raw))) return new Response('bad signature', { status: 401 });
-  const payload = JSON.parse(raw);
-  const replies = parseReplies(payload);
+  const payload0 = JSON.parse(raw);
   ctx.waitUntil(
     (async () => {
+      /* Meta can deliver one message twice: act on each inbound message id once. */
+      const payload = await dedupeInbound(env, payload0);
+      const replies = parseReplies(payload);
       for (const st of parseStatuses(payload)) await env.DB.prepare('UPDATE messages SET status=?, error=CASE WHEN ?<>\'\' THEN ? ELSE error END WHERE wamid=?').bind(st.status, st.error, st.error, st.id).run();
       /* Typed replies ("yes", "cancel", STOP) and buttons whose payload was lost go through the same safe rules as
          Go4WhatsUp: whole-message match only, applied to the order we last asked that number about. */

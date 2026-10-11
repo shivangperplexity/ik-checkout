@@ -626,7 +626,8 @@ const ACTIONS = {
     const sample = { name: 'Test', order: '#TEST', total: '499.00', courier: 'Delhivery', tracking: 'TEST123', items: 'Test item', link: env.STORE_URL, method: 'COD', risk: '40 (medium)', reasons: 'test',
       pct: String(env.COD_CONVERT_DISCOUNT || 10), newtotal: '449.00', confirm: env.STORE_URL, pay: env.STORE_URL };
     /* Image-header templates need a picture: use a real product shot for the test. */
-    if (TRIGGERS[key].media && !env.WA_HEADER_IMAGE) sample.image = (await searchProducts(env, '').catch(() => [])).find((p) => p.image)?.image || '';
+    if (TRIGGERS[key].media && (!env.WA_HEADER_IMAGE || b.image_q)) sample.image = (await searchProducts(env, String(b.image_q || '')).catch(() => [])).find((p) => p.image)?.image || '';
+    if (b.image_q) sample.items = (await searchProducts(env, String(b.image_q)).catch(() => []))[0]?.title || sample.items;
     /* b.template: test one exact template (no rotation) instead of whatever today's rotation picks for this number. */
     const pick = /^[a-z0-9_]{1,512}$/.test(String(b.template || '')) ? String(b.template) : '';
     const forced = { ...env, SETTINGS: { ...env.SETTINGS, templates: { ...env.SETTINGS.templates, [key]: { ...(env.SETTINGS.templates?.[key] || {}), enabled: true, name: pick || triggerConfig(env, key).name, ...(pick ? { variants: [pick] } : {}) } } } };
