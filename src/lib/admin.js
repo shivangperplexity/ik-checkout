@@ -577,6 +577,22 @@ const ACTIONS = {
       if (/name|phone|mobile|address|email|consignee|customer|pincode|pin|city|state|lat|lng|signature|otp/i.test(k) && !/courier|status|warehouse/i.test(k)) return v ? '<hidden>' : v;
       return v;
     };
+    if (b.list) {
+      /* Status vocabulary across older shipments: counts of overall status and of history codes/messages. */
+      const page = await nimbus(env, `shipments?per_page=${Math.min(100, Number(b.per_page) || 100)}&page=${Math.max(1, Number(b.page) || 1)}`).catch((e) => ({ error: e.message }));
+      const list = Array.isArray(page.data) ? page.data : page.data?.data || page.data?.shipments || [];
+      const statuses = {}, codes = {}, keys = list[0] ? Object.keys(list[0]) : [];
+      for (const x of list) statuses[x.status] = (statuses[x.status] || 0) + 1;
+      const sample = [];
+      for (const x of list.filter((x) => !/pickup_pending|booked/.test(String(x.status))).slice(0, Number(b.deep) || 12)) {
+        try {
+          const tr = (await nimbus(env, `shipments/track/${encodeURIComponent(x.awb_number || x.awb)}`)).data || {};
+          for (const h of tr.history || []) { const k = `${h.status_code}: ${h.message}`; codes[k] = (codes[k] || 0) + 1; }
+          sample.push({ status: tr.status, edd: tr.edd, pickup: tr.pickup_date, delivered: tr.delivered_date, rto: tr.rto_status, info: tr.shipment_info, hist: (tr.history || []).slice(0, 12).map((h) => `${h.status_code}: ${h.message}`) });
+        } catch (e) { sample.push({ error: e.message }); }
+      }
+      return { keys, statuses, codes, sample, error: page.error || '' };
+    }
     let track = null, err = '';
     if (awb) { try { track = scrub(await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)); } catch (e) { err = e.message; } }
     return { orders: rows, awb, track, error: err };
