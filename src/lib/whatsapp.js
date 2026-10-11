@@ -6,8 +6,8 @@ const GRAPH = 'https://graph.facebook.com/v21.0';
 
 /** Meta details saved in the dashboard (phone number ID + permanent token) always win over Go4WhatsUp. */
 export const metaFromDashboard = (env) => !!(env.SETTINGS?.wa?.phone_id && env.SETTINGS?.wa?.token);
-/** True when outbound WhatsApp goes through Go4WhatsUp instead of Meta direct. */
-export const viaG4w = (env) => !!(env.G4W_API_KEY && env.G4W_SECURE_KEY) && !metaFromDashboard(env);
+/** Go4WhatsUp only when chosen in the dashboard (WhatsApp → "Send through"); Meta direct is the default. */
+export const viaG4w = (env) => !!(env.G4W_API_KEY && env.G4W_SECURE_KEY) && env.SETTINGS?.wa?.transport === 'g4w';
 /** Any transport configured at all. */
 export const waConnected = (env) => viaG4w(env) || !!(env.WA_PHONE_ID && env.WA_TOKEN);
 

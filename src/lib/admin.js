@@ -251,7 +251,9 @@ const ACTIONS = {
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */
-      transport: metaFromDashboard({ SETTINGS: s }) ? 'meta' : viaG4w({ ...env, SETTINGS: s }) ? 'g4w' : ((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) ? 'meta' : 'none',
+      transport: viaG4w({ ...env, SETTINGS: s }) ? 'g4w' : 'meta',
+      /* which Meta fields are still empty in the dashboard */
+      meta_missing: [['phone_id', 'Phone number ID'], ['waba_id', 'WhatsApp Business Account ID'], ['token', 'Permanent access token'], ['app_secret', 'App secret']].filter(([k]) => !w[k]).map(([, l]) => l),
       g4w: { on: viaG4w({ ...env, SETTINGS: s }), webhook: env.G4W_WEBHOOK_SECRET ? `${String(env.WORKER_URL || 'https://ik-checkout.vercel.app').replace(/\/$/, '')}/api/wa/g4w?k=${env.G4W_WEBHOOK_SECRET}` : '',
         ids: Object.entries(s.g4w_ids || {}).map(([n, id]) => n + ' = ' + id).join('\n'),
         header_image: !!env.WA_HEADER_IMAGE, autocancel_hours: Number(env.COD_AUTOCANCEL_HOURS || 0), convert_hours: Number(env.COD_CONVERT_HOURS || 0), convert_pct: Number(env.COD_CONVERT_DISCOUNT || 10) },
@@ -282,6 +284,7 @@ const ACTIONS = {
     const s = await getSettings(env, true);
     const w = { ...s.wa };
     for (const k of ['phone_id', 'waba_id', 'admin_phone', 'lang', 'verify_token']) if (b[k] !== undefined) w[k] = String(b[k]).trim().slice(0, 200);
+    if (b.transport === 'meta' || b.transport === 'g4w') w.transport = b.transport;
     for (const k of ['token', 'app_secret']) if (b[k] && !String(b[k]).startsWith('••')) w[k] = String(b[k]).trim();
     if (!w.verify_token) w.verify_token = 'ik_' + Math.random().toString(36).slice(2, 12);
     await putSetting(env, 'wa', w);
@@ -342,7 +345,7 @@ const ACTIONS = {
   },
   /* Dashboard "Try a template": send one template by name + ID to one number and show Go4WhatsUp's raw answer. */
   async wa_try_template(env, b) {
-    if (!viaG4w(env)) throw new Error('Go4WhatsUp keys are not set in Vercel');
+    if (!(env.G4W_API_KEY && env.G4W_SECURE_KEY)) throw new Error('Go4WhatsUp keys are not set in Vercel');
     const name = String(b.name || '').trim(), id = String(b.id || '').trim(), to = cleanPhone(b.to);
     if (!name) throw new Error('Enter the template name');
     if (!to) throw new Error('Enter a 10-digit number');
