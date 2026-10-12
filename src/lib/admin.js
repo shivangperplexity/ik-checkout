@@ -139,6 +139,22 @@ export async function afterOrderRisk(env, row, order) {
 }
 
 /* ---------------- RPC ---------------- */
+async function runRates(env, { pin, cod, amount, weight_g }) {
+  const { compareRates } = await import('./rates.js');
+  const fresh = await withSettingsFresh(env);
+  if (weight_g) fresh.SETTINGS = { ...fresh.SETTINGS, shipping: { ...fresh.SETTINGS.shipping, weight_g } };
+  return { pin, cod, amount, ...(await compareRates(fresh, { pin, cod, amount })) };
+}
+const dayOut = (d) => (d ? d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) : '');
+function ratesOut(r) {
+  const tag = (o) => o && `${o.provider}|${o.courier}`;
+  return {
+    ok: true, pin: r.pin, cod: r.cod, policy: r.policy, tolerance_days: r.toleranceDays, connected: r.connected, errors: r.errors,
+    pick: tag(r.pick), cheapest: tag(r.cheapest), fastest: tag(r.fastest),
+    options: r.options.map((o) => ({ key: tag(o), provider: o.providerLabel, courier: o.courier, charge: o.charge, freight: o.freight, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null })),
+    saving_vs_dearest: r.options.length > 1 ? Math.round((Math.max(...r.options.map((o) => o.charge ?? 0)) - (r.pick?.charge ?? 0)) * 100) / 100 : 0,
+  };
+}
 const mask = (v) => (v ? '••••••' + String(v).slice(-4) : '');
 const IST = 19800;
 
@@ -275,7 +291,10 @@ const ACTIONS = {
       triggers: Object.entries(TRIGGERS).map(([key, t]) => ({ key, label: t.label, to: t.to, when: t.when, buttons: !!t.buttons, allVars: t.vars, ...triggerConfig({ ...env, SETTINGS: s }, key) })),
       var_labels: VAR_LABELS,
       upsells: s.upsells, upi_logos: s.upi_logos, email: s.admin?.email,
-      shipping: { nimbus_email: s.shipping.nimbus_email, nimbus_password: mask(s.shipping.nimbus_password), origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.nimbus_email && s.shipping.nimbus_password) },
+      shipping: { nimbus_email: s.shipping.nimbus_email, nimbus_password: mask(s.shipping.nimbus_password), origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.nimbus_email && s.shipping.nimbus_password),
+        nimbus_ok: !!(s.shipping.nimbus_email && s.shipping.nimbus_password), nimbus_couriers: s.shipping.nimbus_couriers,
+        shiprocket_email: s.shipping.shiprocket_email, shiprocket_password: mask(s.shipping.shiprocket_password), shiprocket_ok: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password), shiprocket_couriers: s.shipping.shiprocket_couriers,
+        policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days },
     };
   },
   async save_shipping(env, b) {
@@ -285,15 +304,37 @@ const ACTIONS = {
     if (b.nimbus_password && !String(b.nimbus_password).startsWith('••')) sh.nimbus_password = String(b.nimbus_password).trim();
     if (b.origin_pin !== undefined && /^\d{6}$/.test(String(b.origin_pin).trim())) sh.origin_pin = String(b.origin_pin).trim();
     if (b.weight_g !== undefined) sh.weight_g = Math.max(10, Math.min(5000, +b.weight_g || 50));
+    if (b.shiprocket_email !== undefined) sh.shiprocket_email = String(b.shiprocket_email).trim().slice(0, 200);
+    if (b.shiprocket_password && !String(b.shiprocket_password).startsWith('••')) sh.shiprocket_password = String(b.shiprocket_password).trim();
+    for (const k of ['nimbus_couriers', 'shiprocket_couriers']) {
+      if (b[k] === undefined) continue;
+      const v = String(b[k]).trim().slice(0, 200);
+      try { if (v) new RegExp(v, 'i'); } catch { throw new Error('"' + v + '" is not a valid courier filter. Use names separated by |, like delhivery|xpressbees'); }
+      sh[k] = v;
+    }
+    if (b.policy !== undefined) sh.policy = b.policy === 'fastest' ? 'fastest' : 'cheapest';
+    if (b.tolerance_days !== undefined) sh.tolerance_days = Math.max(0, Math.min(10, Math.round(+b.tolerance_days || 0)));
     await putSetting(env, 'shipping', sh);
     return { ok: true };
   },
-  async shipping_test(env, b) {
-    const { shippingEstimate } = await import('./shipping.js');
-    const pin = String(b.pin || '').trim() || '411001';
-    const fresh = await withSettingsFresh(env);
-    const r = await shippingEstimate(new Request('https://x/api/shipping?pin=' + pin + '&cod=1&nocache=1'), fresh);
-    return await r.json();
+  async shipping_test(env, b) { // kept for older dashboards: same answer as the rate comparison
+    return ACTIONS.shipping_rates(env, { pin: String(b.pin || '').trim() || '411001', cod: true });
+  },
+  /* Compare every connected carrier for one PIN. Read-only: nothing is booked. */
+  async shipping_rates(env, b) {
+    const pin = String(b.pin || '').trim();
+    if (!/^\d{6}$/.test(pin)) throw new Error('Enter a 6-digit PIN code');
+    return ratesOut(await runRates(env, { pin, cod: !!b.cod, amount: +b.amount || 499, weight_g: +b.weight_g || 0 }));
+  },
+  /* The cheapest courier for one order (uses the order's PIN, payment method and value; the PIN is not stored). */
+  async order_rates(env, b) {
+    const all = await recentOrders(env, 365);
+    const o = all.find((x) => String(x.order_id) === String(b.id));
+    if (!o) throw new Error('Order not found');
+    const sh = await orderDetail(env, o.order_id);
+    const pin = String(sh?.shippingAddress?.zip || '').replace(/\D/g, '').slice(0, 6);
+    if (!/^\d{6}$/.test(pin)) throw new Error('This order has no valid PIN code');
+    return ratesOut(await runRates(env, { pin, cod: o.method === 'cod', amount: Math.round(Number(o.total) || 499) }));
   },
   async save_wa(env, b) {
     const s = await getSettings(env, true);

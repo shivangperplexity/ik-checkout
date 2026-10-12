@@ -38,7 +38,10 @@ const DEFAULTS = {
   upsells: [],
   upi_logos: { gpay: '', phonepe: '', paytm: '', any: '' },
   /* NimbusPost login for the "Express shipping" delivery estimate (Delhivery / Xpressbees from the pickup PIN). */
-  shipping: { nimbus_email: '', nimbus_password: '', origin_pin: '410206', weight_g: 50 },
+  shipping: { nimbus_email: '', nimbus_password: '', origin_pin: '410206', weight_g: 50,
+    /* Rate comparison across carrier accounts (lib/rates.js) */
+    shiprocket_email: '', shiprocket_password: '', nimbus_couriers: 'delhivery|xpress\\s*bees|xpressbees', shiprocket_couriers: '',
+    policy: 'cheapest', tolerance_days: 2 },
 };
 
 let cache = { at: 0, s: null };

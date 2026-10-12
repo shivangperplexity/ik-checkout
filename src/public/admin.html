@@ -126,6 +126,15 @@ function loadOrders(quiet){rpc('orders',{filter:S.filter,q:S.q||''}).then(functi
  $('#main').innerHTML=h;var q=$('#q');q.onkeydown=function(e){if(e.key==='Enter'){S.q=q.value;loadOrders()}};
  $('#main').onclick=function(e){var c=e.target.closest('.chip');if(c){S.filter=c.dataset.f;loadOrders();return}var r=e.target.closest('tr.click');if(r)openOrder(r.dataset.id)}}).catch(function(e){if(!quiet)fail(e)})}
 var COURIERS=['Delhivery','Bluedart','DTDC','Xpressbees','Ecom Express','Shadowfax','India Post','Amazon Shipping','Other'];
+function rup(n){return '₹'+Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function ratesTable(r){
+ if(!r.connected||!r.connected.length)return '<b>No carrier is connected yet.</b> Add NimbusPost or Shiprocket under Settings, Shipping carriers.';
+ var h='';
+ if(r.errors&&r.errors.length)h+='<p style="color:#b45309;margin:4px 0">'+r.errors.map(esc).join('<br>')+'</p>';
+ if(!r.options.length)return h+'<p>No connected carrier returned a price for '+esc(r.pin)+'.</p>';
+ h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(o){var pick=o.key===r.pick;return '<tr style="border-top:1px solid #eee'+(pick?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(o.courier)+'<div class="mut" style="font-weight:400">'+esc(o.provider)+(pick?' · <b style="color:#16a34a">use this</b>':'')+(o.key===r.cheapest&&!pick?' · cheapest':'')+'</div></td><td>'+(o.charge==null?'-':rup(o.charge))+(o.cod_fee?'<div class="mut" style="font-weight:400">incl. COD '+rup(o.cod_fee)+'</div>':'')+'</td><td>'+(esc(o.edd)||'-')+(o.days?'<div class="mut" style="font-weight:400">'+o.days+' d</div>':'')+'</td></tr>'}).join('')+'</table>';
+ if(r.saving_vs_dearest>0)h+='<p style="margin:6px 0 0"><b>Saves '+rup(r.saving_vs_dearest)+'</b> against the dearest option.</p>';
+ return h}
 function close(){$('#ov').innerHTML=''}
 function openOrder(id){
  $('#ov').innerHTML='<div class="scrim" id="sc"></div><div class="drawer"><p class="mut">Loading…</p></div>';$('#sc').onclick=close;
@@ -137,6 +146,7 @@ function openOrder(id){
   d+='<div class="card" style="margin:10px 0"><h3>Risk check</h3><div class="gauge"><i style="left:calc('+r.score+'% - 2px)"></i></div><p class="small"><b>'+esc(r.advice)+'</b></p>'+(r.factors.length?r.factors.map(function(f){return '<div class="fac"><span>'+esc(f.why)+'</span><b class="'+(f.w>0?'p':'n')+'">'+(f.w>0?'+':'')+f.w+'</b></div>'}).join(''):'<p class="mut small">No risk signals.</p>')+'</div>';
   d+='<div class="card" style="margin:10px 0"><h3>Customer & address</h3><div class="small">'+esc(a.name||o.customer)+'<br>'+esc([a.address1,a.address2,a.city,a.province,a.zip].filter(Boolean).join(', '))+'<br>+91 '+esc(o.phone)+'</div><div class="row" style="margin-top:8px"><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(o.phone)+'">WhatsApp</a><a class="btn ghost sm" style="display:inline-grid;place-items:center" href="tel:+91'+esc(o.phone)+'">Call</a></div></div>';
   d+='<div class="card" style="margin:10px 0"><h3>Items</h3>'+(items||'<p class="mut small">'+(sh.error?esc(sh.error):'-')+'</p>')+'</div>';
+  if(o.status!=='cancelled'&&!fulfilled)d+='<div class="card" style="margin:10px 0"><h3>Cheapest courier for this order</h3><div id="or_rt" class="small mut">Checking carriers…</div></div>';
   if(o.status==='cancelled')d+='<p class="pill bad">Cancelled</p>';
   else{
    d+='<div class="card" style="margin:10px 0"><h3>Actions</h3><div class="row">';
@@ -154,6 +164,7 @@ function openOrder(id){
   if(j.session)d+='<p class="small mut">Came from <b>'+esc(j.session.source||'direct')+'</b> on '+esc(j.session.device||'?')+'</p>';
   $('#ov').querySelector('.drawer').innerHTML=d;
   $('#cl').onclick=close;
+  if($('#or_rt'))rpc('order_rates',{id:id}).then(function(r){var e=$('#or_rt');if(e)e.innerHTML=ratesTable(r)}).catch(function(e2){var e=$('#or_rt');if(e)e.textContent=e2.message});
   function act(btn,fn){btn.onclick=function(){btn.disabled=true;fn().then(function(){toast('Done');close();loadOrders()}).catch(function(e){btn.disabled=false;toast(e.message)})}}
   if($('#cf'))act($('#cf'),function(){return rpc('confirm',{id:id})});
   if($('#cx'))$('#cx').onclick=function(){if(confirm('Cancel '+o.name+'? Stock is restocked and no refund is issued from here.'))act($('#cx'),function(){return rpc('cancel',{id:id})}),$('#cx').onclick()};
@@ -263,18 +274,31 @@ function trLabel(k){var t=(W&&W.triggers||[]).filter(function(x){return x.key===
 function bindWaTabs(){$('#t1').onclick=function(){S.msgTab=false;drawWa()};$('#t2').onclick=function(){S.msgTab=true;drawWa()}}
 
 /* ---- settings ---- */
-function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{};
+function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},sh=j.shipping||{};
  $('#main').innerHTML='<div class="grid two"><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
  +[['gpay','Google Pay'],['phonepe','PhonePe'],['paytm','Paytm'],['any','Any UPI app']].map(function(a){return '<label class="f">'+a[1]+'<input type="url" class="lg" data-k="'+a[0]+'" value="'+esc(L[a[0]])+'" placeholder="https://cdn.shopify.com/..."></label>'}).join('')+'<button class="btn" id="lg_sv">Save logos</button></div>'
- +'<div class="card grid"><h3>Express shipping (NimbusPost)</h3><p class="small mut" style="margin:0">The checkout shows one option, "Express shipping", with the fastest Delhivery / Xpressbees delivery date for the customer\'s PIN. Enter your NimbusPost login (the one for app.nimbuspost.com) and the pickup PIN. '+(j.shipping&&j.shipping.connected?'<b style="color:#16a34a">Connected</b>':'<b>Not set: customers see "2–5 business days"</b>')+'</p>'
- +'<label class="f">NimbusPost email<input type="email" id="sh_email" value="'+esc((j.shipping||{}).nimbus_email||'')+'" autocomplete="off"></label>'
- +'<label class="f">NimbusPost password<input type="password" id="sh_pass" value="'+esc((j.shipping||{}).nimbus_password||'')+'" autocomplete="new-password"></label>'
- +'<div class="grid two"><label class="f">Pickup PIN code<input id="sh_pin" inputmode="numeric" maxlength="6" value="'+esc((j.shipping||{}).origin_pin||'410206')+'"></label><label class="f">Parcel weight (g)<input id="sh_wt" type="number" min="10" value="'+esc(String((j.shipping||{}).weight_g||50))+'"></label></div>'
- +'<div class="grid two"><button class="btn" id="sh_sv">Save</button><button class="btn" id="sh_test" style="background:#444">Test with PIN 411001</button></div><p class="small mut" id="sh_out"></p></div>'
+ +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Connect your courier-aggregator logins. For every order and every PIN the dashboard compares all connected carriers and picks the cheapest one that is not much slower than the fastest. Customers still see one option, "Express shipping", with the delivery date of the courier we would book.</p>'
+ +'<h4 style="margin:6px 0 0">NimbusPost '+(sh.nimbus_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
+ +'<label class="f">NimbusPost email<input type="email" id="sh_email" value="'+esc(sh.nimbus_email||'')+'" autocomplete="off"></label>'
+ +'<label class="f">NimbusPost password<input type="password" id="sh_pass" value="'+esc(sh.nimbus_password||'')+'" autocomplete="new-password"></label>'
+ +'<label class="f">Only use these NimbusPost couriers<input id="sh_ncr" value="'+esc(sh.nimbus_couriers||'')+'" placeholder="delhivery|xpressbees (blank = all)"></label>'
+ +'<h4 style="margin:10px 0 0">Shiprocket '+(sh.shiprocket_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
+ +'<p class="small mut" style="margin:0">In Shiprocket go to Settings, API, Add New API User and use that login here, not your normal one.</p>'
+ +'<label class="f">Shiprocket API user email<input type="email" id="sh_sre" value="'+esc(sh.shiprocket_email||'')+'" autocomplete="off"></label>'
+ +'<label class="f">Shiprocket API user password<input type="password" id="sh_srp" value="'+esc(sh.shiprocket_password||'')+'" autocomplete="new-password"></label>'
+ +'<label class="f">Only use these Shiprocket couriers<input id="sh_scr" value="'+esc(sh.shiprocket_couriers||'')+'" placeholder="blank = all couriers"></label>'
+ +'<h4 style="margin:10px 0 0">Parcel and rules</h4>'
+ +'<div class="grid two"><label class="f">Pickup PIN code<input id="sh_pin" inputmode="numeric" maxlength="6" value="'+esc(sh.origin_pin||'410206')+'"></label><label class="f">Parcel weight (g)<input id="sh_wt" type="number" min="10" value="'+esc(String(sh.weight_g||50))+'"></label></div>'
+ +'<div class="grid two"><label class="f">Choose<select id="sh_pol"><option value="cheapest"'+(sh.policy!=='fastest'?' selected':'')+'>Cheapest</option><option value="fastest"'+(sh.policy==='fastest'?' selected':'')+'>Fastest</option></select></label><label class="f">Cheapest may be slower by (days)<input id="sh_tol" type="number" min="0" max="10" value="'+esc(String(sh.tolerance_days==null?2:sh.tolerance_days))+'"></label></div>'
+ +'<button class="btn" id="sh_sv">Save</button></div>'
+ +'<div class="card grid"><h3>Compare shipping rates</h3><p class="small mut" style="margin:0">Nothing is booked here, this only asks the carriers for a price.</p>'
+ +'<div class="grid two"><label class="f">Delivery PIN<input id="rt_pin" inputmode="numeric" maxlength="6" value="411001"></label><label class="f">Order value (Rs)<input id="rt_amt" type="number" min="1" value="499"></label></div>'
+ +'<label class="check" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rt_cod"> Cash on delivery</label>'
+ +'<button class="btn" id="rt_go">Compare</button><div id="rt_out" class="small mut"></div></div>'
  +'<div class="card grid"><h3>Change password</h3><label class="f">Current password<input type="password" id="p0" autocomplete="current-password"></label><label class="f">New password (8+ characters)<input type="password" id="p1" autocomplete="new-password"></label><button class="btn" id="pw_sv">Change password</button><p class="small mut">Signed in as '+esc(j.email||'')+'. The starter password is a test one: change it before you go live.</p></div></div>';
  $('#lg_sv').onclick=function(){var l={};[].forEach.call(document.querySelectorAll('.lg'),function(i){l[i.dataset.k]=i.value});rpc('save_logos',{logos:l}).then(function(){toast('Saved')}).catch(function(e){toast(e.message)})};
- $('#sh_sv').onclick=function(){rpc('save_shipping',{nimbus_email:$('#sh_email').value,nimbus_password:$('#sh_pass').value,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
- $('#sh_test').onclick=function(){$('#sh_out').textContent='Checking NimbusPost…';rpc('shipping_test',{pin:'411001'}).then(function(r){var raw=r.debug&&r.debug.sample?' · raw: '+JSON.stringify(r.debug.sample):'';$('#sh_out').textContent=r.ok?(r.serviceable?(r.edd?'OK: Express shipping, arrives by '+r.edd+' ('+r.courier+')':'Courier found ('+r.courier+') but no delivery date in NimbusPost\'s answer'+raw):'NimbusPost answered, but neither Delhivery nor Xpressbees serve 411001'+raw):'Failed: '+(r.error||'unknown')}).catch(function(e){$('#sh_out').textContent='Failed: '+e.message})};
+ $('#sh_sv').onclick=function(){rpc('save_shipping',{nimbus_email:$('#sh_email').value,nimbus_password:$('#sh_pass').value,nimbus_couriers:$('#sh_ncr').value,shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
+ $('#rt_go').onclick=function(){var o=$('#rt_out');o.textContent='Asking the carriers…';rpc('shipping_rates',{pin:$('#rt_pin').value,cod:$('#rt_cod').checked,amount:$('#rt_amt').value}).then(function(r){o.innerHTML=ratesTable(r)}).catch(function(e){o.textContent='Failed: '+e.message})};
  $('#pw_sv').onclick=function(){rpc('change_password',{current:$('#p0').value,next:$('#p1').value}).then(function(){toast('Password changed');$('#p0').value=$('#p1').value=''}).catch(function(e){toast(e.message)})}}).catch(fail)}
 
 token=ls('ik_admin_tok')||'';if(token){rpc('live').then(start).catch(function(){})}

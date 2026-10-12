@@ -18,24 +18,29 @@
 //                                   → { status, data: [ { id, name, edd, freight_charges, total_charges, ... } ] }
 
 const NB = 'https://api.nimbuspost.com/v1';
-const COURIERS = /delhivery|xpress\s*bees|xpressbees/i;   // only the partners you actually ship with
 const DEFAULT_ORIGIN = '410206';
 const TTL = 30 * 60 * 1000;                                 // cache an estimate per PIN for 30 min
 
 let tok = { value: '', exp: 0, key: '' };
 const cache = new Map();
 
-function cfg(env) {
+export function cfg(env) {
   const s = (env.SETTINGS && env.SETTINGS.shipping) || {};
   return {
     email: s.nimbus_email || env.NIMBUS_EMAIL || '',
     password: s.nimbus_password || env.NIMBUS_PASSWORD || '',
     origin: s.origin_pin || env.NIMBUS_ORIGIN_PIN || DEFAULT_ORIGIN,
     weight: Number(s.weight_g || env.NIMBUS_WEIGHT_G || 50),
+    nimbusCouriers: s.nimbus_couriers || 'delhivery|xpress\\s*bees|xpressbees',
+    shiprocketEmail: s.shiprocket_email || env.SHIPROCKET_EMAIL || '',
+    shiprocketPassword: s.shiprocket_password || env.SHIPROCKET_PASSWORD || '',
+    shiprocketCouriers: s.shiprocket_couriers || '',          // blank = every courier Shiprocket offers
+    toleranceDays: Number(s.tolerance_days ?? 2),             // how much slower than the fastest the cheapest may be
+    policy: s.policy === 'fastest' ? 'fastest' : 'cheapest',
   };
 }
 
-async function token(c) {
+export async function token(c) {
   const key = c.email + ':' + c.password;
   if (tok.value && tok.key === key && Date.now() < tok.exp) return tok.value;
   if (!c.email || !c.password) throw new Error('NimbusPost email/password not set');
@@ -53,11 +58,11 @@ async function token(c) {
 // estimated_delivery_days, delivery_days, expected_delivery … and the value is either a date
 // ("2026-10-13", "13-10-2026", "Oct 13, 2026"), a day count ("3", "3-5 days", "3 Days"), or empty.
 const EDD_KEYS = ['edd', 'etd', 'tat', 'estimated_delivery_days', 'estimated_delivery', 'expected_delivery_date', 'expected_delivery', 'delivery_days', 'delivery_time', 'days'];
-function eddRaw(c) {
+export function eddRaw(c) {
   for (const k of EDD_KEYS) if (c[k] !== undefined && c[k] !== null && String(c[k]).trim() !== '') return c[k];
   return '';
 }
-function eddDate(edd) {
+export function eddDate(edd) {
   if (edd === undefined || edd === null || edd === '') return null;
   const s = String(edd).trim();
   let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);                       // 2026-10-13
@@ -69,7 +74,7 @@ function eddDate(edd) {
   const p = Date.parse(s);                                             // "Oct 13, 2026"
   return Number.isNaN(p) ? null : new Date(p);
 }
-const fmt = d => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+export const fmt = d => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
 
 function reply(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -86,37 +91,25 @@ export async function shippingEstimate(req, env) {
   if (!/^\d{6}$/.test(pin)) return reply({ ok: false, error: 'bad pin' }, 400);
 
   const key = pin + ':' + (cod ? 'cod' : 'prepaid');
-  const hit = url.searchParams.get('nocache') ? null : cache.get(key);
+  const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return reply({ ...hit.body, cached: true });
 
   try {
-    const c = cfg(env);
-    const t = await token(c);
-    const r = await fetch(NB + '/courier/serviceability', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
-      body: JSON.stringify({
-        origin: c.origin, destination: pin, payment_type: cod ? 'cod' : 'prepaid',
-        order_amount: amount, weight: c.weight, length: 20, breadth: 15, height: 2,
-      }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!j.status || !Array.isArray(j.data)) throw new Error('serviceability failed');
-
-    const ours = j.data.filter(x => COURIERS.test(String(x.name || '')));
-    const dates = ours.map(x => eddDate(eddRaw(x))).filter(Boolean).sort((a, b) => a - b);
-    const debug = url.searchParams.get('nocache') ? { couriers: j.data.map(x => x.name), sample: ours[0] || j.data[0] || null } : undefined;
-    if (!ours.length) {
-      const body = { ok: true, serviceable: false, edd: '', debug }; // nothing we ship with reaches this PIN
+    // All connected carriers are compared (lib/rates.js). The shopper still sees only the date of the courier we'd
+    // actually book: the cheapest one that is not more than `tolerance_days` slower than the fastest.
+    const { compareRates } = await import('./rates.js');
+    const r = await compareRates(env, { pin, cod, amount });
+    if (!r.options.length) {
+      if (!r.connected.length) throw new Error('No courier account connected');
+      if (r.errors.length) throw new Error(r.errors.join('; ')); // a failed lookup says nothing about serviceability
+      const body = { ok: true, serviceable: false, edd: '' }; // nothing we ship with reaches this PIN
       cache.set(key, { at: Date.now(), body });
       return reply(body);
     }
-    const best = dates[0] || null;
+    const best = r.pick.eddDate;
     const days = best ? Math.max(1, Math.round((best - Date.now()) / 86400000)) : null;
-    const body = { ok: true, serviceable: true, edd: best ? fmt(best) : '', days,
-      // internal, for your dashboard/booking — not shown to the shopper
-      courier: ours.slice().sort((a, b) => (eddDate(eddRaw(a)) || 9e15) - (eddDate(eddRaw(b)) || 9e15))[0].name, debug };
-    if (!debug) cache.set(key, { at: Date.now(), body });
+    const body = { ok: true, serviceable: true, edd: best ? fmt(best) : '', days, courier: r.pick.courier };
+    cache.set(key, { at: Date.now(), body });
     return reply(body);
   } catch (e) {
     // Never block checkout on a courier API: the theme shows "Express shipping · 2–5 business days".
