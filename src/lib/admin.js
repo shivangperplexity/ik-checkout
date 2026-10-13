@@ -5,6 +5,7 @@ import { orderForShipping } from './shopify.js';
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
+import { buildLabels } from './labels.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
@@ -804,6 +805,18 @@ export async function handleRpc(req, env) {
   const fn = ACTIONS[b.action];
   if (!fn) return json({ ok: false, error: 'unknown action' }, 400);
   try { return json({ ok: true, ...(await fn(env, b)) }); } catch (e) { return json({ ok: false, error: String(e.message || e) }, 200); }
+}
+
+/** POST /api/admin/labels {ids:[orderId,...]} -> one PDF of 6 x 4 inch label pages (binary, so it is not an RPC action). */
+export async function handleLabels(req, env) {
+  if (!(await checkToken(env, req))) return json({ ok: false, error: 'unauthorized' }, 401);
+  const b = await req.json().catch(() => ({}));
+  try {
+    const r = await buildLabels(await withSettingsFresh(env), Array.isArray(b.ids) ? b.ids : []);
+    return new Response(r.pdf, { status: 200, headers: {
+      'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="labels-6x4.pdf"', 'Cache-Control': 'no-store',
+      'X-Label-Count': String(r.count), 'X-Label-Missing': encodeURIComponent(JSON.stringify(r.missing)) } });
+  } catch (e) { return json({ ok: false, error: String(e.message || e) }); }
 }
 
 /* ---------------- cron: abandoned nudge + COD reminder ---------------- */
