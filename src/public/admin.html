@@ -75,7 +75,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function inr(n){return '₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}
 function ago(t){if(!t)return '-';var d=Math.max(0,Math.floor(Date.now()/1000)-t);return d<60?d+'s ago':d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'}
 function ist(t){return t?new Date(t*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'}
-function toast(m){var t=$('#toast');t.textContent=m;t.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.add('hide')},2600)}
+function toast(m){var t=$('#toast');t.textContent=m;t.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.add('hide')},Math.max(2600,String(m).length*70))}
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}return null}
 function rpc(action,data){
   return fetch('/api/admin/rpc',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(Object.assign({action:action},data||{}))})
@@ -122,7 +122,7 @@ function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||'
  var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px">'+(S.filter==='shipped'&&nb?'<button class="btn sm" id="lbl_all">Download all labels (6×4 in) · '+nb+'</button>':'')+'</div>'+(S.report||'')+'<div class="row hide" id="bulkbar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
  h+='<div class="card tw"><table><thead><tr><th class="ck"><input type="checkbox" id="selall" title="Select all that are ready to ship"></th><th>Order</th><th>Customer</th><th>Place</th><th>Pay</th><th>Total</th><th>Status</th><th>Risk</th><th>When</th></tr></thead><tbody>'+(j.orders.length?j.orders.map(function(o){
   var can=!o.shipped&&o.status!=='cancelled';
-  var st=o.shipped_at?'<span class="pill ok">Shipped</span>':o.booked?'<span class="pill warn" title="Booked with '+esc(o.courier)+', AWB '+esc(o.awb)+'. Shopify is not fulfilled yet.">Booked · Shopify pending</span>':o.status==='cancelled'?'<span class="pill bad">Cancelled</span>':o.method==='cod'&&!o.confirmed_at?'<span class="pill warn">COD unconfirmed</span>':'<span class="pill">Ready to ship</span>';
+  var st=o.shipped_at?'<span class="pill ok">Shipped</span>':o.booked?'<span class="pill warn" title="Booked with '+esc(o.courier)+', AWB '+esc(o.awb)+'. Shopify is not fulfilled yet'+(o.fulfil_error?': '+esc(o.fulfil_error):'. It is retried automatically.')+'">Booked · Shopify pending</span>':o.status==='cancelled'?'<span class="pill bad">Cancelled</span>':o.method==='cod'&&!o.confirmed_at?'<span class="pill warn">COD unconfirmed</span>':'<span class="pill">Ready to ship</span>';
   return '<tr class="click" data-id="'+o.id+'"><td class="ck"><input type="checkbox" class="sel" data-id="'+o.id+'"'+(can?'':' disabled')+(can&&S.sel[o.id]?' checked':'')+'></td><td><b>'+esc(o.name)+'</b></td><td>'+esc(o.customer)+'<div class="small mut">+91 '+esc(o.phone)+'</div></td><td>'+esc(o.city)+'<div class="small mut">'+esc(o.pincode)+'</div></td><td>'+(o.method==='cod'?'COD':'Prepaid')+'</td><td>'+inr(o.total)+'</td><td>'+st+'</td><td><span class="pill '+o.level+'">'+o.risk+' · '+o.level+'</span></td><td class="small mut">'+ago(o.created_at)+'</td></tr>'}).join(''):'<tr><td colspan="9" class="mut">No orders yet.</td></tr>')+'</tbody></table></div>';
  if(quiet&&document.activeElement&&document.activeElement.id==='q')return;
  $('#main').innerHTML=h;var q=$('#q');q.onkeydown=function(e){if(e.key==='Enter'){S.q=q.value;loadOrders()}};
@@ -136,20 +136,24 @@ function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||'
   if(e.target.id==='selall'){var on=e.target.checked;Object.keys(S.rows).forEach(function(k){if(ready(S.rows[k])){if(on)S.sel[k]=1;else delete S.sel[k]}});[].forEach.call(document.querySelectorAll('input.sel'),function(i){if(!i.disabled)i.checked=!!S.sel[i.dataset.id]});bulkBar();return}
   var ck=e.target.closest('td.ck');if(ck){var i=ck.querySelector('input.sel');if(i&&!i.disabled){if(e.target!==i)i.checked=!i.checked;if(i.checked)S.sel[i.dataset.id]=1;else delete S.sel[i.dataset.id];bulkBar()}return}
   var r=e.target.closest('tr.click');if(r)openOrder(r.dataset.id)}}).catch(function(e){if(!quiet)fail(e)})}
-/* ---- labels: one PDF of 6 x 4 inch pages for many orders (built on the server, 40 labels per file) ---- */
+/* ---- labels: any number of orders -> ONE PDF, one 6 x 4 inch page per label. Each label is fetched from the server, the PDF is joined here. ---- */
+function loadJs(src){return new Promise(function(ok,no){var s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=function(){no(new Error('Could not load '+src))};document.head.appendChild(s)})}
 function dlLabels(ids,btn){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('No labels to download');return}
- var chunks=[],k=0,got=0,miss=[],txt=btn?btn.textContent:'';for(var i=0;i<ids.length;i+=40)chunks.push(ids.slice(i,i+40));
- if(btn)btn.disabled=true;
- function done(msg){if(btn){btn.disabled=false;btn.textContent=txt}toast(msg)}
- function next(){if(k>=chunks.length)return done(got+' label'+(got===1?'':'s')+' downloaded'+(miss.length?'. Missing: '+miss.map(function(m){return m.name}).join(', '):''));
-  if(btn)btn.textContent='Preparing labels '+(k+1)+' of '+chunks.length+'…';
-  fetch('/api/admin/labels',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({ids:chunks[k]})}).then(function(r){
+ var txt=btn?btn.textContent:'',bufs=new Array(ids.length),miss=[],n=0,next=0;if(btn)btn.disabled=true;
+ function say(m){if(btn)btn.textContent=m}
+ function one(i){return fetch('/api/admin/label',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({id:ids[i]})}).then(function(r){
    if(r.status===401){logout();throw new Error('Session expired')}
-   if((r.headers.get('Content-Type')||'').indexOf('pdf')<0)return r.json().then(function(j){throw new Error(j.error||'Could not build the labels')});
-   var c=+r.headers.get('X-Label-Count')||0,m=[];try{m=JSON.parse(decodeURIComponent(r.headers.get('X-Label-Missing')||'[]'))}catch(e){}
-   return r.blob().then(function(b){var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='labels-6x4'+(chunks.length>1?'-'+(k+1):'')+'.pdf';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000);got+=c;miss=miss.concat(m)})
-  }).then(function(){k++;next()}).catch(function(er){done(er.message)})}
- next()}
+   if((r.headers.get('Content-Type')||'').indexOf('pdf')<0)return r.json().then(function(j){throw new Error(j.error||'no label')});
+   return r.arrayBuffer().then(function(b){bufs[i]=b})}).catch(function(er){var o=S.rows[ids[i]];miss.push({name:o?o.name:ids[i],why:er.message})}).then(function(){n++;say('Fetching labels '+n+' of '+ids.length+'…')})}
+ function worker(){if(next>=ids.length)return Promise.resolve();var i=next++;return one(i).then(worker)}
+ say('Fetching labels 0 of '+ids.length+'…');
+ Promise.all([1,2,3,4].map(worker)).then(function(){
+  var ok=bufs.filter(Boolean);if(!ok.length)throw new Error('No label could be fetched'+(miss.length?': '+miss[0].name+' ('+miss[0].why+')':''));
+  say('Building PDF…');
+  return (window.PDFLib?Promise.resolve():loadJs('/pdf-lib.min.js')).then(function(){return window.mergeLabels6x4?0:loadJs('/labels6x4.js')}).then(function(){return window.mergeLabels6x4(ok)}).then(function(pdf){
+   var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([pdf],{type:'application/pdf'}));a.download='labels-6x4-'+ok.length+'.pdf';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000);
+   return ok.length})}).then(function(c){done(c+' label'+(c===1?'':'s')+' in one PDF'+(miss.length?'. Missing: '+miss.map(function(m){return m.name+' ('+m.why+')'}).join(', '):''))}).catch(function(er){done(er.message)});
+ function done(m){if(btn){btn.disabled=false;btn.textContent=txt}toast(m)}}
 /* ---- bulk ship: books each selected order with Shiprocket (cheapest courier), one after another ---- */
 function eligible(o){return !o.shipped&&o.status!=='cancelled'}
 function ready(o){return eligible(o)&&(o.method!=='cod'||!!o.confirmed_at)}
@@ -186,11 +190,12 @@ function shipDone(sp){return '<p class="ok" style="margin:0 0 6px"><b>'+esc(sp.c
  +(sp.pack&&sp.pack.label?'<p class="small mut" style="margin:0 0 6px">'+esc(sp.pack.label)+'</p>':'')
  +'<p class="small" style="margin:0 0 8px">'+(sp.pickup?esc(sp.pickup):'Pickup requested.')+'</p>'
  +'<div class="row">'+(sp.label_url?'<a class="btn sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.label_url)+'">Print label</a>':'')+'<a class="btn ghost sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.track_url)+'">Track</a><button class="btn ghost sm" id="sr_dc">Refresh label / pickup</button><button class="btn bad sm" id="sr_cx">Cancel shipment</button></div>'}
+function shopifyWarn(sp){return '<div class="card" style="margin:10px 0;border-color:#f3c98b"><b style="color:var(--warn)">Shopify is not marked fulfilled yet.</b><div class="small mut" style="margin-top:4px">'+esc(sp.fulfil_error||'It is retried automatically every few minutes.')+'</div><button class="btn sm" id="sr_ff" style="margin-top:8px">Fulfil in Shopify now</button></div>'}
 function shipPanel(id,o){
  var e=$('#or_rt');
  function draw(r){
   var el=$('#or_rt');if(!el)return;
-  if(r.shipment){el.innerHTML=shipDone(r.shipment);wireDone(r.shipment);return}
+  if(r.shipment){el.innerHTML=shipDone(r.shipment)+shopifyWarn(r.shipment);wireDone(r.shipment);return}
   var pk=r.options.filter(function(x){return x.key===r.pick})[0];
   var h='<p style="margin:0 0 6px"><b>Parcel (automatic):</b> '+esc(r.pack.label)+' · '+r.pack.weight_g+' g</p>';
   if(!r.ready)h+='<p style="color:#b45309;margin:4px 0">Choose your Shiprocket pickup location in Settings first.</p>';
@@ -203,10 +208,11 @@ function shipPanel(id,o){
   var g=$('#sr_go');if(g)g.onclick=function(){
    if(!confirm('Book '+(pk?pk.courier:'the cheapest courier')+' for '+o.name+'? This creates the AWB, asks for pickup and charges your Shiprocket wallet.'))return;
    g.disabled=true;g.textContent='Booking…';
-   rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped');el.innerHTML=shipDone(b.shipment);wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
+   rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped');el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
  }
  function wireDone(sp){
-  var d=$('#sr_dc'),c=$('#sr_cx');
+  var d=$('#sr_dc'),c=$('#sr_cx'),f=$('#sr_ff');
+  if(f)f.onclick=function(){f.disabled=true;f.textContent='Fulfilling…';rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Shopify: '+b.fulfilment_error:'Fulfilled in Shopify');loadOrders(true);openOrder(id)}).catch(function(er){f.disabled=false;f.textContent='Fulfil in Shopify now';toast(er.message)})};
   if(d)d.onclick=function(){d.disabled=true;rpc('sr_docs',{id:id}).then(function(){toast('Updated');shipPanel(id,o)}).catch(function(er){d.disabled=false;toast(er.message)})};
   if(c)c.onclick=function(){if(!confirm('Cancel the Shiprocket shipment for '+o.name+'?'))return;c.disabled=true;rpc('sr_cancel',{id:id}).then(function(){toast('Cancelled');shipPanel(id,o)}).catch(function(er){c.disabled=false;toast(er.message)})}
  }
