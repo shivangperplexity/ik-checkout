@@ -10,6 +10,7 @@ import { logMsg, sendText } from './whatsapp.js';
 import { parseInbound, replyAction } from './go4whatsup.js';
 import { verifyOrder, linkShapeOk } from './wa-token.js';
 import { safeEqual } from './util.js';
+import { stopShipment, liveShipment } from './ship-cancel.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -32,13 +33,29 @@ export async function applyAction(env, row, action, opts = {}) {
   }
   if (row.confirmed_at && !opts.force) return 'already-confirmed';
   if (row.status === 'cancelled') return 'already-cancelled';
+  /* The owner shipped it anyway: the "no reply" auto-cancel leaves booked parcels alone (a customer's own Cancel does not). */
+  if (opts.auto && await liveShipment(env, row.order_id)) return 'already-shipped';
   const claim = await env.DB.prepare("UPDATE orders SET status='cancelled' WHERE order_id=? AND status='placed' AND confirmed_at IS NULL AND converted_at IS NULL RETURNING order_id").bind(String(row.order_id)).first();
   if (!claim) return 'already-cancelled';
+  const undo = () => env.DB.prepare("UPDATE orders SET status='placed' WHERE order_id=?").bind(String(row.order_id)).run();
+  /* Booked with Shiprocket? Stop the pickup first (Shopify will not cancel an order that is still fulfilled). */
+  const stop = await stopShipment(env, row.order_id, opts.note || 'Customer cancelled via WhatsApp');
+  if (stop.state === 'picked') {
+    await undo();
+    await addTags(env, gid, ['cancel-requested-after-pickup']).catch(() => {});
+    throw new Error('Customer asked to cancel but the courier already picked the parcel up: ' + stop.note);
+  }
   try {
     await cancelOrder(env, gid, opts.note || 'Customer cancelled via WhatsApp');
   } catch (e) {
+    /* The shipment could not be stopped yet: keep it cancelled here, the cron sweep finishes it (pickup + Shopify). */
+    if (stop.state === 'error') {
+      await removeTags(env, gid, ['cod-unconfirmed']).catch(() => {});
+      await addTags(env, gid, [opts.tag || 'cod-cancelled-by-customer']).catch(() => {});
+      return 'cancelled';
+    }
     /* Shopify refused (e.g. already fulfilled): undo our side so the dashboard tells the truth. */
-    await env.DB.prepare("UPDATE orders SET status='placed' WHERE order_id=?").bind(String(row.order_id)).run();
+    await undo();
     throw e;
   }
   await removeTags(env, gid, ['cod-unconfirmed']).catch(() => {});
@@ -212,7 +229,7 @@ export async function autoCancelStale(env0) {
   let n = 0;
   for (const row of results) {
     try {
-      const r = await applyAction(env, row, 'CANCEL', { tag: 'cod-cancelled-no-response', note: `Auto-cancelled: no WhatsApp confirmation within ${hours}h` });
+      const r = await applyAction(env, row, 'CANCEL', { auto: true, tag: 'cod-cancelled-no-response', note: `Auto-cancelled: no WhatsApp confirmation within ${hours}h` });
       if (r === 'cancelled') n++;
       await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(String(row.order_id)).run();
       await logMsg(env, { direction: 'out', phone: row.phone, trigger: 'auto_cancel', template: r, status: r, orderName: row.order_name });

@@ -45,6 +45,9 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_shipments_awb ON shipments (awb)`,
   /* why the Shopify fulfilment step failed after a booking (empty = fine); the cron retries until it works */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fulfil_error TEXT`,
+  /* order cancelled while the parcel was booked: 'cancelled' (pickup stopped), 'picked' (too late, needs RTO), 'error' (retrying) */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS cancel_state TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS cancel_note TEXT`,
   /* COD -> prepaid conversion */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_txnid TEXT`,

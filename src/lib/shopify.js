@@ -22,3 +22,25 @@ export async function orderForShipping(env, id) {
     }),
   };
 }
+
+/** Undo our Shopify fulfilment(s) for this AWB (when the Shiprocket shipment is cancelled before pickup). Returns how many. */
+export async function cancelFulfilmentsFor(env, id, awb) {
+  const d = await gql(env, `query($id:ID!){ order(id:$id){ cancelledAt fulfillments(first:10){ id status trackingInfo{ number } } } }`, { id: `gid://shopify/Order/${id}` });
+  const list = (d.order?.fulfillments || []).filter((f) => f.status === 'SUCCESS' && (!awb || (f.trackingInfo || []).some((t) => String(t.number) === String(awb))));
+  for (const f of list) {
+    const r = await gql(env, `mutation($id:ID!){ fulfillmentCancel(id:$id){ fulfillment{ id status } userErrors{ message } } }`, { id: f.id });
+    const e = r.fulfillmentCancel?.userErrors;
+    if (e && e.length) throw new Error('fulfillmentCancel: ' + e.map((x) => x.message).join('; '));
+  }
+  return list.length;
+}
+
+/** { <orderId>: { cancelled, tags } } for many orders at once (50 per Shopify call). */
+export async function ordersCancelState(env, ids) {
+  const out = {};
+  for (let i = 0; i < ids.length; i += 50) {
+    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Order { legacyResourceId cancelledAt tags } } }`, { ids: ids.slice(i, i + 50).map((x) => `gid://shopify/Order/${x}`) });
+    for (const n of d.nodes || []) if (n && n.legacyResourceId) out[String(n.legacyResourceId)] = { cancelled: !!n.cancelledAt, tags: n.tags || [] };
+  }
+  return out;
+}

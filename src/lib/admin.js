@@ -6,6 +6,7 @@ import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, c
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
 import { labelPdf } from './labels.js';
+import { stopShipment, sweepCancelled } from './ship-cancel.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
@@ -299,6 +300,10 @@ const ACTIONS = {
   },
   async cancel(env, b) {
     const gid = `gid://shopify/Order/${b.id}`;
+    /* booked with Shiprocket? stop the pickup first; if the courier already has it, say so and change nothing */
+    const stop = await stopShipment(await withSettingsFresh(env), b.id, 'Cancelled from the dashboard');
+    if (stop.state === 'picked') throw new Error('The courier has already picked this parcel up, so it cannot be cancelled here. Ask Shiprocket for RTO.');
+    if (stop.state === 'error') throw new Error('The Shiprocket shipment could not be cancelled yet (' + stop.note + '). Nothing was changed; try again in a minute.');
     await cancelOrder(env, gid, 'Cancelled from Ink Kulture dashboard');
     await env.DB.prepare("UPDATE orders SET status='cancelled' WHERE order_id=?").bind(String(b.id)).run();
     return { ok: true };
@@ -433,7 +438,7 @@ const ACTIONS = {
     const list = rows.map((r) => {
       const ts = String(r.track_status || '').toLowerCase();
       const state = r.status === 'cancelled' ? 'cancelled' : (r.rto || /rto/.test(ts)) ? 'rto' : ts === 'delivered' ? 'delivered' : ts === 'ndr' ? 'ndr' : ts === 'in_transit' || ts === 'reached_at_destination' ? 'transit' : 'booked';
-      return { ...publicRec(r), state, customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city, cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone, booked_at: num(r.created_at), checked_at: num(r.checked_at) || null };
+      return { ...publicRec(r), state, cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city, cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone, booked_at: num(r.created_at), checked_at: num(r.checked_at) || null };
     });
     const f = b.filter || 'all';
     const live = list.filter((x) => x.state !== 'cancelled');
@@ -859,6 +864,8 @@ export async function runAutomations(env) {
       out.reminded++;
     }
   }
+  /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
+  try { const sw = await sweepCancelled(env); out.cancelSweep = sw; } catch (e) { console.error('cancel-sweep', e); }
   /* Shiprocket bookings that are not fulfilled in Shopify yet (the step failed, or the page was closed mid-way): retry a few per run */
   try {
     const stuck = (await env.DB.prepare(`SELECT s.order_id FROM shipments s JOIN orders o ON o.order_id = s.order_id
