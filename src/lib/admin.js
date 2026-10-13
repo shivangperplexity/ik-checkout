@@ -5,7 +5,7 @@ import { orderForShipping } from './shopify.js';
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
-import { buildLabels } from './labels.js';
+import { labelPdf } from './labels.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
@@ -120,7 +120,7 @@ async function recentOrders(env, days = 90) {
 const num = (v) => Number(v) || 0;
 /** Orders that have a live (not cancelled) Shiprocket AWB. They count as shipped even if the Shopify fulfilment step failed. */
 async function bookedMap(env) {
-  const rows = (await env.DB.prepare("SELECT order_id, awb, courier FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
+  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
   return Object.fromEntries(rows.map((r) => [String(r.order_id), r]));
 }
 function orderOut(o, all) {
@@ -238,6 +238,30 @@ async function analytics(env, days) {
   };
 }
 
+/**
+ * Mark a booked order fulfilled in Shopify (tracking = the Shiprocket AWB) and send the WhatsApp "shipped" message.
+ * Never throws: returns '' when done, otherwise the reason (also saved on the shipment so the dashboard can show it).
+ */
+export async function fulfilBooked(env, id) {
+  const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(id)).first();
+  if (!rec?.awb) return 'No Shiprocket AWB for this order yet';
+  const courier = rec.courier || 'Shiprocket';
+  let err = '';
+  try { await ACTIONS.ship(env, { id, company: courier, number: rec.awb, url: `https://shiprocket.co/tracking/${rec.awb}`, notify: false }); }
+  catch (e) {
+    err = String(e.message || e);
+    if (/Nothing left to fulfil/.test(err)) {   // already fulfilled in Shopify some other way: record that here, nothing to retry
+      let st = ''; try { st = (await orderDetail(env, String(id)))?.displayFulfillmentStatus || ''; } catch { /* keep the error */ }
+      if (st && st !== 'UNFULFILLED') {
+        await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=? AND shipped_at IS NULL').bind(now(), `${courier} ${rec.awb}`, String(id)).run();
+        err = '';
+      }
+    }
+  }
+  await env.DB.prepare('UPDATE shipments SET fulfil_error=? WHERE order_id=?').bind(err ? err.slice(0, 400) : null, String(id)).run();
+  return err;
+}
+
 const ACTIONS = {
   async live(env) { return liveData(env); },
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
@@ -245,7 +269,7 @@ const ACTIONS = {
     const [all, booked] = await Promise.all([recentOrders(env, 90), bookedMap(env).catch(() => ({}))]);
     let list = all.map((o) => {
       const x = orderOut(o, all), s = booked[String(o.order_id)];
-      if (s) { x.booked = true; x.awb = s.awb; x.courier = s.courier; }
+      if (s) { x.booked = true; x.awb = s.awb; x.courier = s.courier; x.fulfil_error = s.fulfil_error || ''; }
       x.shipped = !!(x.shipped_at || x.booked);   // shipped_at is only set once Shopify is fulfilled; a booked AWB is shipped too
       return x;
     });
@@ -382,11 +406,8 @@ const ACTIONS = {
     const { fresh, row, order } = await shipCtx(env, b.id);
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
     const r = await bookShipment(fresh, order, row, { pickOption });
-    let fulfil = '';
-    if (!row.shipped_at) {
-      try { await ACTIONS.ship(env, { id: b.id, company: r.shipment.courier, number: r.shipment.awb, url: r.shipment.track_url, notify: false }); }
-      catch (e) { fulfil = String(e.message || e); }   // the AWB exists in Shiprocket either way; tell the owner
-    }
+    /* the AWB exists in Shiprocket either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
+    const fulfil = row.shipped_at ? '' : await fulfilBooked(env, b.id);
     return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil };
   },
   async sr_docs(env, b) {
@@ -807,15 +828,13 @@ export async function handleRpc(req, env) {
   try { return json({ ok: true, ...(await fn(env, b)) }); } catch (e) { return json({ ok: false, error: String(e.message || e) }, 200); }
 }
 
-/** POST /api/admin/labels {ids:[orderId,...]} -> one PDF of 6 x 4 inch label pages (binary, so it is not an RPC action). */
-export async function handleLabels(req, env) {
+/** POST /api/admin/label {id} -> that order's label as a PDF (binary, so it is not an RPC action). The browser joins many into one file. */
+export async function handleLabel(req, env) {
   if (!(await checkToken(env, req))) return json({ ok: false, error: 'unauthorized' }, 401);
   const b = await req.json().catch(() => ({}));
   try {
-    const r = await buildLabels(await withSettingsFresh(env), Array.isArray(b.ids) ? b.ids : []);
-    return new Response(r.pdf, { status: 200, headers: {
-      'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="labels-6x4.pdf"', 'Cache-Control': 'no-store',
-      'X-Label-Count': String(r.count), 'X-Label-Missing': encodeURIComponent(JSON.stringify(r.missing)) } });
+    const pdf = await labelPdf(await withSettingsFresh(env), b.id);
+    return new Response(pdf, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store' } });
   } catch (e) { return json({ ok: false, error: String(e.message || e) }); }
 }
 
@@ -840,5 +859,13 @@ export async function runAutomations(env) {
       out.reminded++;
     }
   }
+  /* Shiprocket bookings that are not fulfilled in Shopify yet (the step failed, or the page was closed mid-way): retry a few per run */
+  try {
+    const stuck = (await env.DB.prepare(`SELECT s.order_id FROM shipments s JOIN orders o ON o.order_id = s.order_id
+      WHERE s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND o.shipped_at IS NULL AND COALESCE(o.status,'')<>'cancelled' AND s.created_at>?
+      ORDER BY s.created_at LIMIT 5`).bind(t - 14 * 86400).all()).results;
+    out.fulfilled = 0;
+    for (const s of stuck) if (!(await fulfilBooked(env, s.order_id))) out.fulfilled++;
+  } catch (e) { console.error('fulfil-retry', e); }
   return out;
 }

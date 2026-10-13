@@ -43,6 +43,8 @@ export const SCHEMA = [
   /* Shiprocket bookings made from the dashboard (one row per Shopify order; no addresses stored) */
   `CREATE TABLE IF NOT EXISTS shipments (order_id TEXT PRIMARY KEY, order_name TEXT, sr_order_id TEXT, sr_shipment_id TEXT, awb TEXT, courier TEXT, courier_id TEXT, charge_paise BIGINT DEFAULT 0, pack TEXT, label_url TEXT, pickup TEXT, status TEXT, rto BOOLEAN DEFAULT FALSE, created_at BIGINT, updated_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS idx_shipments_awb ON shipments (awb)`,
+  /* why the Shopify fulfilment step failed after a booking (empty = fine); the cron retries until it works */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fulfil_error TEXT`,
   /* COD -> prepaid conversion */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_txnid TEXT`,

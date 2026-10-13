@@ -215,7 +215,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
 export function publicRec(r) {
   if (!r) return null;
   let pack = null; try { pack = JSON.parse(r.pack || 'null'); } catch { /* ignore */ }
-  return { order_id: r.order_id, order_name: r.order_name, awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', status: r.status || '', rto: !!r.rto, pack, track_url: r.awb ? `https://shiprocket.co/tracking/${r.awb}` : '', sr_order_id: r.sr_order_id || '' };
+  return { order_id: r.order_id, order_name: r.order_name, awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: r.awb ? `https://shiprocket.co/tracking/${r.awb}` : '', sr_order_id: r.sr_order_id || '' };
 }
 
 export async function cancelShipment(env, rec) {
