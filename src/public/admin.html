@@ -117,9 +117,9 @@ var NUDGING={};
 /* ---- orders ---- */
 var FIL=[['all','All'],['toship','To ship'],['unconfirmed','COD unconfirmed'],['high','High risk'],['shipped','Shipped']];
 function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){if(tab!=='orders'||BULK)return;
- S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});
+ S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});var nb=j.orders.filter(function(o){return o.booked}).length;
  var keep=quiet&&$('#q')?$('#q').value:S.q||'';
- var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px"></div>'+(S.report||'')+'<div class="row hide" id="bulkbar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
+ var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px">'+(S.filter==='shipped'&&nb?'<button class="btn sm" id="lbl_all">Download all labels (6×4 in) · '+nb+'</button>':'')+'</div>'+(S.report||'')+'<div class="row hide" id="bulkbar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
  h+='<div class="card tw"><table><thead><tr><th class="ck"><input type="checkbox" id="selall" title="Select all that are ready to ship"></th><th>Order</th><th>Customer</th><th>Place</th><th>Pay</th><th>Total</th><th>Status</th><th>Risk</th><th>When</th></tr></thead><tbody>'+(j.orders.length?j.orders.map(function(o){
   var can=!o.shipped&&o.status!=='cancelled';
   var st=o.shipped_at?'<span class="pill ok">Shipped</span>':o.booked?'<span class="pill warn" title="Booked with '+esc(o.courier)+', AWB '+esc(o.awb)+'. Shopify is not fulfilled yet.">Booked · Shopify pending</span>':o.status==='cancelled'?'<span class="pill bad">Cancelled</span>':o.method==='cod'&&!o.confirmed_at?'<span class="pill warn">COD unconfirmed</span>':'<span class="pill">Ready to ship</span>';
@@ -131,9 +131,25 @@ function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||'
   if(e.target.id==='bulk_go'){bulkShip();return}
   if(e.target.id==='bulk_clr'){S.sel={};[].forEach.call(document.querySelectorAll('input.sel'),function(i){i.checked=false});bulkBar();return}
   if(e.target.id==='rep_x'){S.report='';loadOrders();return}
+  if(e.target.id==='rep_lbl'){dlLabels(e.target.dataset.ids.split(','),e.target);return}
+  if(e.target.id==='lbl_all'){dlLabels(Object.keys(S.rows).filter(function(k){return S.rows[k].booked}),e.target);return}
   if(e.target.id==='selall'){var on=e.target.checked;Object.keys(S.rows).forEach(function(k){if(ready(S.rows[k])){if(on)S.sel[k]=1;else delete S.sel[k]}});[].forEach.call(document.querySelectorAll('input.sel'),function(i){if(!i.disabled)i.checked=!!S.sel[i.dataset.id]});bulkBar();return}
   var ck=e.target.closest('td.ck');if(ck){var i=ck.querySelector('input.sel');if(i&&!i.disabled){if(e.target!==i)i.checked=!i.checked;if(i.checked)S.sel[i.dataset.id]=1;else delete S.sel[i.dataset.id];bulkBar()}return}
   var r=e.target.closest('tr.click');if(r)openOrder(r.dataset.id)}}).catch(function(e){if(!quiet)fail(e)})}
+/* ---- labels: one PDF of 6 x 4 inch pages for many orders (built on the server, 40 labels per file) ---- */
+function dlLabels(ids,btn){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('No labels to download');return}
+ var chunks=[],k=0,got=0,miss=[],txt=btn?btn.textContent:'';for(var i=0;i<ids.length;i+=40)chunks.push(ids.slice(i,i+40));
+ if(btn)btn.disabled=true;
+ function done(msg){if(btn){btn.disabled=false;btn.textContent=txt}toast(msg)}
+ function next(){if(k>=chunks.length)return done(got+' label'+(got===1?'':'s')+' downloaded'+(miss.length?'. Missing: '+miss.map(function(m){return m.name}).join(', '):''));
+  if(btn)btn.textContent='Preparing labels '+(k+1)+' of '+chunks.length+'…';
+  fetch('/api/admin/labels',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({ids:chunks[k]})}).then(function(r){
+   if(r.status===401){logout();throw new Error('Session expired')}
+   if((r.headers.get('Content-Type')||'').indexOf('pdf')<0)return r.json().then(function(j){throw new Error(j.error||'Could not build the labels')});
+   var c=+r.headers.get('X-Label-Count')||0,m=[];try{m=JSON.parse(decodeURIComponent(r.headers.get('X-Label-Missing')||'[]'))}catch(e){}
+   return r.blob().then(function(b){var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='labels-6x4'+(chunks.length>1?'-'+(k+1):'')+'.pdf';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000);got+=c;miss=miss.concat(m)})
+  }).then(function(){k++;next()}).catch(function(er){done(er.message)})}
+ next()}
 /* ---- bulk ship: books each selected order with Shiprocket (cheapest courier), one after another ---- */
 function eligible(o){return !o.shipped&&o.status!=='cancelled'}
 function ready(o){return eligible(o)&&(o.method!=='cod'||!!o.confirmed_at)}
@@ -146,7 +162,7 @@ function bulkShip(){var ids=selIds();if(!ids.length)return;
  if(!confirm('Book '+ids.length+' order'+(ids.length>1?'s':'')+' with Shiprocket (cheapest courier for each)? This creates the AWBs, asks for pickup and charges your Shiprocket wallet for every order.'+(unc?'\n\n'+unc+' of them '+(unc>1?'are COD orders':'is a COD order')+' the customer has not confirmed yet.':'')))return;
  BULK=true;S.report='';var res=[],i=0,go=$('#bulk_go');
  function finish(){BULK=false;var ok=res.filter(function(r){return r.ok}),bad=res.length-ok.length;ok.forEach(function(r){delete S.sel[r.id]});
-  S.report='<div class="card" style="margin-bottom:10px"><div class="row"><b>Shipped '+ok.length+' of '+res.length+'</b><span class="grow"></span><button class="btn ghost sm" id="rep_x">Dismiss</button></div>'
+  S.report='<div class="card" style="margin-bottom:10px"><div class="row"><b>Shipped '+ok.length+' of '+res.length+'</b><span class="grow"></span>'+(ok.length?'<button class="btn sm" id="rep_lbl" data-ids="'+ok.map(function(r){return esc(r.id)}).join(',')+'">Download these labels (6×4 in)</button>':'')+'<button class="btn ghost sm" id="rep_x">Dismiss</button></div>'
    +res.map(function(r){return r.ok?'<div class="small" style="margin-top:6px"><b>'+esc(r.name)+'</b> · '+esc(r.courier)+' · AWB '+esc(r.awb)+(r.warn?'<div style="color:var(--warn)">Shopify: '+esc(r.warn)+'</div>':'')+'</div>':'<div class="small err" style="margin-top:6px"><b>'+esc(r.name)+'</b> · '+esc(r.err)+'</div>'}).join('')+'</div>';
   toast(bad?ok.length+' shipped, '+bad+' failed':'Shipped '+ok.length);loadOrders()}
  function step(){if(i>=ids.length)return finish();
@@ -340,10 +356,11 @@ function loadShip(){
   function tile(l,v){return '<div class="card" style="text-align:center"><div class="mut small">'+l+'</div><div style="font-size:22px;font-weight:700">'+v+'</div></div>'}
   var h='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">'+tile('Booked',st.booked)+tile('Delivered',st.delivered)+tile('NDR open',st.ndr)+tile('RTO',st.rto+' ('+st.rto_pct+'%)')+tile('RTO freight lost',rup(st.rto_cost))+tile('Courier spend',rup(st.spend))+'</div>';
   if(n.length)h+='<div class="card" style="margin-top:12px"><h3>Delivery failed, needs action</h3>'+n.map(function(x){return '<div class="fac" style="align-items:center;gap:8px;flex-wrap:wrap"><span><b>'+esc(x.order_name)+'</b> · AWB '+esc(x.awb)+'<br><span class="mut small">'+esc(x.reason||'No reason given')+(x.attempts?' · attempt '+x.attempts:'')+'</span></span><span class="row"><button class="btn sm" data-ra="'+esc(x.awb)+'">Re-attempt</button><button class="btn bad sm" data-rt="'+esc(x.awb)+'">Return (RTO)</button></span></div>'}).join('')+'</div>';
-  h+='<div class="row" style="margin:12px 0">'+[['all','All'],['booked','Booked'],['transit','In transit'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['cancelled','Cancelled']].map(function(f){return '<button class="chip'+(SHF===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div>';
+  h+='<div class="row" style="margin:12px 0">'+[['all','All'],['booked','Booked'],['transit','In transit'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['cancelled','Cancelled']].map(function(f){return '<button class="chip'+(SHF===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+(function(){var n=j.shipments.filter(function(x){return x.state!=='cancelled'}).length;return n?'<span class="grow"></span><button class="btn sm" id="sh_lbl">Download labels (6×4 in) · '+n+'</button>':''})()+'</div>';
   h+=j.shipments.length?'<div class="card" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><tr class="mut" style="text-align:left"><th>Order</th><th>Courier / AWB</th><th>Status</th><th>Freight</th><th></th></tr>'+j.shipments.map(function(x){return '<tr style="border-top:1px solid #eee"><td style="padding:6px 4px"><b>'+esc(x.order_name)+'</b><div class="mut small">'+esc(x.customer)+(x.city?' · '+esc(x.city):'')+(x.cod?' · COD':'')+'</div></td><td>'+esc(x.courier)+'<div class="mut small">'+esc(x.awb)+'</div></td><td><span class="pill '+(x.state==='rto'||x.state==='ndr'?'bad':x.state==='delivered'?'ok':'')+'">'+esc(x.state)+'</span></td><td>'+rup(x.charge)+'</td><td>'+(x.label_url?'<a target="_blank" rel="noopener" href="'+esc(x.label_url)+'">Label</a> · ':'')+'<a target="_blank" rel="noopener" href="'+esc(x.track_url)+'">Track</a></td></tr>'}).join('')+'</table></div>':'<p class="mut">No shipments here yet. Ship an order from its page and it appears here.</p>';
   $('#main').innerHTML=h;
   $('#main').onclick=function(e){var c=e.target.closest('.chip');if(c){SHF=c.dataset.f;loadShip();return}
+   if(e.target.id==='sh_lbl'){dlLabels(j.shipments.filter(function(x){return x.state!=='cancelled'}).map(function(x){return x.order_id}),e.target);return}
    var ra=e.target.closest('[data-ra]'),rt=e.target.closest('[data-rt]');
    if(ra){var dt=prompt('Re-attempt on which date? Leave blank for next working day. Format 2026-10-20','');if(dt===null)return;ra.disabled=true;rpc('ndr_do',{awb:ra.dataset.ra,action_type:'reattempt',deferred_date:dt}).then(function(){toast('Re-attempt requested');loadShip()}).catch(function(er){ra.disabled=false;toast(er.message)})}
    if(rt){if(!confirm('Send this parcel back to you? You pay the return freight.'))return;rt.disabled=true;rpc('ndr_do',{awb:rt.dataset.rt,action_type:'return'}).then(function(){toast('Return requested');loadShip()}).catch(function(er){rt.disabled=false;toast(er.message)})}}}).catch(fail)}

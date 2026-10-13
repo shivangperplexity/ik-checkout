@@ -5,7 +5,7 @@ import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.
 import { sendPurchase } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings } from './settings.js';
-import { handleLogin, handleRpc, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
+import { handleLogin, handleRpc, handleLabels, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
 import { shippingEstimate } from './shipping.js';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -346,6 +346,7 @@ export async function handle(req, env0, ctx) {
     if (path === '/api/admin/leads') return await handleAdminLeads(req, env);
     if (path === '/api/admin/login' && req.method === 'POST') return await handleLogin(req, env);
     if (path === '/api/admin/rpc' && req.method === 'POST') return await handleRpc(req, env);
+    if (path === '/api/admin/labels' && req.method === 'POST') return await handleLabels(req, env);
     if (path === '/api/health') return json({ ok: true, db: !!env.DB });
     if (path === '/api/cron') {
       if (!env.CRON_SECRET || req.headers.get('Authorization') !== `Bearer ${env.CRON_SECRET}`) return json({ error: 'unauthorized' }, 401);
