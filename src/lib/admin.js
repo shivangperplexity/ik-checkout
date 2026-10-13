@@ -117,6 +117,11 @@ async function recentOrders(env, days = 90) {
   return (await env.DB.prepare("SELECT * FROM orders WHERE created_at>? AND status NOT IN ('pending_payment','failed','completing') ORDER BY created_at DESC LIMIT 800").bind(now() - days * 86400).all()).results;
 }
 const num = (v) => Number(v) || 0;
+/** Orders that have a live (not cancelled) Shiprocket AWB. They count as shipped even if the Shopify fulfilment step failed. */
+async function bookedMap(env) {
+  const rows = (await env.DB.prepare("SELECT order_id, awb, courier FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
+  return Object.fromEntries(rows.map((r) => [String(r.order_id), r]));
+}
 function orderOut(o, all) {
   const r = scoreOrder(o, all);
   return {
@@ -236,12 +241,17 @@ const ACTIONS = {
   async live(env) { return liveData(env); },
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
   async orders(env, b) {
-    const all = await recentOrders(env, 90);
-    let list = all.map((o) => orderOut(o, all));
+    const [all, booked] = await Promise.all([recentOrders(env, 90), bookedMap(env).catch(() => ({}))]);
+    let list = all.map((o) => {
+      const x = orderOut(o, all), s = booked[String(o.order_id)];
+      if (s) { x.booked = true; x.awb = s.awb; x.courier = s.courier; }
+      x.shipped = !!(x.shipped_at || x.booked);   // shipped_at is only set once Shopify is fulfilled; a booked AWB is shipped too
+      return x;
+    });
     if (b.filter === 'high') list = list.filter((o) => o.level === 'high');
-    if (b.filter === 'toship') list = list.filter((o) => !o.shipped_at && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
+    if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
     if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && o.status !== 'cancelled');
-    if (b.filter === 'shipped') list = list.filter((o) => o.shipped_at);
+    if (b.filter === 'shipped') list = list.filter((o) => o.shipped);
     if (b.q) { const q = String(b.q).toLowerCase(); list = list.filter((o) => `${o.name} ${o.phone} ${o.customer} ${o.pincode}`.toLowerCase().includes(q)); }
     return { orders: list.slice(0, 200) };
   },
