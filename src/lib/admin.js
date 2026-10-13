@@ -1,6 +1,10 @@
 import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js';
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
+import { orderForShipping } from './shopify.js';
+import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected } from './shiprocket.js';
+import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
+import { pickOption } from './rates.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
@@ -155,6 +159,27 @@ function ratesOut(r) {
     saving_vs_dearest: r.options.length > 1 ? Math.round((Math.max(...r.options.map((o) => o.charge ?? 0)) - (r.pick?.charge ?? 0)) * 100) / 100 : 0,
   };
 }
+async function shipCtx(env, id) {
+  const row = await env.DB.prepare('SELECT * FROM orders WHERE order_id=?').bind(String(id)).first();
+  if (!row) throw new Error('Order not found');
+  if (row.status === 'cancelled') throw new Error('This order is cancelled');
+  const fresh = await withSettingsFresh(env);
+  const order = await orderForShipping(env, row.order_id);
+  if (!order) throw new Error('Order not found in Shopify');
+  if (order.cancelled) throw new Error('This order is cancelled in Shopify');
+  return { fresh, row, order };
+}
+/* envelope sizes are edited in inches in the dashboard and stored in cm */
+function packUi(p) {
+  const c = packCfg(p), r2 = (n) => Math.round(n * 100) / 100;
+  return { a_l: r2(c.env_a[0] / IN), a_b: r2(c.env_a[1] / IN), cap_a: c.cap_a, b_l: r2(c.env_b[0] / IN), b_b: r2(c.env_b[1] / IN), cap_b: c.cap_b, pad_cm: c.pad_cm, base_h_cm: c.base_h_cm, step_h_cm: c.step_h_cm, roll_l: c.roll[0], roll_b: c.roll[1], roll_h: c.roll[2], env_weight_g: c.env_weight_g, tattoo_weight_g: c.tattoo_weight_g };
+}
+function packFromUi(u) {
+  const n = (v, d, lo = 0.1, hi = 200) => { const x = Number(v); return Number.isFinite(x) && x >= lo && x <= hi ? x : d; };
+  const d = packUi({});
+  return { env_a_l: n(u.a_l, d.a_l) * IN, env_a_b: n(u.a_b, d.a_b) * IN, cap_a: Math.round(n(u.cap_a, d.cap_a, 1, 50)), env_b_l: n(u.b_l, d.b_l) * IN, env_b_b: n(u.b_b, d.b_b) * IN, cap_b: Math.round(n(u.cap_b, d.cap_b, 1, 50)),
+    pad_cm: n(u.pad_cm, d.pad_cm, 0, 20), base_h_cm: n(u.base_h_cm, d.base_h_cm), step_h_cm: n(u.step_h_cm, d.step_h_cm, 0, 20), roll_l: n(u.roll_l, d.roll_l), roll_b: n(u.roll_b, d.roll_b), roll_h: n(u.roll_h, d.roll_h), env_weight_g: n(u.env_weight_g, d.env_weight_g, 0, 500), tattoo_weight_g: n(u.tattoo_weight_g, d.tattoo_weight_g, 1, 1000) };
+}
 const mask = (v) => (v ? '••••••' + String(v).slice(-4) : '');
 const IST = 19800;
 
@@ -294,7 +319,8 @@ const ACTIONS = {
       shipping: { nimbus_email: s.shipping.nimbus_email, nimbus_password: mask(s.shipping.nimbus_password), origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.nimbus_email && s.shipping.nimbus_password),
         nimbus_ok: !!(s.shipping.nimbus_email && s.shipping.nimbus_password), nimbus_couriers: s.shipping.nimbus_couriers,
         shiprocket_email: s.shipping.shiprocket_email, shiprocket_password: mask(s.shipping.shiprocket_password), shiprocket_ok: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password), shiprocket_couriers: s.shipping.shiprocket_couriers,
-        policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days },
+        policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days,
+        sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack) },
     };
   },
   async save_shipping(env, b) {
@@ -312,6 +338,9 @@ const ACTIONS = {
       try { if (v) new RegExp(v, 'i'); } catch { throw new Error('"' + v + '" is not a valid courier filter. Use names separated by |, like delhivery|xpressbees'); }
       sh[k] = v;
     }
+    if (b.sr_pickup !== undefined) sh.sr_pickup = String(b.sr_pickup).trim().slice(0, 120);
+    if (b.sr_fallback_email !== undefined) sh.sr_fallback_email = String(b.sr_fallback_email).trim().slice(0, 200);
+    if (b.pack && typeof b.pack === 'object') sh.pack = packFromUi(b.pack);
     if (b.policy !== undefined) sh.policy = b.policy === 'fastest' ? 'fastest' : 'cheapest';
     if (b.tolerance_days !== undefined) sh.tolerance_days = Math.max(0, Math.min(10, Math.round(+b.tolerance_days || 0)));
     await putSetting(env, 'shipping', sh);
@@ -326,15 +355,74 @@ const ACTIONS = {
     if (!/^\d{6}$/.test(pin)) throw new Error('Enter a 6-digit PIN code');
     return ratesOut(await runRates(env, { pin, cod: !!b.cod, amount: +b.amount || 499, weight_g: +b.weight_g || 0 }));
   },
-  /* The cheapest courier for one order (uses the order's PIN, payment method and value; the PIN is not stored). */
-  async order_rates(env, b) {
-    const all = await recentOrders(env, 365);
-    const o = all.find((x) => String(x.order_id) === String(b.id));
-    if (!o) throw new Error('Order not found');
-    const sh = await orderDetail(env, o.order_id);
-    const pin = String(sh?.shippingAddress?.zip || '').replace(/\D/g, '').slice(0, 6);
-    if (!/^\d{6}$/.test(pin)) throw new Error('This order has no valid PIN code');
-    return ratesOut(await runRates(env, { pin, cod: o.method === 'cod', amount: Math.round(Number(o.total) || 499) }));
+  /* ---- Ship from the dashboard with Shiprocket (cheapest courier, automatic parcel size) ---- */
+  /** Preview: parcel size, every Shiprocket courier with price + date, and the one that would be booked. Books nothing. */
+  async ship_plan(env, b) {
+    const { fresh, row, order } = await shipCtx(env, b.id);
+    const existing = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
+    if (!srConnected(fresh)) throw new Error('Shiprocket is not connected yet. Add the API user login in Settings, Shipping carriers.');
+    const plan = await planShipment(fresh, order, row, { pickOption });
+    return { ok: true, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
+      shipment: publicRec(existing && existing.awb ? existing : null),
+      options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null })) };
+  },
+  /** Book it: Shiprocket order -> AWB (cheapest courier) -> pickup -> label, then Shopify fulfilment + WhatsApp. */
+  async ship_book(env, b) {
+    const { fresh, row, order } = await shipCtx(env, b.id);
+    fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
+    const r = await bookShipment(fresh, order, row, { pickOption });
+    let fulfil = '';
+    if (!row.shipped_at) {
+      try { await ACTIONS.ship(env, { id: b.id, company: r.shipment.courier, number: r.shipment.awb, url: r.shipment.track_url, notify: false }); }
+      catch (e) { fulfil = String(e.message || e); }   // the AWB exists in Shiprocket either way; tell the owner
+    }
+    return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil };
+  },
+  async sr_docs(env, b) {
+    const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
+    if (!rec?.sr_shipment_id) throw new Error('This order was not booked from the dashboard');
+    const d = await refreshDocs(await withSettingsFresh(env), rec);
+    await env.DB.prepare('UPDATE shipments SET label_url=?, pickup=?, updated_at=? WHERE order_id=?').bind(d.label_url, d.pickup, now(), String(b.id)).run();
+    return { ok: true, ...d };
+  },
+  async sr_cancel(env, b) {
+    const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
+    if (!rec) throw new Error('No shipment for this order');
+    await cancelShipment(await withSettingsFresh(env), rec);
+    await env.DB.prepare("UPDATE shipments SET status='cancelled', updated_at=? WHERE order_id=?").bind(now(), String(b.id)).run();
+    return { ok: true };
+  },
+  async sr_pickups(env) { return { ok: true, pickups: await srPickups(await withSettingsFresh(env)) }; },
+  /** Shipments tab: everything booked from the dashboard, with NDR and RTO. */
+  async shipments(env, b) {
+    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, t.checked_at, o.method, o.first_name, o.last_name, o.city, o.total_paise, o.created_at AS order_at, o.phone
+        FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id
+        WHERE s.awb IS NOT NULL ORDER BY s.created_at DESC LIMIT 300`).all()).results;
+    const list = rows.map((r) => {
+      const ts = String(r.track_status || '').toLowerCase();
+      const state = r.status === 'cancelled' ? 'cancelled' : (r.rto || /rto/.test(ts)) ? 'rto' : ts === 'delivered' ? 'delivered' : ts === 'ndr' ? 'ndr' : ts === 'in_transit' || ts === 'reached_at_destination' ? 'transit' : 'booked';
+      return { ...publicRec(r), state, customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city, cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone, booked_at: num(r.created_at), checked_at: num(r.checked_at) || null };
+    });
+    const f = b.filter || 'all';
+    const live = list.filter((x) => x.state !== 'cancelled');
+    const rto = live.filter((x) => x.state === 'rto'), done = live.filter((x) => x.state === 'delivered');
+    return { ok: true, shipments: f === 'all' ? list : list.filter((x) => x.state === f),
+      stats: { booked: live.length, delivered: done.length, rto: rto.length, ndr: live.filter((x) => x.state === 'ndr').length, rto_pct: live.length ? Math.round(rto.length * 1000 / live.length) / 10 : 0,
+        rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(live.reduce((a, x) => a + x.charge, 0)) } };
+  },
+  async ndr_list(env) {
+    const f = await withSettingsFresh(env);
+    const list = await ndrList(f);
+    const mine = Object.fromEntries((await env.DB.prepare('SELECT awb, order_name FROM shipments WHERE awb IS NOT NULL').all()).results.map((r) => [r.awb, r.order_name]));
+    return { ok: true, ndr: list.map((x) => ({ ...x, order_name: mine[x.awb] || String(x.order || '') })) };
+  },
+  /** action: 'reattempt' (optionally with a new date/phone) or 'return' (start RTO). */
+  async ndr_do(env, b) {
+    const action = b.action_type === 'return' ? 'return' : 're-attempt';
+    const date = String(b.deferred_date || '').trim();
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Date must look like 2026-10-20');
+    const r = await ndrAction(await withSettingsFresh(env), { awb: String(b.awb || ''), action, phone: String(b.phone || '').replace(/\D/g, '').slice(-10), deferred_date: date, comments: String(b.comments || '').slice(0, 200) });
+    return { ok: true, response: r.message || r.status || 'sent' };
   },
   async save_wa(env, b) {
     const s = await getSettings(env, true);

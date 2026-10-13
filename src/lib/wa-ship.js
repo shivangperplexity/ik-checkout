@@ -16,7 +16,8 @@
  * Status vocabulary observed on this account (Oct 2026): status pickup_pending | in_transit | reached_at_destination |
  * ndr | rto_initiated | delivered; history codes PP, PD, PKD, IT, RAD, OFD, EX, DL, RT.
  */
-import { orderDetail } from './shopify.js';
+import { orderDetail, addTags } from './shopify.js';
+import { srTrack } from './shiprocket.js';
 import { nimbus } from './shipping.js';
 import { fireTrigger, logMsg } from './whatsapp.js';
 import { triggerConfig } from './settings.js';
@@ -139,7 +140,9 @@ export async function shipUpdates(env) {
         const ti = f.trackingInfo.find((x) => x.number);
         awb = ti.number; courier = ti.company || ''; url = ti.url || '';
       }
-      const tr = (await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)).data || {};
+      /* AWBs booked from the dashboard are followed in Shiprocket; older ones (NimbusPost) keep their old route. */
+      const mine = await env.DB.prepare('SELECT 1 AS x FROM shipments WHERE awb=?').bind(String(awb)).first();
+      const tr = mine ? await srTrack(env, awb) : ((await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)).data || {});
       const c = classify(tr);
       let sent = {};
       try { sent = JSON.parse(r.sent || '{}') || {}; } catch { sent = {}; }
@@ -147,6 +150,12 @@ export async function shipUpdates(env) {
       if (c.stage === 'failed' && ndr === null) ndr = await ndrReasons(env);
       const { todo, base } = decide(c, sent, firstSeen, (ndr || {})[awb] || '');
       sent = base;
+      if (mine) {
+        /* keep the Shipments tab current, and tag the Shopify order once when the parcel is coming back */
+        const rto = c.stage === 'rto';
+        await env.DB.prepare('UPDATE shipments SET status=?, rto=?, updated_at=? WHERE awb=?').bind(tr.status || c.stage, rto, t, String(awb)).run();
+        if (rto && !sent.rto) { try { await addTags(env, `gid://shopify/Order/${r.order_id}`, ['rto']); sent = { ...sent, rto: now() }; } catch { /* retried next run */ } }
+      }
       const vars = { name: r.first_name || 'there', order: r.order_name, courier: String(courier || tr.courier_name || 'our courier').replace(/\s+(Surface|Air)$/i, ''), edd: fmtEdd(tr.edd), location: c.city || 'a courier hub', track: url || r.status_url || '' };
       for (const what of todo) {
         if (what === 'failed-refused') {

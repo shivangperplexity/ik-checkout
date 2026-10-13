@@ -37,6 +37,7 @@ export function cfg(env) {
     shiprocketCouriers: s.shiprocket_couriers || '',          // blank = every courier Shiprocket offers
     toleranceDays: Number(s.tolerance_days ?? 2),             // how much slower than the fastest the cheapest may be
     policy: s.policy === 'fastest' ? 'fastest' : 'cheapest',
+    provider: s.provider === 'all' ? 'all' : 'shiprocket',      // Shiprocket is the fixed partner; 'all' compares NimbusPost too
   };
 }
 

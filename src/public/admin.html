@@ -68,7 +68,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 <script>
 (function(){
 'use strict';
-var TABS=[['live','Live'],['orders','Orders'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['wa','WhatsApp'],['settings','Settings']];
+var TABS=[['live','Live'],['orders','Orders'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['ship','Shipments'],['wa','WhatsApp'],['settings','Settings']];
 var tab='live',token='',timer=null,S={filter:'all',days:7,msgTab:false};
 function $(s,r){return (r||document).querySelector(s)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -93,7 +93,7 @@ function start(){$('#login').classList.add('hide');$('#app').classList.remove('h
  $('#nav').onclick=function(e){var b=e.target.closest('button');if(b)go(b.dataset.t)};go(tab);
  clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;if(tab==='live')loadLive(true);else if(tab==='orders'&&!$('#ov').innerHTML)loadOrders(true)},5000)}
 function go(t){tab=t;[].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t)});
- $('#main').innerHTML='<p class="mut">Loading…</p>';({live:loadLive,orders:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,wa:loadWa,settings:loadSettings})[t]()}
+ $('#main').innerHTML='<p class="mut">Loading…</p>';({live:loadLive,orders:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,settings:loadSettings})[t]()}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */
@@ -135,6 +135,36 @@ function ratesTable(r){
  h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(o){var pick=o.key===r.pick;return '<tr style="border-top:1px solid #eee'+(pick?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(o.courier)+'<div class="mut" style="font-weight:400">'+esc(o.provider)+(pick?' · <b style="color:#16a34a">use this</b>':'')+(o.key===r.cheapest&&!pick?' · cheapest':'')+'</div></td><td>'+(o.charge==null?'-':rup(o.charge))+(o.cod_fee?'<div class="mut" style="font-weight:400">incl. COD '+rup(o.cod_fee)+'</div>':'')+'</td><td>'+(esc(o.edd)||'-')+(o.days?'<div class="mut" style="font-weight:400">'+o.days+' d</div>':'')+'</td></tr>'}).join('')+'</table>';
  if(r.saving_vs_dearest>0)h+='<p style="margin:6px 0 0"><b>Saves '+rup(r.saving_vs_dearest)+'</b> against the dearest option.</p>';
  return h}
+
+function shipDone(sp){return '<p class="ok" style="margin:0 0 6px"><b>'+esc(sp.courier)+'</b> · AWB <b>'+esc(sp.awb)+'</b> · '+rup(sp.charge)+'</p>'
+ +(sp.pack&&sp.pack.label?'<p class="small mut" style="margin:0 0 6px">'+esc(sp.pack.label)+'</p>':'')
+ +'<p class="small" style="margin:0 0 8px">'+(sp.pickup?esc(sp.pickup):'Pickup requested.')+'</p>'
+ +'<div class="row">'+(sp.label_url?'<a class="btn sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.label_url)+'">Print label</a>':'')+'<a class="btn ghost sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.track_url)+'">Track</a><button class="btn ghost sm" id="sr_dc">Refresh label / pickup</button><button class="btn bad sm" id="sr_cx">Cancel shipment</button></div>'}
+function shipPanel(id,o){
+ var e=$('#or_rt');
+ function draw(r){
+  var el=$('#or_rt');if(!el)return;
+  if(r.shipment){el.innerHTML=shipDone(r.shipment);wireDone(r.shipment);return}
+  var pk=r.options.filter(function(x){return x.key===r.pick})[0];
+  var h='<p style="margin:0 0 6px"><b>Parcel (automatic):</b> '+esc(r.pack.label)+' · '+r.pack.weight_g+' g</p>';
+  if(!r.ready)h+='<p style="color:#b45309;margin:4px 0">Choose your Shiprocket pickup location in Settings first.</p>';
+  if(!r.options.length)h+='<p>Shiprocket has no courier for this PIN.</p>';
+  else{
+   h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(x){var p=x.key===r.pick;return '<tr style="border-top:1px solid #eee'+(p?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(x.courier)+(p?'<div style="font-weight:400;color:#16a34a">will be used</div>':'')+'</td><td>'+(x.charge==null?'-':rup(x.charge))+'</td><td>'+(esc(x.edd)||'-')+'</td></tr>'}).join('')+'</table>';
+   h+='<button class="btn" id="sr_go" style="margin-top:10px"'+(r.ready&&pk?'':' disabled')+'>Ship with Shiprocket'+(pk&&pk.charge!=null?' · '+rup(pk.charge):'')+'</button>';
+  }
+  el.innerHTML=h;
+  var g=$('#sr_go');if(g)g.onclick=function(){
+   if(!confirm('Book '+(pk?pk.courier:'the cheapest courier')+' for '+o.name+'? This creates the AWB, asks for pickup and charges your Shiprocket wallet.'))return;
+   g.disabled=true;g.textContent='Booking…';
+   rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped');el.innerHTML=shipDone(b.shipment);wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
+ }
+ function wireDone(sp){
+  var d=$('#sr_dc'),c=$('#sr_cx');
+  if(d)d.onclick=function(){d.disabled=true;rpc('sr_docs',{id:id}).then(function(){toast('Updated');shipPanel(id,o)}).catch(function(er){d.disabled=false;toast(er.message)})};
+  if(c)c.onclick=function(){if(!confirm('Cancel the Shiprocket shipment for '+o.name+'?'))return;c.disabled=true;rpc('sr_cancel',{id:id}).then(function(){toast('Cancelled');shipPanel(id,o)}).catch(function(er){c.disabled=false;toast(er.message)})}
+ }
+ rpc('ship_plan',{id:id}).then(draw).catch(function(er){var el=$('#or_rt');if(el)el.textContent=er.message})}
 function close(){$('#ov').innerHTML=''}
 function openOrder(id){
  $('#ov').innerHTML='<div class="scrim" id="sc"></div><div class="drawer"><p class="mut">Loading…</p></div>';$('#sc').onclick=close;
@@ -146,7 +176,7 @@ function openOrder(id){
   d+='<div class="card" style="margin:10px 0"><h3>Risk check</h3><div class="gauge"><i style="left:calc('+r.score+'% - 2px)"></i></div><p class="small"><b>'+esc(r.advice)+'</b></p>'+(r.factors.length?r.factors.map(function(f){return '<div class="fac"><span>'+esc(f.why)+'</span><b class="'+(f.w>0?'p':'n')+'">'+(f.w>0?'+':'')+f.w+'</b></div>'}).join(''):'<p class="mut small">No risk signals.</p>')+'</div>';
   d+='<div class="card" style="margin:10px 0"><h3>Customer & address</h3><div class="small">'+esc(a.name||o.customer)+'<br>'+esc([a.address1,a.address2,a.city,a.province,a.zip].filter(Boolean).join(', '))+'<br>+91 '+esc(o.phone)+'</div><div class="row" style="margin-top:8px"><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(o.phone)+'">WhatsApp</a><a class="btn ghost sm" style="display:inline-grid;place-items:center" href="tel:+91'+esc(o.phone)+'">Call</a></div></div>';
   d+='<div class="card" style="margin:10px 0"><h3>Items</h3>'+(items||'<p class="mut small">'+(sh.error?esc(sh.error):'-')+'</p>')+'</div>';
-  if(o.status!=='cancelled'&&!fulfilled)d+='<div class="card" style="margin:10px 0"><h3>Cheapest courier for this order</h3><div id="or_rt" class="small mut">Checking carriers…</div></div>';
+  if(o.status!=='cancelled'&&!fulfilled)d+='<div class="card" style="margin:10px 0"><h3>Ship with Shiprocket</h3><div id="or_rt" class="small mut">Working out parcel size and rates…</div></div>';
   if(o.status==='cancelled')d+='<p class="pill bad">Cancelled</p>';
   else{
    d+='<div class="card" style="margin:10px 0"><h3>Actions</h3><div class="row">';
@@ -164,7 +194,7 @@ function openOrder(id){
   if(j.session)d+='<p class="small mut">Came from <b>'+esc(j.session.source||'direct')+'</b> on '+esc(j.session.device||'?')+'</p>';
   $('#ov').querySelector('.drawer').innerHTML=d;
   $('#cl').onclick=close;
-  if($('#or_rt'))rpc('order_rates',{id:id}).then(function(r){var e=$('#or_rt');if(e)e.innerHTML=ratesTable(r)}).catch(function(e2){var e=$('#or_rt');if(e)e.textContent=e2.message});
+  if($('#or_rt'))shipPanel(id,o);
   function act(btn,fn){btn.onclick=function(){btn.disabled=true;fn().then(function(){toast('Done');close();loadOrders()}).catch(function(e){btn.disabled=false;toast(e.message)})}}
   if($('#cf'))act($('#cf'),function(){return rpc('confirm',{id:id})});
   if($('#cx'))$('#cx').onclick=function(){if(confirm('Cancel '+o.name+'? Stock is restocked and no refund is issued from here.'))act($('#cx'),function(){return rpc('cancel',{id:id})}),$('#cx').onclick()};
@@ -273,11 +303,26 @@ function loadTplMeta(){var box=$('#tpl_meta');if(!box)return;box.innerHTML='<h3>
 function trLabel(k){var t=(W&&W.triggers||[]).filter(function(x){return x.key===k})[0];return t?t.label:({try:'Template test',reply:'Customer reply',link:'Tapped confirm link','g4w-raw':'Unread webhook (raw)',convert:'Paid online (COD → prepaid)',auto_cancel:'Auto-cancelled (no reply)'})[k]||k}
 function bindWaTabs(){$('#t1').onclick=function(){S.msgTab=false;drawWa()};$('#t2').onclick=function(){S.msgTab=true;drawWa()}}
 
+/* ---- shipments (Shiprocket bookings, NDR, RTO) ---- */
+var SHF='all';
+function loadShip(){
+ Promise.all([rpc('shipments',{filter:SHF}),rpc('ndr_list').catch(function(){return{ndr:[]}})]).then(function(a){var j=a[0],n=a[1].ndr||[],st=j.stats;
+  function tile(l,v){return '<div class="card" style="text-align:center"><div class="mut small">'+l+'</div><div style="font-size:22px;font-weight:700">'+v+'</div></div>'}
+  var h='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">'+tile('Booked',st.booked)+tile('Delivered',st.delivered)+tile('NDR open',st.ndr)+tile('RTO',st.rto+' ('+st.rto_pct+'%)')+tile('RTO freight lost',rup(st.rto_cost))+tile('Courier spend',rup(st.spend))+'</div>';
+  if(n.length)h+='<div class="card" style="margin-top:12px"><h3>Delivery failed, needs action</h3>'+n.map(function(x){return '<div class="fac" style="align-items:center;gap:8px;flex-wrap:wrap"><span><b>'+esc(x.order_name)+'</b> · AWB '+esc(x.awb)+'<br><span class="mut small">'+esc(x.reason||'No reason given')+(x.attempts?' · attempt '+x.attempts:'')+'</span></span><span class="row"><button class="btn sm" data-ra="'+esc(x.awb)+'">Re-attempt</button><button class="btn bad sm" data-rt="'+esc(x.awb)+'">Return (RTO)</button></span></div>'}).join('')+'</div>';
+  h+='<div class="row" style="margin:12px 0">'+[['all','All'],['booked','Booked'],['transit','In transit'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['cancelled','Cancelled']].map(function(f){return '<button class="chip'+(SHF===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div>';
+  h+=j.shipments.length?'<div class="card" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><tr class="mut" style="text-align:left"><th>Order</th><th>Courier / AWB</th><th>Status</th><th>Freight</th><th></th></tr>'+j.shipments.map(function(x){return '<tr style="border-top:1px solid #eee"><td style="padding:6px 4px"><b>'+esc(x.order_name)+'</b><div class="mut small">'+esc(x.customer)+(x.city?' · '+esc(x.city):'')+(x.cod?' · COD':'')+'</div></td><td>'+esc(x.courier)+'<div class="mut small">'+esc(x.awb)+'</div></td><td><span class="pill '+(x.state==='rto'||x.state==='ndr'?'bad':x.state==='delivered'?'ok':'')+'">'+esc(x.state)+'</span></td><td>'+rup(x.charge)+'</td><td>'+(x.label_url?'<a target="_blank" rel="noopener" href="'+esc(x.label_url)+'">Label</a> · ':'')+'<a target="_blank" rel="noopener" href="'+esc(x.track_url)+'">Track</a></td></tr>'}).join('')+'</table></div>':'<p class="mut">No shipments here yet. Ship an order from its page and it appears here.</p>';
+  $('#main').innerHTML=h;
+  $('#main').onclick=function(e){var c=e.target.closest('.chip');if(c){SHF=c.dataset.f;loadShip();return}
+   var ra=e.target.closest('[data-ra]'),rt=e.target.closest('[data-rt]');
+   if(ra){var dt=prompt('Re-attempt on which date? Leave blank for next working day. Format 2026-10-20','');if(dt===null)return;ra.disabled=true;rpc('ndr_do',{awb:ra.dataset.ra,action_type:'reattempt',deferred_date:dt}).then(function(){toast('Re-attempt requested');loadShip()}).catch(function(er){ra.disabled=false;toast(er.message)})}
+   if(rt){if(!confirm('Send this parcel back to you? You pay the return freight.'))return;rt.disabled=true;rpc('ndr_do',{awb:rt.dataset.rt,action_type:'return'}).then(function(){toast('Return requested');loadShip()}).catch(function(er){rt.disabled=false;toast(er.message)})}}}).catch(fail)}
+
 /* ---- settings ---- */
 function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},sh=j.shipping||{};
  $('#main').innerHTML='<div class="grid two"><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
  +[['gpay','Google Pay'],['phonepe','PhonePe'],['paytm','Paytm'],['any','Any UPI app']].map(function(a){return '<label class="f">'+a[1]+'<input type="url" class="lg" data-k="'+a[0]+'" value="'+esc(L[a[0]])+'" placeholder="https://cdn.shopify.com/..."></label>'}).join('')+'<button class="btn" id="lg_sv">Save logos</button></div>'
- +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Connect your courier-aggregator logins. For every order and every PIN the dashboard compares all connected carriers and picks the cheapest one that is not much slower than the fastest. Customers still see one option, "Express shipping", with the delivery date of the courier we would book.</p>'
+ +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Shiprocket is the carrier we ship with. NimbusPost is only kept for tracking older shipments and as a fallback for the delivery date until Shiprocket is connected. For every order and every PIN the dashboard compares all connected carriers and picks the cheapest one that is not much slower than the fastest. Customers still see one option, "Express shipping", with the delivery date of the courier we would book.</p>'
  +'<h4 style="margin:6px 0 0">NimbusPost '+(sh.nimbus_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
  +'<label class="f">NimbusPost email<input type="email" id="sh_email" value="'+esc(sh.nimbus_email||'')+'" autocomplete="off"></label>'
  +'<label class="f">NimbusPost password<input type="password" id="sh_pass" value="'+esc(sh.nimbus_password||'')+'" autocomplete="new-password"></label>'
@@ -287,6 +332,11 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  +'<label class="f">Shiprocket API user email<input type="email" id="sh_sre" value="'+esc(sh.shiprocket_email||'')+'" autocomplete="off"></label>'
  +'<label class="f">Shiprocket API user password<input type="password" id="sh_srp" value="'+esc(sh.shiprocket_password||'')+'" autocomplete="new-password"></label>'
  +'<label class="f">Only use these Shiprocket couriers<input id="sh_scr" value="'+esc(sh.shiprocket_couriers||'')+'" placeholder="blank = all couriers"></label>'
+ +'<label class="f">Pickup location (where the courier collects)<select id="sh_pk"><option value="'+esc(sh.sr_pickup||'')+'">'+esc(sh.sr_pickup||'Load locations below')+'</option></select></label><button class="btn ghost sm" id="sh_pkl" type="button">Load my Shiprocket pickup locations</button>'
+ +'<label class="f">Email if the customer has none<input type="email" id="sh_fe" value="'+esc(sh.sr_fallback_email||'')+'"></label>'
+ +'<h4 style="margin:10px 0 0">Packaging (automatic)</h4><p class="small mut" style="margin:0">Parcel size = biggest envelope + padding. Height starts at the base and grows per extra envelope. A sleeve tattoo, or a design too big for the large envelope, goes in the roll.</p>'
+ +(function(){var p=sh.pack||{};function f(id,l,k,st){return '<label class="f">'+l+'<input type="number" step="'+(st||'0.01')+'" id="pk_'+id+'" value="'+esc(String(p[k]==null?'':p[k]))+'"></label>'}
+  return '<div class="grid two">'+f('al','Small envelope length (in)','a_l')+f('ab','Small envelope breadth (in)','a_b')+f('ca','Tattoos per small envelope','cap_a','1')+f('bl','Large envelope length (in)','b_l')+f('bb','Large envelope breadth (in)','b_b')+f('cb','Tattoos per large envelope','cap_b','1')+f('pad','Padding added (cm)','pad_cm')+f('bh','Base height (cm)','base_h_cm')+f('sh','Extra height per envelope (cm)','step_h_cm')+f('rl','Roll length (cm)','roll_l')+f('rb','Roll breadth (cm)','roll_b')+f('rh','Roll height (cm)','roll_h')+f('ew','Envelope weight (g)','env_weight_g')+f('tw','Tattoo weight if not set (g)','tattoo_weight_g')+'</div>'})()
  +'<h4 style="margin:10px 0 0">Parcel and rules</h4>'
  +'<div class="grid two"><label class="f">Pickup PIN code<input id="sh_pin" inputmode="numeric" maxlength="6" value="'+esc(sh.origin_pin||'410206')+'"></label><label class="f">Parcel weight (g)<input id="sh_wt" type="number" min="10" value="'+esc(String(sh.weight_g||50))+'"></label></div>'
  +'<div class="grid two"><label class="f">Choose<select id="sh_pol"><option value="cheapest"'+(sh.policy!=='fastest'?' selected':'')+'>Cheapest</option><option value="fastest"'+(sh.policy==='fastest'?' selected':'')+'>Fastest</option></select></label><label class="f">Cheapest may be slower by (days)<input id="sh_tol" type="number" min="0" max="10" value="'+esc(String(sh.tolerance_days==null?2:sh.tolerance_days))+'"></label></div>'
@@ -297,7 +347,9 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  +'<button class="btn" id="rt_go">Compare</button><div id="rt_out" class="small mut"></div></div>'
  +'<div class="card grid"><h3>Change password</h3><label class="f">Current password<input type="password" id="p0" autocomplete="current-password"></label><label class="f">New password (8+ characters)<input type="password" id="p1" autocomplete="new-password"></label><button class="btn" id="pw_sv">Change password</button><p class="small mut">Signed in as '+esc(j.email||'')+'. The starter password is a test one: change it before you go live.</p></div></div>';
  $('#lg_sv').onclick=function(){var l={};[].forEach.call(document.querySelectorAll('.lg'),function(i){l[i.dataset.k]=i.value});rpc('save_logos',{logos:l}).then(function(){toast('Saved')}).catch(function(e){toast(e.message)})};
- $('#sh_sv').onclick=function(){rpc('save_shipping',{nimbus_email:$('#sh_email').value,nimbus_password:$('#sh_pass').value,nimbus_couriers:$('#sh_ncr').value,shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
+ $('#sh_pkl').onclick=function(){var b=$('#sh_pkl');b.disabled=true;rpc('sr_pickups').then(function(r){var cur=$('#sh_pk').value;$('#sh_pk').innerHTML=r.pickups.map(function(x){var n=typeof x==='string'?x:x.name;return '<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>'}).join('')||'<option value="">None found</option>';b.disabled=false}).catch(function(e){b.disabled=false;toast(e.message)})};
+ $('#sh_sv').onclick=function(){var pk={};['al:a_l','ab:a_b','ca:cap_a','bl:b_l','bb:b_b','cb:cap_b','pad:pad_cm','bh:base_h_cm','sh:step_h_cm','rl:roll_l','rb:roll_b','rh:roll_h','ew:env_weight_g','tw:tattoo_weight_g'].forEach(function(m){var q=m.split(':');pk[q[1]]=$('#pk_'+q[0]).value});
+  rpc('save_shipping',{nimbus_email:$('#sh_email').value,nimbus_password:$('#sh_pass').value,nimbus_couriers:$('#sh_ncr').value,shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,sr_pickup:$('#sh_pk').value,sr_fallback_email:$('#sh_fe').value,pack:pk,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
  $('#rt_go').onclick=function(){var o=$('#rt_out');o.textContent='Asking the carriers…';rpc('shipping_rates',{pin:$('#rt_pin').value,cod:$('#rt_cod').checked,amount:$('#rt_amt').value}).then(function(r){o.innerHTML=ratesTable(r)}).catch(function(e){o.textContent='Failed: '+e.message})};
  $('#pw_sv').onclick=function(){rpc('change_password',{current:$('#p0').value,next:$('#p1').value}).then(function(){toast('Password changed');$('#p0').value=$('#p1').value=''}).catch(function(e){toast(e.message)})}}).catch(fail)}
 

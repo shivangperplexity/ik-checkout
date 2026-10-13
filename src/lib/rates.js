@@ -11,6 +11,8 @@
 // "charge" is what we pay the courier for this parcel in rupees, including the COD fee when the order is COD.
 
 import { cfg, token, eddRaw, eddDate } from './shipping.js';
+import { srRates } from './shiprocket.js';
+import { packOrder, packCfg } from './packing.js';
 
 const NB = 'https://api.nimbuspost.com/v1';
 const SR = 'https://apiv2.shiprocket.in/v1/external';
@@ -46,43 +48,16 @@ async function nimbusRates(c, q) {
   }));
 }
 
-/* ---------- Shiprocket ---------- */
-let srTok = { value: '', exp: 0, key: '' };
-async function shiprocketToken(c) {
-  const key = c.shiprocketEmail + ':' + c.shiprocketPassword;
-  if (srTok.value && srTok.key === key && Date.now() < srTok.exp) return srTok.value;
-  const r = await fetch(SR + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: c.shiprocketEmail, password: c.shiprocketPassword }) });
-  const j = await r.json().catch(() => ({}));
-  if (!j.token) throw new Error('Shiprocket login failed' + (j.message ? ': ' + j.message : ''));
-  srTok = { value: j.token, key, exp: Date.now() + 9 * 24 * 60 * 60 * 1000 }; // tokens last 10 days
-  return srTok.value;
-}
-async function shiprocketRates(c, q) {
+/* ---------- Shiprocket (lib/shiprocket.js) ---------- */
+async function shiprocketRates(c, q, env) {
   if (!c.shiprocketEmail || !c.shiprocketPassword) return null;        // not connected
-  const t = await shiprocketToken(c);
-  const kg = Math.max(0.05, c.weight / 1000);
-  const qs = new URLSearchParams({ pickup_postcode: c.origin, delivery_postcode: q.pin, weight: String(kg), cod: q.cod ? '1' : '0', declared_value: String(q.amount), length: '20', breadth: '15', height: '2' });
-  const r = await fetch(SR + '/courier/serviceability/?' + qs, { headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' } });
-  const j = await r.json().catch(() => ({}));
-  if (r.status === 401) srTok = { value: '', exp: 0, key: '' };
-  const list = j.data && j.data.available_courier_companies;
-  if (!Array.isArray(list)) {
-    if (r.status === 404 || /no courier|not serviceable/i.test(String(j.message || ''))) return [];   // PIN not served
-    throw new Error('Shiprocket: ' + (j.message || 'serviceability failed'));
-  }
-  const only = safeRe(c.shiprocketCouriers);
-  return list.filter((x) => !only || only.test(String(x.courier_name || ''))).map((x) => ({
-    courier: String(x.courier_name || 'Courier'),
-    charge: rupees(x.rate ?? (num(x.freight_charge) ?? 0) + (num(x.cod_charges) ?? 0)),
-    freight: rupees(x.freight_charge),
-    cod: rupees(x.cod_charges),
-    edd: x.etd || x.estimated_delivery_days || '',
-  }));
+  const pack = q.pack || packOrder([{ quantity: 1 }], packCfg(env.SETTINGS?.shipping?.pack));   // checkout default: one small envelope
+  return srRates(env, { pin: q.pin, cod: q.cod, amount: q.amount, pack });
 }
 
 export const PROVIDERS = {
   nimbus: { label: 'NimbusPost', run: (c, q) => nimbusRates({ ...c }, q) },
-  shiprocket: { label: 'Shiprocket', run: shiprocketRates },
+  shiprocket: { label: 'Shiprocket', run: (c, q, env) => shiprocketRates(c, q, env) },
 };
 
 /** Pure: choose the option to ship with. options = [{ charge, eddDate }] */
@@ -103,15 +78,17 @@ export function pickOption(options, { policy = 'cheapest', toleranceDays = 2 } =
  * Ask every connected carrier, in parallel. A carrier that is down or rejects its login is reported in `errors`
  * and the others still decide. Returns { options (cheapest first), pick, cheapest, fastest, errors, tried, connected }.
  */
-export async function compareRates(env, { pin, cod = false, amount = 499 }) {
+export async function compareRates(env, { pin, cod = false, amount = 499, pack = null }) {
   const c = cfg(env);
-  const q = { pin, cod: !!cod, amount: Number(amount) || 499 };
+  const q = { pin, cod: !!cod, amount: Number(amount) || 499, pack };
+  /* Shiprocket is the fixed partner. Until its login is saved, NimbusPost (if connected) keeps the date estimate working. */
+  const only = c.shiprocketEmail && c.shiprocketPassword && c.provider !== 'all' ? ['shiprocket'] : Object.keys(PROVIDERS);
   const errors = [];
   let tried = 0;
   const connected = [];
-  const results = await Promise.all(Object.entries(PROVIDERS).map(async ([key, p]) => {
+  const results = await Promise.all(Object.entries(PROVIDERS).filter(([k]) => only.includes(k)).map(async ([key, p]) => {
     try {
-      const rows = await withTimeout(p.run(c, q), p.label);
+      const rows = await withTimeout(p.run(c, q, env), p.label);
       if (rows === null) return [];
       tried++; connected.push(key);
       return rows.map((o) => ({ ...o, provider: key, providerLabel: p.label }));
