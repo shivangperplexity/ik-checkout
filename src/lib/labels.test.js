@@ -24,6 +24,27 @@ test('any number of labels ends up in a single PDF', async () => {
   assert.equal((await sizes(out)).length, 120);
 });
 
+/* A made-up 4x6 label: a colour "brand logo" picture drawn at (x,y) plus text. */
+const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDK+mmyAAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+async function fakeLabel(x, y) {
+  const d = await PDFLib.PDFDocument.create(), p = d.addPage([288, 432]);
+  p.drawImage(await d.embedPng(PNG), { x, y, width: 101.25, height: 63.75 });
+  p.drawText('Ship To', { x: 10, y: 410, size: 10 });
+  return d.save();
+}
+async function logoSwaps(bufs, opts) {
+  const seen = [], orig = PDFLib.PDFPage.prototype.drawRectangle;
+  PDFLib.PDFPage.prototype.drawRectangle = function (o) { seen.push([o.x, o.y, o.width, o.height].map(Math.round)); return orig.call(this, o); };
+  try { await globalThis.mergeLabels6x4(bufs, opts); } finally { PDFLib.PDFPage.prototype.drawRectangle = orig; }
+  return seen;
+}
+
+test('the Shiprocket brand logo (top right) is covered and replaced; a picture elsewhere is left alone', async () => {
+  assert.deepEqual(await logoSwaps([await fakeLabel(173, 346)]), [[173, 346, 102, 65]]);
+  assert.deepEqual(await logoSwaps([await fakeLabel(10, 20)]), []);            // bottom-left: not the logo spot
+  assert.deepEqual(await logoSwaps([await fakeLabel(173, 346)], { keepLogo: true }), []);
+});
+
 const rows = [
   { order_id: '1', awb: 'A1', sr_shipment_id: '11', label_url: 'https://x.test/1.pdf', status: 'booked' },
   { order_id: '3', awb: 'A3', sr_shipment_id: '13', label_url: 'https://x.test/3.pdf', status: 'cancelled' },
