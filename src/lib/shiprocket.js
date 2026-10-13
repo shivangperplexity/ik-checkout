@@ -223,6 +223,13 @@ export async function cancelShipment(env, rec) {
   await sr(env, 'POST', 'orders/cancel', { ids: [Number(rec.sr_order_id)] });
 }
 
+/** Label only (no pickup request). Returns the stored label URL, or asks Shiprocket for a fresh one when there is none or `force` is set. */
+export async function ensureLabel(env, rec, force = false) {
+  if (rec.label_url && !force) return rec.label_url;
+  const l = await sr(env, 'POST', 'courier/generate/label', { shipment_id: [Number(rec.sr_shipment_id)] });
+  return l.label_url || '';
+}
+
 /** Re-request pickup / label for a booked shipment. */
 export async function refreshDocs(env, rec) {
   const sid = [Number(rec.sr_shipment_id)];

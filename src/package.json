@@ -3,12 +3,15 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "test": "node --test"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
-    "@vercel/functions": "^2.0.0"
+    "@vercel/functions": "^2.0.0",
+    "pdf-lib": "^1.17.1"
   }
 }
