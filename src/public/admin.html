@@ -117,7 +117,7 @@ var NUDGING={};
 
 /* ---- orders ---- */
 var FIL=[['all','All'],['toship','To ship'],['packed','Packed'],['unconfirmed','COD unconfirmed'],['high','High risk'],['shipped','Shipped']];
-function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){if(tab!=='orders'||BULK)return;
+function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||'',fresh:quiet?0:1}).then(function(j){if(tab!=='orders'||BULK)return;
  S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});var nb=j.orders.filter(function(o){return o.booked}).length;
  var keep=quiet&&$('#q')?$('#q').value:S.q||'';
  var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px">'+(S.filter==='shipped'&&nb?'<button class="btn sm" id="lbl_all">Download all labels (6×4 in) · '+nb+'</button>':'')+(function(){if(S.filter!=='toship')return '';var n=j.orders.filter(function(o){return ready(o)&&!o.packed_at}).length;return n?'<button class="btn sm" id="pack_all">Start packing · '+n+'</button>':''})()+'</div>'+(S.report||'')+'<div class="row hide" id="bulkbar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';

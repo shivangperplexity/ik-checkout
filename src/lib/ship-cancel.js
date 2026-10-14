@@ -70,6 +70,19 @@ export async function stopShipment(env, orderId, why = 'Order cancelled') {
 }
 
 /**
+ * Orders cancelled outside this dashboard (in Shopify itself, or tagged cancelled by another COD app) are still
+ * "placed" here and show under To ship. Check these ids with Shopify and mark the cancelled ones. Returns their ids.
+ */
+export async function syncCancelledOrders(env, ids) {
+  ids = [...new Set((ids || []).map(String).filter(Boolean))];
+  if (!ids.length) return [];
+  const shop = await ordersCancelState(env, ids);
+  const gone = ids.filter((id) => { const s = shop[id]; return s && (s.cancelled || s.tags.some((t) => CANCEL_TAG.test(t))); });
+  for (const id of gone) await env.DB.prepare("UPDATE orders SET status='cancelled' WHERE order_id=? AND COALESCE(status,'')<>'cancelled'").bind(id).run();
+  return gone;
+}
+
+/**
  * Cron: booked parcels whose order has been cancelled anywhere (our dashboard / WhatsApp, Shopify, or a
  * "COD cancelled" tag from another app). Not picked up -> pickup cancelled and the order cancelled in Shopify too.
  */

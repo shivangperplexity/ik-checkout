@@ -136,3 +136,15 @@ test('cron sweep: catches orders cancelled in Shopify or tagged by another COD a
     assert.equal(again.stopped + again.late, 0);
   } finally { w.done(); }
 });
+
+test('orders cancelled in Shopify or tagged cancelled by another COD app are marked cancelled here', async () => {
+  const { syncCancelledOrders } = await import('./ship-cancel.js');
+  const st = { 1: 'placed', 2: 'placed', 3: 'placed', 4: 'placed' }, real = globalThis.fetch;
+  const env = { SHOP_DOMAIN: 'x.myshopify.com', SHOPIFY_ADMIN_TOKEN: 't', DB: { prepare: (sql) => ({ bind: (id) => ({ run: async () => { if (/SET status='cancelled'/.test(sql)) st[id] = 'cancelled'; return {}; } }) }) } };
+  const shop = { 1: { cancelled: true }, 2: { tags: ['❌ COD-Cancelled'] }, 3: { tags: ['cod-confirmed'] }, 4: { tags: ['cod-cancelled-by-customer'] } };
+  globalThis.fetch = async (u, o) => { const v = JSON.parse(o.body).variables; return new Response(JSON.stringify({ data: { nodes: v.ids.map((g) => { const id = g.split('/').pop(); return { legacyResourceId: id, cancelledAt: shop[id]?.cancelled ? 'x' : null, tags: shop[id]?.tags || [] }; }) } })); };
+  try {
+    assert.deepEqual(await syncCancelledOrders(env, ['1', '2', '3', '4']), ['1', '2', '4']);
+    assert.deepEqual(st, { 1: 'cancelled', 2: 'cancelled', 3: 'placed', 4: 'cancelled' });
+  } finally { globalThis.fetch = real; }
+});

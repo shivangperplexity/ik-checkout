@@ -6,7 +6,7 @@ import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, c
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
 import { labelPdf } from './labels.js';
-import { stopShipment, sweepCancelled } from './ship-cancel.js';
+import { stopShipment, sweepCancelled, syncCancelledOrders } from './ship-cancel.js';
 import { stageOf, LABEL as STAGE_LABEL, refreshShipment, refreshDue, requestPickup, manifestUrl } from './ship-status.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
@@ -299,6 +299,14 @@ const ACTIONS = {
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
   async orders(env, b) {
     const [all, booked] = await Promise.all([recentOrders(env, 90), bookedMap(env).catch(() => ({}))]);
+    /* orders cancelled in Shopify / by another COD app: catch them now (user-triggered loads only; the cron does the rest) */
+    if (b.fresh) {
+      try {
+        const open = all.filter((o) => !o.shipped_at && !booked[String(o.order_id)] && o.status !== 'cancelled' && o.order_id).slice(0, 150).map((o) => String(o.order_id));
+        const gone = new Set(await syncCancelledOrders(env, open));
+        all.forEach((o) => { if (gone.has(String(o.order_id))) o.status = 'cancelled'; });
+      } catch (e) { console.error('orders cancel sync', e.message); }
+    }
     let list = all.map((o) => {
       const x = orderOut(o, all), s = booked[String(o.order_id)];
       if (s) { x.booked = true; x.awb = s.awb; x.courier = s.courier; x.fulfil_error = s.fulfil_error || ''; }
@@ -969,6 +977,11 @@ export async function runAutomations(env) {
       out.reminded++;
     }
   }
+  /* Orders cancelled in Shopify or by another COD app, so they leave "To ship" here too */
+  try {
+    const open = (await env.DB.prepare("SELECT order_id FROM orders WHERE order_id IS NOT NULL AND shipped_at IS NULL AND status NOT IN ('cancelled','failed','pending_payment','completing') AND created_at>? ORDER BY created_at DESC LIMIT 300").bind(t - 30 * 86400).all()).results;
+    out.cancelSynced = (await syncCancelledOrders(env, open.map((r) => String(r.order_id)))).length;
+  } catch (e) { console.error('cancel-sync', e); }
   /* Shipments tab: keep every live parcel's Shiprocket status fresh (pickup-stage ones every 15 min) */
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
