@@ -55,6 +55,8 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS picked_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS delivered_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS edd TEXT`,
+  /* 15 Oct 2026: the first status reader counted courier hub scans ("Manifested - Out for Pickup") as picked up. Re-check those. */
+  `UPDATE shipments SET tracked_at=NULL, picked_at=NULL, delivered_at=NULL WHERE tracked_at IS NOT NULL AND tracked_at < 1792005497`,
   /* COD -> prepaid conversion */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_txnid TEXT`,

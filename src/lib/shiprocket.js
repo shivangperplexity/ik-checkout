@@ -15,6 +15,7 @@
 
 import { cfg } from './shipping.js';
 import { packCfg, packOrder } from './packing.js';
+import { summarize, PRE } from './sr-scan.js';
 
 const SR = 'https://apiv2.shiprocket.in/v1/external';
 const TIMEOUT = 15000;
@@ -91,13 +92,19 @@ function codeOf(text, srStatus) {
 export function adaptTrack(j) {
   const td = j?.tracking_data || {};
   const acts = Array.isArray(td.shipment_track_activities) ? td.shipment_track_activities : [];
-  const history = acts.map((a) => ({ status_code: codeOf(`${a['sr-status-label'] || ''} ${a.status || ''} ${a.activity || ''}`, a['sr-status']), message: String(a.activity || a.status || ''), location: String(a.location || ''), event_time: String(a.date || '').replace('T', ' ').slice(0, 19) }));
+  const history = acts.map((a) => ({ status_code: PRE.test(String(a.activity || a.status || '')) ? 'PP' : codeOf(`${a['sr-status-label'] || ''} ${a.status || ''} ${a.activity || ''}`, a['sr-status']), message: String(a.activity || a.status || ''), location: String(a.location || ''), event_time: String(a.date || '').replace('T', ' ').slice(0, 19) }));
   const trk = Array.isArray(td.shipment_track) ? td.shipment_track[0] || {} : {};
   const top = history.slice().sort((x, y) => (y.event_time > x.event_time ? 1 : -1))[0];
   const now1 = codeOf(trk.current_status, td.shipment_status);
   const cur = now1 !== 'PP' ? now1 : (top ? top.status_code : 'PP');
   const status = { DL: 'delivered', RT: 'rto_initiated', EX: 'ndr', IT: 'in_transit', OFD: 'in_transit', PD: 'in_transit' }[cur] || 'pickup_pending';
   const pickup = history.find((h) => h.status_code === 'PD');
+  /* Before a real pickup scan, hub scans ("Manifested - Out for Pickup", "Data Received") must not read as picked up /
+     in transit, or customers get "picked up" messages for parcels still on our shelf (lib/sr-scan.js). */
+  if (!summarize(j).picked) {
+    return { status: 'pickup_pending', edd: '', pickup_date: '', delivered_date: '', rto_status: '', courier_name: trk.courier_name || '',
+      history: history.map((h) => ({ ...h, status_code: 'PP' })) };
+  }
   return {
     status, edd: String(td.etd || trk.edd || '').slice(0, 10), pickup_date: pickup ? pickup.event_time : trk.pickup_date || '',
     delivered_date: cur === 'DL' ? (trk.delivered_date || top?.event_time || 'yes') : '', rto_status: cur === 'RT' ? (trk.current_status || 'RTO') : '',

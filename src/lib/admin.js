@@ -447,11 +447,18 @@ const ACTIONS = {
     const range = ['today', 'yesterday', '7d', '30d', 'all'].includes(b.range) ? b.range : 'today';
     const from = { today: today0, yesterday: today0 - DAY, '7d': today0 - 6 * DAY, '30d': today0 - 29 * DAY, all: 0 }[range];
     const to = range === 'yesterday' ? today0 : t + DAY;
+    /* parcels never checked yet (new bookings, or just after an update): ask Shiprocket now, a few at a time */
+    try {
+      const fresh = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND tracked_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 16`).bind(t - 45 * DAY).all()).results;
+      if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
+    } catch (e) { console.error('ship first check', e); }
     const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone
         FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id
         WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
-      const stage = r.status === 'cancelled' ? 'cancelled' : (r.stage || stageOf(r.track_status || ''));
+      /* not checked yet: only trust an older reading if the parcel was clearly delivered / returned */
+      const legacy = stageOf(r.track_status || '');
+      const stage = r.status === 'cancelled' ? 'cancelled' : (r.stage || (['delivered', 'rto'].includes(legacy) ? legacy : 'pickup_pending'));
       return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '',
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
         cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null,

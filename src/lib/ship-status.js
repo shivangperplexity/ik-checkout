@@ -13,66 +13,51 @@
 // Shipments tab. Nothing about the customer's address is stored.
 
 import { sr, srTrack } from './shiprocket.js';
+import { stageOf, summarize } from './sr-scan.js';
 import { cancelFulfilmentsFor } from './shopify.js';
 
 const now = () => Math.floor(Date.now() / 1000);
+/** '2026-10-14 15:30:00' (IST) -> epoch seconds, or 0 */
+const istTs = (v) => { const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(v || '')); return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000) - 19800 : 0; };
 export const STAGES = ['pickup_pending', 'pickup_failed', 'transit', 'ofd', 'ndr', 'delivered', 'rto', 'lost', 'cancelled'];
 export const FINAL = ['delivered', 'rto_done', 'cancelled', 'lost'];
 
-/** Stage from Shiprocket's status text. `scanned` = the courier has scanned it at least once (picked up). */
-export function stageOf(text, scanned = false) {
-  const t = String(text || '').toLowerCase().replace(/_/g, ' ');
-  if (!t.trim()) return scanned ? 'transit' : 'pickup_pending';
-  if (/cancel/.test(t) && !/pickup cancel/.test(t)) return 'cancelled';
-  if (/\brto\b|return to origin|returned|return initiated/.test(t)) return 'rto';
-  if (/lost|damaged|destroyed|untraceable|disposed/.test(t)) return 'lost';
-  if (/undelivered|\bndr\b|delivery attempt|failed delivery|not delivered/.test(t)) return 'ndr';
-  if (/out for delivery/.test(t)) return 'ofd';
-  if (/delivered/.test(t)) return 'delivered';
-  if (/pickup (exception|error|failed|cancel)|pick ?up not done|not picked/.test(t)) return 'pickup_failed';
-  if (/out for pickup|pickup (scheduled|generated|queued|rescheduled|requested|pending)|awb assigned|manifest|label generated|ready to ship|^new$|booked/.test(t)) return scanned ? 'transit' : 'pickup_pending';
-  if (/picked|shipped|transit|reached|dispatched|arrived|departed|connected|misrouted|delayed|hub|in flight|handover/.test(t)) return 'transit';
-  return scanned ? 'transit' : 'pickup_pending';
-}
+export { stageOf };
 export const LABEL = { pickup_pending: 'Pickup pending', pickup_failed: 'Pickup failed', transit: 'In transit', ofd: 'Out for delivery', ndr: 'NDR', delivered: 'Delivered', rto: 'RTO', lost: 'Lost / damaged', cancelled: 'Cancelled' };
 
-/** Shiprocket's current status text for a booking: from tracking, else from the order record (before the first scan). */
+/** Where a booking is, read like Shiprocket's tracking page (lib/sr-scan.js); before the first scan, from the Shiprocket order. */
 async function srStatus(env, rec) {
-  let text = '', scanned = false, scanAt = '', edd = '';
-  try {
-    const raw = await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(rec.awb)}`);
-    const td = raw?.tracking_data || {}, trk = Array.isArray(td.shipment_track) ? td.shipment_track[0] || {} : {};
-    const acts = Array.isArray(td.shipment_track_activities) ? td.shipment_track_activities : [];
-    text = String(trk.current_status || '');
-    edd = String(td.etd || trk.edd || '').slice(0, 10);
-    scanned = acts.some((a) => /picked|pickup done|in transit|shipped|reached|out for delivery|delivered|dispatched|arrived/i.test(`${a['sr-status-label'] || ''} ${a.activity || ''}`) && !/pickup (scheduled|generated|exception|error|queued)|out for pickup/i.test(`${a['sr-status-label'] || ''} ${a.activity || ''}`));
-    if (acts[0]) scanAt = String(acts[0].date || '');
-  } catch { /* no scans yet or tracking down: fall back below */ }
-  if (!text && rec.sr_order_id) {
+  let sum = null;
+  try { sum = summarize(await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(rec.awb)}`)); } catch { /* no scans yet or tracking down */ }
+  if (sum && (sum.current || sum.scans.length)) {
+    const text = [sum.current, sum.newest && sum.newest.toLowerCase() !== sum.current.toLowerCase() ? sum.newest : ''].filter(Boolean).join(' · ');
+    return { stage: sum.stage, picked: sum.picked, text, edd: sum.edd, pickedTs: istTs(sum.pickedAt), lastTs: istTs(sum.newestAt) };
+  }
+  if (rec.sr_order_id) {
     try {
       const o = await sr(env, 'GET', `orders/show/${encodeURIComponent(rec.sr_order_id)}`);
       const d = o?.data || {}, sh = Array.isArray(d.shipments) ? d.shipments[0] || {} : d.shipments || {};
-      text = String(sh.status || d.status || '');
-    } catch { /* keep empty */ }
+      const text = String(sh.status || d.status || '');
+      if (text) { const st = stageOf(text); return { stage: st, picked: !['pickup_pending', 'pickup_failed', 'cancelled'].includes(st), text, edd: sum?.edd || '' }; }
+    } catch { /* keep unknown */ }
   }
-  return { text, scanned, scanAt, edd };
+  return null;
 }
 
 /** Refresh one shipment row; returns the new stage. Also keeps things consistent if it was cancelled inside Shiprocket. */
 export async function refreshShipment(env, rec) {
   const s = await srStatus(env, rec);
   const t = now();
-  if (!s.text && !s.scanned) {
+  if (!s) {
     await env.DB.prepare('UPDATE shipments SET tracked_at=? WHERE order_id=?').bind(t, String(rec.order_id)).run();
     return rec.stage || 'pickup_pending';
   }
-  const stage = stageOf(s.text, s.scanned);
-  const picked = !['pickup_pending', 'pickup_failed', 'cancelled'].includes(stage);
+  const stage = s.stage, picked = s.picked;
   await env.DB.prepare(`UPDATE shipments SET stage=?, sr_status=?, tracked_at=?, edd=COALESCE(NULLIF(?::text,''), edd),
       picked_at=CASE WHEN ?::boolean AND picked_at IS NULL THEN ?::bigint ELSE picked_at END,
       delivered_at=CASE WHEN ?::text='delivered' AND delivered_at IS NULL THEN ?::bigint ELSE delivered_at END,
       rto=CASE WHEN ?::text='rto' THEN TRUE ELSE rto END WHERE order_id=?`)
-    .bind(stage, s.text.slice(0, 80), t, s.edd, picked, t, stage, t, stage, String(rec.order_id)).run();
+    .bind(stage, s.text.slice(0, 160), t, s.edd, picked, Math.min(t, s.pickedTs || t), stage, Math.min(t, s.lastTs || t), stage, String(rec.order_id)).run();
   /* cancelled in the Shiprocket panel: show it as cancelled here too and free the order to be shipped again */
   if (stage === 'cancelled' && rec.status !== 'cancelled') {
     await env.DB.prepare("UPDATE shipments SET status='cancelled', cancel_state=COALESCE(cancel_state,'cancelled'), cancel_note=COALESCE(cancel_note,'Cancelled in Shiprocket'), updated_at=? WHERE order_id=?").bind(t, String(rec.order_id)).run();
