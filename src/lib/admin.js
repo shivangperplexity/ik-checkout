@@ -122,7 +122,7 @@ async function recentOrders(env, days = 90) {
 const num = (v) => Number(v) || 0;
 /** Orders that have a live (not cancelled) Shiprocket AWB. They count as shipped even if the Shopify fulfilment step failed. */
 async function bookedMap(env) {
-  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
+  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
   return Object.fromEntries(rows.map((r) => [String(r.order_id), r]));
 }
 function orderOut(o, all) {
@@ -258,13 +258,23 @@ export async function packOrders(env, ids, packed) {
     const o = rows.find((r) => String(r.order_id) === id);
     if (!o) { results.push({ id, name: id, ok: false, note: 'Order not found' }); continue; }
     if (o.status === 'cancelled') { results.push({ id, name: o.order_name, ok: false, note: 'Cancelled' }); continue; }
-    if (o.shipped_at || booked[id]) { results.push({ id, name: o.order_name, ok: false, note: 'Already shipped' }); continue; }
+    if (booked[id] && booked[id].cancel_state === 'picked') { results.push({ id, name: o.order_name, ok: false, note: 'Already picked up by the courier' }); continue; }
     await env.DB.prepare('UPDATE orders SET packed_at=? WHERE order_id=?').bind(packed ? t : null, id).run();
     const gid = `gid://shopify/Order/${id}`;
     try { if (packed) await addTags(env, gid, ['packed']); else await removeTags(env, gid, ['packed']); } catch { /* tag is cosmetic */ }
     results.push({ id, name: o.order_name, ok: true, note: packed ? 'Packed' : 'Not packed' });
   }
   return results;
+}
+
+/** Cancel one order: Shiprocket pickup first (never after the courier has it), then the Shopify order. Throws with a plain reason. */
+async function cancelOne(env, id) {
+  const gid = `gid://shopify/Order/${id}`;
+  const stop = await stopShipment(env, id, 'Cancelled from the dashboard');
+  if (stop.state === 'picked') throw new Error('The courier has already picked this parcel up, so it cannot be cancelled here. Ask Shiprocket for RTO.');
+  if (stop.state === 'error') throw new Error('The Shiprocket shipment could not be cancelled yet (' + stop.note + '). Nothing was changed; try again in a minute.');
+  await cancelOrder(env, gid, 'Cancelled from Ink Kulture dashboard');
+  await env.DB.prepare("UPDATE orders SET status='cancelled', packed_at=NULL WHERE order_id=?").bind(String(id)).run();
 }
 
 /** Live (not cancelled) shipment rows for these order ids. */
@@ -317,7 +327,7 @@ const ACTIONS = {
     if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
     if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && o.status !== 'cancelled');
     if (b.filter === 'shipped') list = list.filter((o) => o.shipped);
-    if (b.filter === 'packed') list = list.filter((o) => o.packed_at && !o.shipped && o.status !== 'cancelled');
+    if (b.filter === 'packed') list = list.filter((o) => o.packed_at && o.status !== 'cancelled');
     if (b.q) { const q = String(b.q).toLowerCase(); list = list.filter((o) => `${o.name} ${o.phone} ${o.customer} ${o.pincode}`.toLowerCase().includes(q)); }
     return { orders: list.slice(0, 200) };
   },
@@ -337,13 +347,14 @@ const ACTIONS = {
   async pack_list(env, b) {
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 150);
     if (!ids.length) throw new Error('Select at least one order');
-    const [items, rows, fresh] = await Promise.all([packingItems(env, ids), env.DB.prepare(`SELECT order_id, method, packed_at, pincode, city FROM orders WHERE order_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all().then((r) => r.results), withSettingsFresh(env)]);
+    const [items, rows, fresh, booked] = await Promise.all([packingItems(env, ids), env.DB.prepare(`SELECT order_id, method, packed_at, pincode, city FROM orders WHERE order_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all().then((r) => r.results), withSettingsFresh(env), bookedMap(env).catch(() => ({}))]);
     const cfg = packCfg(fresh.SETTINGS?.shipping?.pack);
     return { ok: true, orders: ids.map((id) => {
       const it = items[id], o = rows.find((r) => String(r.order_id) === id) || {};
       if (!it) return { id, missing: true };
       let parcel = ''; try { parcel = packOrder(it.items, cfg).label; } catch { parcel = ''; }
-      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: o.method === 'cod', packed_at: num(o.packed_at) || null, parcel,
+      const s = booked[id] || null;
+      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: o.method === 'cod', packed_at: num(o.packed_at) || null, parcel, awb: s ? s.awb : '', courier: s ? s.courier : '',
         items: it.items.map((x) => ({ title: x.title, qty: x.quantity, size: x.variantTitle, sku: x.sku, image: x.image })) };
     }) };
   },
@@ -353,15 +364,21 @@ const ACTIONS = {
     await env.DB.prepare('UPDATE orders SET confirmed_at=? WHERE order_id=?').bind(now(), String(b.id)).run();
     return { ok: true };
   },
-  async cancel(env, b) {
-    const gid = `gid://shopify/Order/${b.id}`;
-    /* booked with Shiprocket? stop the pickup first; if the courier already has it, say so and change nothing */
-    const stop = await stopShipment(await withSettingsFresh(env), b.id, 'Cancelled from the dashboard');
-    if (stop.state === 'picked') throw new Error('The courier has already picked this parcel up, so it cannot be cancelled here. Ask Shiprocket for RTO.');
-    if (stop.state === 'error') throw new Error('The Shiprocket shipment could not be cancelled yet (' + stop.note + '). Nothing was changed; try again in a minute.');
-    await cancelOrder(env, gid, 'Cancelled from Ink Kulture dashboard');
-    await env.DB.prepare("UPDATE orders SET status='cancelled' WHERE order_id=?").bind(String(b.id)).run();
-    return { ok: true };
+  async cancel(env, b) { await cancelOne(await withSettingsFresh(env), b.id); return { ok: true }; },
+  /** Shipments tab: cancel these orders (Shiprocket pickup first, then Shopify). Per-order results, nothing stops the batch. */
+  async cancel_orders(env, b) {
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 100);
+    if (!ids.length) throw new Error('Select at least one order');
+    const fresh = await withSettingsFresh(env), results = [];
+    for (const id of ids) {
+      const o = await env.DB.prepare('SELECT order_name, status FROM orders WHERE order_id=?').bind(id).first();
+      const name = o?.order_name || id;
+      if (!o) { results.push({ id, name, ok: false, note: 'Order not found' }); continue; }
+      if (o.status === 'cancelled') { results.push({ id, name, ok: false, note: 'Already cancelled' }); continue; }
+      try { await cancelOne(fresh, id); results.push({ id, name, ok: true, note: 'Cancelled' }); }
+      catch (e) { results.push({ id, name, ok: false, note: String(e.message || e).slice(0, 200) }); }
+    }
+    return { ok: true, results };
   },
   async ship(env, b) {
     const company = String(b.company || '').trim(), number = String(b.number || '').trim();
@@ -370,7 +387,6 @@ const ACTIONS = {
     if (!o) throw new Error('Order not found');
     await shipOrder(env, b.id, { company, number, url: String(b.url || '').trim(), notify: b.notify !== false });
     await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=?').bind(now(), `${company} ${number}`, String(b.id)).run();
-    if (o.packed_at) removeTags(env, `gid://shopify/Order/${b.id}`, ['packed']).catch(() => {});
     const w = await fireTrigger(env, 'order_shipped', { to: o.phone, vars: { name: o.first_name, order: o.order_name, courier: company, tracking: number }, orderName: o.order_name });
     return { ok: true, whatsapp: w };
   },
@@ -500,7 +516,7 @@ const ACTIONS = {
       const fresh = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND tracked_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 16`).bind(t - 45 * DAY).all()).results;
       if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
     } catch (e) { console.error('ship first check', e); }
-    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone
+    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at
         FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id
         WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
@@ -509,7 +525,7 @@ const ACTIONS = {
       const stage = r.status === 'cancelled' ? 'cancelled' : (r.stage || (['delivered', 'rto'].includes(legacy) ? legacy : 'pickup_pending'));
       return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '',
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
-        cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null,
+        cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
         picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null };
     });
     const inRange = all.filter((x) => x.booked_at >= from && x.booked_at < to);
@@ -523,11 +539,13 @@ const ACTIONS = {
       attention: {
         pickup_failed: live.filter((x) => x.stage === 'pickup_failed').length,
         pickup_late: live.filter((x) => x.stage === 'pickup_pending' && x.booked_at < t - DAY).length,
+        to_pack: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at).sort((a, b) => a.booked_at - b.booked_at).map((x) => x.order_id),
         ndr: live.filter((x) => x.stage === 'ndr').length,
         cancelled_after_pickup: all.filter((x) => x.cancel_state === 'picked' && !['delivered', 'rto'].includes(x.stage)).length,
       },
       today: { booked: all.filter((x) => x.booked_at >= today0).length, picked: all.filter((x) => x.picked_at && x.picked_at >= today0).length,
-        delivered: all.filter((x) => x.delivered_at && x.delivered_at >= today0).length, pickup_pending: live.filter((x) => x.stage === 'pickup_pending').length },
+        delivered: all.filter((x) => x.delivered_at && x.delivered_at >= today0).length, pickup_pending: live.filter((x) => x.stage === 'pickup_pending').length,
+        packed: all.filter((x) => x.packed_at && x.packed_at >= today0).length },
       stats: { booked: liveR.length, rto_pct: liveR.length ? Math.round(rto.length * 1000 / liveR.length) / 10 : 0,
         rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(liveR.reduce((a, x) => a + x.charge, 0)) } };
   },

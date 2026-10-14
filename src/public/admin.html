@@ -167,29 +167,32 @@ function bulkBar(){var b=$('#bulkbar');if(!b)return;var ids=selIds();b.classList
  b.innerHTML='<b>'+ids.length+' selected</b>'+(np?'<button class="btn sm" id="bulk_start">Start packing · '+np+'</button><button class="btn ghost sm" id="bulk_pk">Mark packed · '+np+'</button>':'')+(pk?'<button class="btn ghost sm" id="bulk_upk">Not packed · '+pk+'</button>':'')+'<button class="btn sm" id="bulk_go">Ship '+ids.length+' with Shiprocket</button><button class="btn ghost sm" id="bulk_clr">Clear</button>';
  var a=$('#selall');if(a){var rd=Object.keys(S.rows).map(function(k){return S.rows[k]}).filter(ready);a.checked=rd.length>0&&rd.every(function(o){return S.sel[o.id]})}}
 /* ---- packing screen: one order at a time, design images + quantities, Enter = packed & next ---- */
-function packMode(ids){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('Nothing to pack');return}
+function packMode(ids){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('Nothing to pack');return}var fromShip=tab==='ship';
  $('#ov').innerHTML='<div class="scrim" id="sc"></div><div class="drawer" style="width:min(780px,100%)"><p class="mut">Loading items…</p></div>';
  var P={ids:ids,i:0,packed:[],skipped:[],data:{}};
- function stop(){document.removeEventListener('keydown',keys);close();loadOrders()}
+ function stop(){document.removeEventListener('keydown',keys);close();if(fromShip)loadShip();else loadOrders()}
  function keys(e){if(e.target&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.key==='Enter'){var b=$('#pk_ok');if(b&&!b.disabled){e.preventDefault();b.click()}}else if(e.key==='ArrowRight'){var s=$('#pk_skip');if(s){e.preventDefault();s.click()}}else if(e.key==='Escape')stop()}
  function draw(){var d=$('#ov').querySelector('.drawer');if(!d)return;
   if(P.i>=P.ids.length){
    d.innerHTML='<div class="row"><b>Packing done</b><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div><p style="font-size:18px;margin:14px 0"><b>'+P.packed.length+'</b> packed'+(P.skipped.length?' · '+P.skipped.length+' skipped':'')+'</p>'
-    +(P.packed.length?'<div class="row"><button class="btn" id="pk_ship">Ship '+P.packed.length+' with Shiprocket</button></div><p class="small mut" style="margin-top:8px">Books the cheapest courier for each packed order, creates the AWBs and asks for pickup.</p>':'');
-   $('#pk_x').onclick=stop;var sh=$('#pk_ship');if(sh)sh.onclick=function(){S.sel={};P.packed.forEach(function(id){S.sel[id]=1});document.removeEventListener('keydown',keys);close();rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});bulkShip()}).catch(function(er){toast(er.message)})};return}
+    +(P.packed.length?(fromShip?'<div class="row"><button class="btn" id="pk_lbl">Labels (6×4 in) for '+P.packed.length+' packed</button></div>':'<div class="row"><button class="btn" id="pk_ship">Ship '+P.packed.length+' with Shiprocket</button></div><p class="small mut" style="margin-top:8px">Books the cheapest courier for each packed order, creates the AWBs and asks for pickup.</p>'):'');
+   $('#pk_x').onclick=stop;var lb=$('#pk_lbl');if(lb)lb.onclick=function(){dlLabels(P.packed.slice(),lb)};var sh=$('#pk_ship');if(sh)sh.onclick=function(){S.sel={};P.packed.forEach(function(id){S.sel[id]=1});document.removeEventListener('keydown',keys);close();rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});bulkShip()}).catch(function(er){toast(er.message)})};return}
   var id=P.ids[P.i],o=P.data[id]||{},row=S.rows[id]||{};
   var h='<div class="row"><b>Packing '+(P.i+1)+' of '+P.ids.length+'</b><span class="small mut">'+P.packed.length+' packed'+(P.skipped.length?' · '+P.skipped.length+' skipped':'')+'</span><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div>';
   if(o.missing){h+='<p class="err" style="margin-top:12px">'+esc(row.name||id)+': could not load this order from Shopify.</p><div class="row"><button class="btn ghost" id="pk_skip">Skip →</button></div>'}
   else{
    h+='<h2 style="margin:12px 0 2px;font-size:22px">'+esc(o.name||row.name)+' <span class="mut" style="font-weight:500;font-size:15px">· '+esc(o.first_name||row.customer||'')+(o.city?', '+esc(o.city):'')+'</span> <span class="pill'+(o.cod?' warn':'')+'">'+(o.cod?'COD':'Prepaid')+'</span></h2>';
    var n=(o.items||[]).reduce(function(s,x){return s+(x.qty||0)},0);
-   h+='<p class="small mut" style="margin:0">'+n+' item'+(n===1?'':'s')+(o.parcel?' · '+esc(o.parcel):'')+'</p>';
+   h+='<p class="small mut" style="margin:0">'+n+' item'+(n===1?'':'s')+(o.parcel?' · '+esc(o.parcel):'')+(o.awb?' · <b>'+esc(o.courier)+'</b> · AWB <b>'+esc(o.awb)+'</b>':'')+(o.packed_at?' · <span class="ok">already packed '+ist(o.packed_at)+'</span>':'')+'</p>';
    h+='<div class="pkgrid">'+(o.items||[]).map(function(x){return '<div class="pkc">'+(x.image?'<img src="'+esc(x.image)+'" alt="" loading="eager">':'<div style="aspect-ratio:1;background:var(--cream);border-radius:8px"></div>')+'<span class="qty'+(x.qty>1?' many':'')+'">× '+x.qty+'</span><b>'+esc(x.title)+'</b><span class="small mut">'+esc(x.size||'')+(x.sku?' · '+esc(x.sku):'')+'</span></div>'}).join('')+'</div>';
-   h+='<div class="row"><button class="btn" id="pk_ok">Packed, next ⏎</button><button class="btn ghost" id="pk_skip">Skip →</button></div>';
+   h+='<div class="row"><button class="btn" id="pk_ok">Packed, next ⏎</button><button class="btn ghost" id="pk_skip">Skip →</button>'+(o.awb?'<button class="btn ghost" id="pk_lb1">Print label</button>':'')+'<span class="grow"></span><button class="btn bad sm" id="pk_cx">Cancel order</button></div>';
   }
   d.innerHTML=h;d.scrollTop=0;$('#pk_x').onclick=stop;
   var ok=$('#pk_ok');if(ok)ok.onclick=function(){ok.disabled=true;ok.textContent='Saving…';rpc('pack',{ids:[id],packed:true}).then(function(r){var x=r.results[0];if(x&&!x.ok)throw new Error(x.note);if(S.rows[id])S.rows[id].packed_at=Math.floor(Date.now()/1000);P.packed.push(id);P.i++;draw()}).catch(function(er){ok.disabled=false;ok.textContent='Packed, next ⏎';toast(er.message)})};
   var sk=$('#pk_skip');if(sk)sk.onclick=function(){P.skipped.push(id);P.i++;draw()};
+  var l1=$('#pk_lb1');if(l1)l1.onclick=function(){dlLabels([id],l1)};
+  var cx=$('#pk_cx');if(cx)cx.onclick=function(){if(!confirm('Cancel order '+(o.name||row.name)+'? '+(o.awb?'The Shiprocket pickup is cancelled first (only possible before the courier collects it), then the Shopify order.':'The Shopify order is cancelled; stock is restocked, no refund is issued from here.')))return;cx.disabled=true;cx.textContent='Cancelling…';
+   rpc('cancel_orders',{ids:[id]}).then(function(r){var x=r.results[0];if(!x.ok)throw new Error(x.note);toast((o.name||row.name)+' cancelled');P.skipped.push(id);P.i++;draw()}).catch(function(er){cx.disabled=false;cx.textContent='Cancel order';toast(er.message)})};
   var nx=P.data[P.ids[P.i+1]];if(nx&&nx.items)nx.items.forEach(function(x){if(x.image){var im=new Image();im.src=x.image}})}
  $('#sc').onclick=stop;document.addEventListener('keydown',keys);
  rpc('pack_list',{ids:ids}).then(function(r){r.orders.forEach(function(o){P.data[o.id]=o});draw()}).catch(function(er){$('#ov').querySelector('.drawer').innerHTML='<div class="row"><span class="err">'+esc(er.message)+'</span><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div>';$('#pk_x').onclick=stop})}
@@ -405,9 +408,10 @@ function loadShip(quiet){
   SH.rows={};j.shipments.forEach(function(x){SH.rows[x.order_id]=x});
   var h='<div class="row" style="margin-bottom:10px">'+[['today','Today'],['yesterday','Yesterday'],['7d','7 days'],['30d','30 days'],['all','All']].map(function(r){return '<button class="chip'+(SH.range===r[0]?' on':'')+'" data-r="'+r[0]+'">'+r[1]+'</button>'}).join('')
    +'<input type="search" id="sh_q" placeholder="Order, AWB, name, phone, PIN" value="'+esc(SH.q)+'" style="max-width:260px"><span class="grow"></span><button class="btn ghost sm" id="sh_rf">Refresh status</button></div>';
-  h+='<div class="card small" style="margin-bottom:10px"><b>Today:</b> '+td.booked+' booked · '+td.picked+' picked up · '+td.delivered+' delivered · '+td.pickup_pending+' waiting for pickup'
+  h+='<div class="card small" style="margin-bottom:10px"><b>Today:</b> '+td.booked+' booked · '+(td.packed||0)+' packed · '+td.picked+' picked up · '+td.delivered+' delivered · '+td.pickup_pending+' waiting for pickup'
    +' <span class="mut">· Courier spend '+rup(j.stats.spend)+' · RTO '+j.stats.rto_pct+'% ('+rup(j.stats.rto_cost)+' freight)</span></div>';
   var att=[];
+  if(at.to_pack&&at.to_pack.length)att.push('<button class="chip" data-pack="all" style="border-color:var(--ink);font-weight:700">Start packing · '+at.to_pack.length+' waiting for pickup, not packed</button>');
   if(at.pickup_failed)att.push('<button class="chip" data-att="pickup_failed" style="border-color:var(--bad);color:var(--bad)">'+at.pickup_failed+' pickup failed</button>');
   if(at.pickup_late)att.push('<button class="chip" data-att="pickup_pending" style="border-color:var(--warn);color:var(--warn)">'+at.pickup_late+' waiting for pickup over a day</button>');
   if(at.ndr)att.push('<button class="chip" data-att="ndr" style="border-color:var(--bad);color:var(--bad)">'+at.ndr+' NDR</button>');
@@ -418,15 +422,15 @@ function loadShip(quiet){
   if(n.length)h+='<div class="card" style="margin-bottom:12px"><h3>Delivery failed (NDR), needs action</h3>'+n.map(function(x){return '<div class="fac" style="align-items:center;gap:8px;flex-wrap:wrap"><span><b>'+esc(x.order_name)+'</b> · AWB '+esc(x.awb)+'<br><span class="mut small">'+esc(x.reason||'No reason given')+(x.attempts?' · attempt '+x.attempts:'')+'</span></span><span class="row"><button class="btn sm" data-ra="'+esc(x.awb)+'">Re-attempt</button><button class="btn bad sm" data-rt="'+esc(x.awb)+'">Return (RTO)</button></span></div>'}).join('')+'</div>';
   h+='<div class="row hide" id="sh_bar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
   h+=j.shipments.length?'<div class="card tw"><table><thead><tr><th class="ck"><input type="checkbox" id="sh_all"></th><th>Order</th><th>Courier / AWB</th><th>Status</th><th>Booked</th><th>Freight</th><th></th></tr></thead><tbody>'+j.shipments.map(function(x){
-   var live=x.stage!=='cancelled';
+   var live=x.stage!=='cancelled',pre=live&&(x.stage==='pickup_pending'||x.stage==='pickup_failed');
    var note=x.cancel_state==='picked'?'<div class="small err">Order cancelled after pickup. Ask Shiprocket for RTO.</div>':x.cancel_state==='cancelled'?'<div class="small mut">'+esc(x.cancel_note||'Cancelled')+'</div>':x.cancel_state==='error'?'<div class="small" style="color:var(--warn)">Order cancelled. '+esc(x.cancel_note)+'</div>':'';
    var sub=(x.sr_status?'<div class="small mut">'+esc(x.sr_status)+'</div>':'')+((x.stage==='pickup_pending'||x.stage==='pickup_failed')&&x.pickup?'<div class="small mut">'+esc(x.pickup)+'</div>':'')+(x.edd&&['transit','ofd','ndr'].indexOf(x.stage)>=0?'<div class="small mut">Expected '+esc(x.edd)+'</div>':'');
    return '<tr data-id="'+esc(x.order_id)+'"><td class="ck"><input type="checkbox" class="ssel" data-id="'+esc(x.order_id)+'"'+(live?'':' disabled')+(live&&SH.sel[x.order_id]?' checked':'')+'></td>'
     +'<td><b>'+esc(x.order_name)+'</b><div class="small mut">'+esc(x.customer)+(x.city?' · '+esc(x.city):'')+(x.cod?' · COD':' · Prepaid')+'</div></td>'
     +'<td>'+esc(x.courier)+'<div class="small mut">'+esc(x.awb)+'</div></td>'
-    +'<td><span class="pill '+(STGC[x.stage]||'')+'">'+esc(x.stage_label)+'</span>'+sub+note+'</td>'
+    +'<td><span class="pill '+(STGC[x.stage]||'')+'">'+esc(x.stage_label)+'</span>'+(x.packed_at?' <span class="pill ok" title="Packed '+ist(x.packed_at)+'">Packed</span>':pre?' <span class="pill warn">Not packed</span>':'')+sub+note+'</td>'
     +'<td class="small mut">'+shDay(x.booked_at)+'</td><td>'+rup(x.charge)+'</td>'
-    +'<td class="small" style="white-space:nowrap">'+(live?'<a href="#" data-lb="'+esc(x.order_id)+'">Label</a> · ':'')+'<a target="_blank" rel="noopener" href="'+esc(x.track_url)+'">Track</a></td></tr>'}).join('')+'</tbody></table>'+(j.total>j.shipments.length?'<p class="small mut">Showing the newest '+j.shipments.length+' of '+j.total+'. Narrow the dates or search.</p>':'')+'</div>'
+    +'<td class="small" style="white-space:nowrap">'+(pre&&!x.packed_at?'<a href="#" data-pack="'+esc(x.order_id)+'"><b>Pack</b></a> · ':'')+(live?'<a href="#" data-lb="'+esc(x.order_id)+'">Label</a> · ':'')+'<a target="_blank" rel="noopener" href="'+esc(x.track_url)+'">Track</a>'+(pre?' · <a href="#" data-cxo="'+esc(x.order_id)+'" style="color:var(--bad)">Cancel order</a>':'')+'</td></tr>'}).join('')+'</tbody></table>'+(j.total>j.shipments.length?'<p class="small mut">Showing the newest '+j.shipments.length+' of '+j.total+'. Narrow the dates or search.</p>':'')+'</div>'
    :'<p class="mut">No shipments here'+(SH.range==='today'?' today':'')+'. Book orders from the Orders tab and they appear here.</p>';
   if(quiet&&document.activeElement&&document.activeElement.id==='sh_q')return;
   $('#main').innerHTML=h;shBar();
@@ -439,6 +443,8 @@ function loadShip(quiet){
    if(t.id==='sh_all'){var on=t.checked;Object.keys(SH.rows).forEach(function(k){if(SH.rows[k].stage!=='cancelled'){if(on)SH.sel[k]=1;else delete SH.sel[k]}});[].forEach.call(document.querySelectorAll('input.ssel'),function(i){if(!i.disabled)i.checked=on});shBar();return}
    var ck=t.closest('td.ck');if(ck){var i=ck.querySelector('input.ssel');if(i&&!i.disabled){if(t!==i)i.checked=!i.checked;if(i.checked)SH.sel[i.dataset.id]=1;else delete SH.sel[i.dataset.id];shBar()}return}
    var lb=t.closest('[data-lb]');if(lb){e.preventDefault();dlLabels([lb.dataset.lb],null);return}
+   var pk=t.closest('[data-pack]');if(pk){e.preventDefault();packMode(pk.dataset.pack==='all'?(j.attention.to_pack||[]):[pk.dataset.pack]);return}
+   var cxo=t.closest('[data-cxo]');if(cxo){e.preventDefault();var ro=SH.rows[cxo.dataset.cxo];if(!confirm('Cancel order '+(ro?ro.order_name:'')+'? The Shiprocket pickup is cancelled first (only possible before the courier collects it), then the Shopify order.'))return;cxo.textContent='Cancelling…';rpc('cancel_orders',{ids:[cxo.dataset.cxo]}).then(function(r){var x=r.results[0];toast(x.ok?x.name+' cancelled':x.note);loadShip()}).catch(function(er){toast(er.message);loadShip()});return}
    if(t.id==='rep_xs'){SH.report='';loadShip();return}
    if(t.dataset&&t.dataset.act){shAct(t.dataset.act,t);return}
    var ra=t.closest('[data-ra]'),rt=t.closest('[data-rt]');
@@ -446,10 +452,11 @@ function loadShip(quiet){
    if(rt){if(!confirm('Send this parcel back to you? You pay the return freight.'))return;rt.disabled=true;rpc('ndr_do',{awb:rt.dataset.rt,action_type:'return'}).then(function(){toast('Return requested');loadShip()}).catch(function(er){rt.disabled=false;toast(er.message)})}}}).catch(function(e){if(!quiet)fail(e)})}
 function shBar(){var b=$('#sh_bar');if(!b)return;var ids=shSel();b.classList.toggle('hide',!ids.length);
  var st=ids.map(function(k){return SH.rows[k].stage}),pk=st.filter(function(s){return s==='pickup_pending'||s==='pickup_failed'}).length;
- b.innerHTML='<b>'+ids.length+' selected</b><button class="btn sm" data-act="labels">Labels (6×4 in)</button>'
+ var up=ids.filter(function(k){var x=SH.rows[k];return (x.stage==='pickup_pending'||x.stage==='pickup_failed')&&!x.packed_at}).length;
+ b.innerHTML='<b>'+ids.length+' selected</b>'+(up?'<button class="btn sm" data-act="pack">Start packing · '+up+'</button><button class="btn ghost sm" data-act="mark">Mark packed · '+up+'</button>':'')+'<button class="btn '+(up?'ghost ':'')+'sm" data-act="labels">Labels (6×4 in)</button>'
   +(pk?'<button class="btn ghost sm" data-act="pickup">Request pickup · '+pk+'</button><button class="btn ghost sm" data-act="pickup_date">Pickup on a date…</button>':'')
   +'<button class="btn ghost sm" data-act="manifest">Manifest</button><button class="btn ghost sm" data-act="refresh">Refresh status</button>'
-  +(pk?'<button class="btn bad sm" data-act="cancel">Cancel shipment · '+pk+'</button>':'')+'<button class="btn ghost sm" data-act="clear">Clear</button>';
+  +(pk?'<button class="btn bad sm" data-act="cancel">Cancel shipment · '+pk+'</button><button class="btn bad sm" data-act="cancel_order">Cancel order · '+pk+'</button>':'')+'<button class="btn ghost sm" data-act="clear">Clear</button>';
  var a=$('#sh_all');if(a){var lv=Object.keys(SH.rows).filter(function(k){return SH.rows[k].stage!=='cancelled'});a.checked=lv.length>0&&lv.every(function(k){return SH.sel[k]})}}
 function shRefresh(btn,ids){if(!ids.length)return;var t=btn.textContent;btn.disabled=true;btn.textContent='Checking with Shiprocket…';
  rpc('ship_refresh',{ids:ids.slice(0,80)}).then(function(r){toast('Updated '+r.refreshed+' shipment'+(r.refreshed===1?'':'s'));loadShip()}).catch(function(er){toast(er.message)}).then(function(){btn.disabled=false;btn.textContent=t})}
@@ -460,6 +467,12 @@ function shReport(title,res){var ok=res.filter(function(r){return r.ok}).length;
 function shAct(act,btn){var ids=shSel();if(!ids.length)return;
  var pend=ids.filter(function(k){var s=SH.rows[k].stage;return s==='pickup_pending'||s==='pickup_failed'});
  if(act==='clear'){SH.sel={};loadShip();return}
+ var unp=pend.filter(function(k){return !SH.rows[k].packed_at});
+ if(act==='pack'){packMode(unp.sort(function(a,b){return SH.rows[a].booked_at-SH.rows[b].booked_at}));return}
+ if(act==='mark'){btn.disabled=true;rpc('pack',{ids:unp,packed:true}).then(function(r){var ok=shReport('Mark packed',r.results);toast(ok+' marked packed');loadShip()}).catch(function(er){btn.disabled=false;toast(er.message)});return}
+ if(act==='cancel_order'){if(!confirm('Cancel '+pend.length+' ORDER'+(pend.length>1?'S':'')+'? For each: the Shiprocket pickup is cancelled (only possible before the courier collects it), then the Shopify order is cancelled and stock restocked. No refund is issued from here.'))return;
+  btn.disabled=true;btn.textContent='Cancelling…';
+  rpc('cancel_orders',{ids:pend}).then(function(r){var ok=shReport('Cancel order',r.results);toast(ok+' order'+(ok===1?'':'s')+' cancelled');SH.sel={};loadShip()}).catch(function(er){btn.disabled=false;toast(er.message)});return}
  if(act==='labels'){dlLabels(ids,btn);return}
  if(act==='refresh'){shRefresh(btn,ids);return}
  if(act==='manifest'){btn.disabled=true;rpc('ship_manifest',{ids:ids}).then(function(r){window.open(r.url,'_blank','noopener');toast('Manifest ready')}).catch(function(er){toast(er.message)}).then(function(){btn.disabled=false});return}
