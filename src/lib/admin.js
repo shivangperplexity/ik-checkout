@@ -508,7 +508,7 @@ const ACTIONS = {
    */
   async shipments(env, b) {
     const t = now(), DAY = 86400, today0 = Math.floor((t + 19800) / DAY) * DAY - 19800;
-    const range = ['today', 'yesterday', '7d', '30d', 'all'].includes(b.range) ? b.range : 'today';
+    const range = ['today', 'yesterday', '7d', '30d', 'all'].includes(b.range) ? b.range : 'all';
     const from = { today: today0, yesterday: today0 - DAY, '7d': today0 - 6 * DAY, '30d': today0 - 29 * DAY, all: 0 }[range];
     const to = range === 'yesterday' ? today0 : t + DAY;
     /* parcels never checked yet (new bookings, or just after an update): ask Shiprocket now, a few at a time */
@@ -531,7 +531,9 @@ const ACTIONS = {
     const inRange = all.filter((x) => x.booked_at >= from && x.booked_at < to);
     const counts = Object.fromEntries(Object.keys(STAGE_LABEL).map((k) => [k, 0]));
     inRange.forEach((x) => { counts[x.stage] = (counts[x.stage] || 0) + 1; });
-    let list = b.stage && b.stage !== 'all' ? inRange.filter((x) => x.stage === b.stage) : inRange;
+    const toPack = (x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at;   // "To pack": booked, courier not here yet, not packed
+    counts.to_pack = inRange.filter(toPack).length;
+    let list = b.stage === 'to_pack' ? inRange.filter(toPack).sort((a, c) => a.booked_at - c.booked_at) : b.stage && b.stage !== 'all' ? inRange.filter((x) => x.stage === b.stage) : inRange;
     if (b.q) { const q = String(b.q).toLowerCase().trim(); list = list.filter((x) => `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase().includes(q)); }
     const live = all.filter((x) => x.stage !== 'cancelled');
     const liveR = inRange.filter((x) => x.stage !== 'cancelled'), rto = liveR.filter((x) => x.stage === 'rto');

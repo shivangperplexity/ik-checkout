@@ -34,7 +34,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11.5px;font-weight:700;background:#ede7dc}
 .pill.low,.pill.ok{background:#e8f5ec;color:var(--ok)}.pill.medium,.pill.warn{background:#fff4e0;color:var(--warn)}.pill.high,.pill.bad{background:#fdecea;color:var(--bad)}
 .mut{color:var(--mut)}.small{font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.chip{border:1px solid #d8d3c6;background:#fff;border-radius:99px;padding:5px 12px;font-weight:600;cursor:pointer;font-size:13px}.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.chip{border:1px solid #d8d3c6;background:#fff;border-radius:99px;padding:5px 12px;font-weight:600;cursor:pointer;font-size:13px}.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}.chip.tp:not(.on){border-color:var(--warn);color:var(--warn);font-weight:700}
 .live{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
 .sess{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;display:grid;gap:6px}.sess.act{border-left:4px solid var(--ok)}.sess.old{opacity:.7}.sess.done{border-left:4px solid #6366f1}
 .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;animation:pu 1.4s infinite}@keyframes pu{50%{opacity:.25}}
@@ -398,8 +398,8 @@ function trLabel(k){var t=(W&&W.triggers||[]).filter(function(x){return x.key===
 function bindWaTabs(){$('#t1').onclick=function(){S.msgTab=false;drawWa()};$('#t2').onclick=function(){S.msgTab=true;drawWa()}}
 
 /* ---- shipments: every Shiprocket parcel by stage, with pickup / cancel / label / manifest controls ---- */
-var SH={range:'today',stage:'all',q:'',sel:{},report:'',rows:{}};
-var STG=[['all','All'],['pickup_pending','Pickup pending'],['pickup_failed','Pickup failed'],['transit','In transit'],['ofd','Out for delivery'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['lost','Lost / damaged'],['cancelled','Cancelled']];
+var SH={range:'all',stage:'all',q:'',sel:{},report:'',rows:{}};
+var STG=[['all','All'],['to_pack','To pack'],['pickup_pending','Pickup pending'],['pickup_failed','Pickup failed'],['transit','In transit'],['ofd','Out for delivery'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['lost','Lost / damaged'],['cancelled','Cancelled']];
 var STGC={pickup_pending:'warn',pickup_failed:'bad',ndr:'bad',rto:'bad',lost:'bad',delivered:'ok',ofd:'ok'};
 function shDay(t){return t?new Date(t*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}):''}
 function shSel(){return Object.keys(SH.sel).filter(function(k){return SH.rows[k]})}
@@ -417,7 +417,8 @@ function loadShip(quiet){
   if(at.ndr)att.push('<button class="chip" data-att="ndr" style="border-color:var(--bad);color:var(--bad)">'+at.ndr+' NDR</button>');
   if(at.cancelled_after_pickup)att.push('<button class="chip" data-att="cap" style="border-color:var(--bad);color:var(--bad)">'+at.cancelled_after_pickup+' cancelled after pickup</button>');
   if(att.length)h+='<div class="row" style="margin-bottom:10px"><b class="small">Needs action (any date):</b>'+att.join('')+'</div>';
-  h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')+'</div>';
+  h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&f[0]!=='to_pack'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+(f[0]==='to_pack'&&k?' tp':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')
+   +(SH.stage==='to_pack'&&j.shipments.length?'<span class="grow"></span><button class="btn sm" data-pack="list">Start packing these · '+j.shipments.length+'</button>':'')+'</div>';
   h+=SH.report||'';
   if(n.length)h+='<div class="card" style="margin-bottom:12px"><h3>Delivery failed (NDR), needs action</h3>'+n.map(function(x){return '<div class="fac" style="align-items:center;gap:8px;flex-wrap:wrap"><span><b>'+esc(x.order_name)+'</b> · AWB '+esc(x.awb)+'<br><span class="mut small">'+esc(x.reason||'No reason given')+(x.attempts?' · attempt '+x.attempts:'')+'</span></span><span class="row"><button class="btn sm" data-ra="'+esc(x.awb)+'">Re-attempt</button><button class="btn bad sm" data-rt="'+esc(x.awb)+'">Return (RTO)</button></span></div>'}).join('')+'</div>';
   h+='<div class="row hide" id="sh_bar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
@@ -431,7 +432,7 @@ function loadShip(quiet){
     +'<td><span class="pill '+(STGC[x.stage]||'')+'">'+esc(x.stage_label)+'</span>'+(x.packed_at?' <span class="pill ok" title="Packed '+ist(x.packed_at)+'">Packed</span>':pre?' <span class="pill warn">Not packed</span>':'')+sub+note+'</td>'
     +'<td class="small mut">'+shDay(x.booked_at)+'</td><td>'+rup(x.charge)+'</td>'
     +'<td class="small" style="white-space:nowrap">'+(pre&&!x.packed_at?'<a href="#" data-pack="'+esc(x.order_id)+'"><b>Pack</b></a> · ':'')+(live?'<a href="#" data-lb="'+esc(x.order_id)+'">Label</a> · ':'')+'<a target="_blank" rel="noopener" href="'+esc(x.track_url)+'">Track</a>'+(pre?' · <a href="#" data-cxo="'+esc(x.order_id)+'" style="color:var(--bad)">Cancel order</a>':'')+'</td></tr>'}).join('')+'</tbody></table>'+(j.total>j.shipments.length?'<p class="small mut">Showing the newest '+j.shipments.length+' of '+j.total+'. Narrow the dates or search.</p>':'')+'</div>'
-   :'<p class="mut">No shipments here'+(SH.range==='today'?' today':'')+'. Book orders from the Orders tab and they appear here.</p>';
+   :'<p class="mut">'+(SH.stage==='to_pack'?'Nothing left to pack'+(SH.range==='today'?' from today':'')+'.':'No shipments here'+(SH.range==='today'?' today':'')+'. Book orders from the Orders tab and they appear here.')+'</p>';
   if(quiet&&document.activeElement&&document.activeElement.id==='sh_q')return;
   $('#main').innerHTML=h;shBar();
   var q=$('#sh_q');q.onkeydown=function(e){if(e.key==='Enter'){SH.q=q.value.trim();loadShip()}};
@@ -443,7 +444,7 @@ function loadShip(quiet){
    if(t.id==='sh_all'){var on=t.checked;Object.keys(SH.rows).forEach(function(k){if(SH.rows[k].stage!=='cancelled'){if(on)SH.sel[k]=1;else delete SH.sel[k]}});[].forEach.call(document.querySelectorAll('input.ssel'),function(i){if(!i.disabled)i.checked=on});shBar();return}
    var ck=t.closest('td.ck');if(ck){var i=ck.querySelector('input.ssel');if(i&&!i.disabled){if(t!==i)i.checked=!i.checked;if(i.checked)SH.sel[i.dataset.id]=1;else delete SH.sel[i.dataset.id];shBar()}return}
    var lb=t.closest('[data-lb]');if(lb){e.preventDefault();dlLabels([lb.dataset.lb],null);return}
-   var pk=t.closest('[data-pack]');if(pk){e.preventDefault();packMode(pk.dataset.pack==='all'?(j.attention.to_pack||[]):[pk.dataset.pack]);return}
+   var pk=t.closest('[data-pack]');if(pk){e.preventDefault();packMode(pk.dataset.pack==='all'?(j.attention.to_pack||[]):pk.dataset.pack==='list'?j.shipments.map(function(x){return x.order_id}):[pk.dataset.pack]);return}
    var cxo=t.closest('[data-cxo]');if(cxo){e.preventDefault();var ro=SH.rows[cxo.dataset.cxo];if(!confirm('Cancel order '+(ro?ro.order_name:'')+'? The Shiprocket pickup is cancelled first (only possible before the courier collects it), then the Shopify order.'))return;cxo.textContent='Cancelling…';rpc('cancel_orders',{ids:[cxo.dataset.cxo]}).then(function(r){var x=r.results[0];toast(x.ok?x.name+' cancelled':x.note);loadShip()}).catch(function(er){toast(er.message);loadShip()});return}
    if(t.id==='rep_xs'){SH.report='';loadShip();return}
    if(t.dataset&&t.dataset.act){shAct(t.dataset.act,t);return}
