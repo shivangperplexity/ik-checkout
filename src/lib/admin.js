@@ -122,7 +122,7 @@ async function recentOrders(env, days = 90) {
 const num = (v) => Number(v) || 0;
 /** Orders that have a live (not cancelled) Shiprocket AWB. They count as shipped even if the Shopify fulfilment step failed. */
 async function bookedMap(env) {
-  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
+  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state, charge_paise FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
   return Object.fromEntries(rows.map((r) => [String(r.order_id), r]));
 }
 function orderOut(o, all) {
@@ -326,10 +326,29 @@ const ACTIONS = {
     if (b.filter === 'high') list = list.filter((o) => o.level === 'high');
     if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
     if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && o.status !== 'cancelled');
-    if (b.filter === 'shipped') list = list.filter((o) => o.shipped);
+    let profit = null;
+    if (b.filter === 'shipped') {
+      list = list.filter((o) => o.shipped);
+      /* expected profit per shipped order: revenue - items x product cost - CAC - the parcel's Shiprocket charge (assumes it is delivered) */
+      const pf = (env.SETTINGS || await getSettings(env)).profit || { unit_cost: 40, cac: 80 };
+      const unitCost = num(pf.unit_cost), cac = num(pf.cac);
+      const sum = { n: 0, revenue: 0, units: 0, product: 0, cac: 0, shipping: 0, net: 0, known: 0, unknown: 0 };
+      list.forEach((o) => {
+        const row = all.find((x) => String(x.order_id) === String(o.id)) || {};
+        let units = 0; try { units = JSON.parse(row.contents_json || '[]').reduce((s, c) => s + (Number(c.quantity) || 0), 0); } catch { units = 0; }
+        if (!units) units = 1;
+        const ship = booked[String(o.id)] && booked[String(o.id)].charge_paise != null ? num(booked[String(o.id)].charge_paise) / 100 : null;
+        const product = units * unitCost, net = ship == null ? null : Math.round((o.total - product - cac - ship) * 100) / 100;
+        o.profit = { units, product, cac, shipping: ship, net };
+        sum.n++; sum.revenue += o.total; sum.units += units; sum.product += product; sum.cac += cac;
+        if (ship == null) sum.unknown++; else { sum.known++; sum.shipping += ship; sum.net += net; }
+      });
+      profit = { ...sum, unit_cost: unitCost, cac_per_order: cac, avg: sum.known ? Math.round(sum.net / sum.known) : 0 };
+      Object.keys(profit).forEach((k) => { if (typeof profit[k] === 'number') profit[k] = Math.round(profit[k] * 100) / 100; });
+    }
     if (b.filter === 'packed') list = list.filter((o) => o.packed_at && o.status !== 'cancelled');
     if (b.q) { const q = String(b.q).toLowerCase(); list = list.filter((o) => `${o.name} ${o.phone} ${o.customer} ${o.pincode}`.toLowerCase().includes(q)); }
-    return { orders: list.slice(0, 200) };
+    return { orders: list.slice(0, 200), profit };
   },
   async order(env, b) {
     const all = await recentOrders(env, 365);
@@ -343,6 +362,12 @@ const ACTIONS = {
     return { order: orderOut(o, all), risk: r, shop, messages: msgs, session: sess };
   },
   async pack(env, b) { return { ok: true, results: await packOrders(env, b.ids, b.packed !== false) }; },
+  async save_profit(env, b) {
+    const unit_cost = Number(b.unit_cost), cac = Number(b.cac);
+    if (!(unit_cost >= 0 && unit_cost < 100000) || !(cac >= 0 && cac < 100000)) throw new Error('Enter amounts in rupees');
+    await putSetting(env, 'profit', { unit_cost, cac });
+    return { ok: true };
+  },
   /** Packing screen: what goes in each parcel (design image, size, SKU, quantity) and the envelope / roll it needs. */
   async pack_list(env, b) {
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 150);
@@ -416,6 +441,7 @@ const ACTIONS = {
     const s = await getSettings(env, true);
     const w = s.wa;
     return {
+      profit: s.profit,
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */

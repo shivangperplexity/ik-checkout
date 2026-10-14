@@ -42,6 +42,8 @@ const DEFAULTS = {
     /* Rate comparison across carrier accounts (lib/rates.js) */
     shiprocket_email: '', shiprocket_password: '', nimbus_couriers: 'delhivery|xpress\\s*bees|xpressbees', shiprocket_couriers: '',
     policy: 'cheapest', tolerance_days: 2 },
+  /* Expected-profit column on Orders > Shipped: product cost per item and customer acquisition cost per order (₹) */
+  profit: { unit_cost: 40, cac: 80 },
 };
 
 let cache = { at: 0, s: null };
@@ -53,6 +55,7 @@ export async function getSettings(env, fresh) {
   for (const r of rows) { try { s[r.k] = JSON.parse(r.v); } catch { /* ignore */ } }
   s.wa = { ...DEFAULTS.wa, ...s.wa };
   s.shipping = { ...DEFAULTS.shipping, ...(s.shipping || {}) };
+  s.profit = { ...DEFAULTS.profit, ...(s.profit || {}) };
   cache = { at: Date.now(), s };
   return s;
 }
