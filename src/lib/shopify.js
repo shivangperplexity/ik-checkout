@@ -44,3 +44,23 @@ export async function ordersCancelState(env, ids) {
   }
   return out;
 }
+
+/** Packing view for many orders at once: items with design image, size, SKU and quantity (50 per Shopify call). Nothing stored. */
+export async function packingItems(env, ids) {
+  const out = {};
+  for (let i = 0; i < ids.length; i += 50) {
+    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Order { legacyResourceId name shippingAddress{ firstName city }
+      lineItems(first:30){ nodes{ title quantity variantTitle sku image{ url } product{ productType tags featuredImage{ url } } variant{ inventoryItem{ measurement{ weight{ value unit } } } } } } } } }`,
+      { ids: ids.slice(i, i + 50).map((x) => `gid://shopify/Order/${x}`) });
+    for (const n of d.nodes || []) {
+      if (!n || !n.legacyResourceId) continue;
+      out[String(n.legacyResourceId)] = { name: n.name, first_name: n.shippingAddress?.firstName || '', city: n.shippingAddress?.city || '',
+        items: (n.lineItems?.nodes || []).map((l) => {
+          const w = l.variant?.inventoryItem?.measurement?.weight;
+          return { title: l.title, quantity: l.quantity, variantTitle: l.variantTitle || '', sku: l.sku || '', image: l.image?.url || l.product?.featuredImage?.url || '',
+            tags: l.product?.tags || [], productType: l.product?.productType || '', weightG: w ? Math.round(Number(w.value) * (GRAMS[w.unit] || 1)) : 0 };
+        }) };
+    }
+  }
+  return out;
+}

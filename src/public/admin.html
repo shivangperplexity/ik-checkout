@@ -48,6 +48,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .tpl{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .code{font-family:ui-monospace,monospace;font-size:12.5px;background:var(--cream);border:1px solid var(--line);border-radius:6px;padding:6px 8px;word-break:break-all}
 .up{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}.up img{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#eee}
+.pkgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin:12px 0}.pkc{border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff;position:relative;display:grid;gap:4px}.pkc img{width:100%;aspect-ratio:1;object-fit:contain;background:var(--cream);border-radius:8px}.pkc .qty{position:absolute;top:12px;right:12px;background:var(--ink);color:#fff;font-weight:800;border-radius:99px;padding:3px 11px;font-size:15px}.pkc .qty.many{background:var(--warn)}.pkc b{font-size:13px;line-height:1.25}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;z-index:99;font-weight:600}
 @media(max-width:640px){.bars .r{grid-template-columns:110px 1fr 56px}.hdrname{display:none}}
 </style></head><body>
@@ -119,7 +120,7 @@ var FIL=[['all','All'],['toship','To ship'],['packed','Packed'],['unconfirmed','
 function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){if(tab!=='orders'||BULK)return;
  S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});var nb=j.orders.filter(function(o){return o.booked}).length;
  var keep=quiet&&$('#q')?$('#q').value:S.q||'';
- var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px">'+(S.filter==='shipped'&&nb?'<button class="btn sm" id="lbl_all">Download all labels (6×4 in) · '+nb+'</button>':'')+'</div>'+(S.report||'')+'<div class="row hide" id="bulkbar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
+ var h='<div class="chips">'+FIL.map(function(f){return '<button class="chip'+(S.filter===f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><div class="row" style="margin-bottom:10px"><input type="search" id="q" placeholder="Search order, phone, name, PIN" value="'+esc(keep)+'" style="max-width:320px">'+(S.filter==='shipped'&&nb?'<button class="btn sm" id="lbl_all">Download all labels (6×4 in) · '+nb+'</button>':'')+(function(){if(S.filter!=='toship')return '';var n=j.orders.filter(function(o){return ready(o)&&!o.packed_at}).length;return n?'<button class="btn sm" id="pack_all">Start packing · '+n+'</button>':''})()+'</div>'+(S.report||'')+'<div class="row hide" id="bulkbar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
  h+='<div class="card tw"><table><thead><tr><th class="ck"><input type="checkbox" id="selall" title="Select all that are ready to ship"></th><th>Order</th><th>Customer</th><th>Place</th><th>Pay</th><th>Total</th><th>Status</th><th>Risk</th><th>When</th></tr></thead><tbody>'+(j.orders.length?j.orders.map(function(o){
   var can=!o.shipped&&o.status!=='cancelled';
   var st=o.shipped_at?'<span class="pill ok">Shipped</span>':o.booked?'<span class="pill warn" title="Booked with '+esc(o.courier)+', AWB '+esc(o.awb)+'. Shopify is not fulfilled yet'+(o.fulfil_error?': '+esc(o.fulfil_error):'. It is retried automatically.')+'">Booked · Shopify pending</span>':o.status==='cancelled'?'<span class="pill bad">Cancelled</span>':(o.packed_at?'<span class="pill ok" title="Packed '+ist(o.packed_at)+'">Packed</span> ':'')+(o.method==='cod'&&!o.confirmed_at?'<span class="pill warn">COD unconfirmed</span>':o.packed_at?'':'<span class="pill">Ready to ship</span>');
@@ -130,6 +131,8 @@ function loadOrders(quiet){if(BULK)return;rpc('orders',{filter:S.filter,q:S.q||'
  $('#main').onclick=function(e){var c=e.target.closest('.chip');if(c){S.filter=c.dataset.f;loadOrders();return}
   if(e.target.id==='bulk_go'){bulkShip();return}
   if(e.target.id==='bulk_pk'||e.target.id==='bulk_upk'){bulkPack(e.target.id==='bulk_pk',e.target);return}
+  if(e.target.id==='bulk_start'){packMode(selIds().filter(function(id){return !S.rows[id].packed_at}));return}
+  if(e.target.id==='pack_all'){packMode(Object.keys(S.rows).filter(function(k){return ready(S.rows[k])&&!S.rows[k].packed_at}).sort(function(a,b){return S.rows[a].created_at-S.rows[b].created_at}));return}
   if(e.target.id==='bulk_clr'){S.sel={};[].forEach.call(document.querySelectorAll('input.sel'),function(i){i.checked=false});bulkBar();return}
   if(e.target.id==='rep_x'){S.report='';loadOrders();return}
   if(e.target.id==='rep_lbl'){dlLabels(e.target.dataset.ids.split(','),e.target);return}
@@ -161,8 +164,35 @@ function ready(o){return eligible(o)&&(o.method!=='cod'||!!o.confirmed_at)}
 function selIds(){return Object.keys(S.sel).filter(function(id){var o=S.rows[id];return o&&eligible(o)})}
 function bulkBar(){var b=$('#bulkbar');if(!b)return;var ids=selIds();b.classList.toggle('hide',!ids.length);
  var np=ids.filter(function(id){return !S.rows[id].packed_at}).length,pk=ids.length-np;
- b.innerHTML='<b>'+ids.length+' selected</b>'+(np?'<button class="btn ghost sm" id="bulk_pk">Mark packed · '+np+'</button>':'')+(pk?'<button class="btn ghost sm" id="bulk_upk">Not packed · '+pk+'</button>':'')+'<button class="btn sm" id="bulk_go">Ship '+ids.length+' with Shiprocket</button><button class="btn ghost sm" id="bulk_clr">Clear</button>';
+ b.innerHTML='<b>'+ids.length+' selected</b>'+(np?'<button class="btn sm" id="bulk_start">Start packing · '+np+'</button><button class="btn ghost sm" id="bulk_pk">Mark packed · '+np+'</button>':'')+(pk?'<button class="btn ghost sm" id="bulk_upk">Not packed · '+pk+'</button>':'')+'<button class="btn sm" id="bulk_go">Ship '+ids.length+' with Shiprocket</button><button class="btn ghost sm" id="bulk_clr">Clear</button>';
  var a=$('#selall');if(a){var rd=Object.keys(S.rows).map(function(k){return S.rows[k]}).filter(ready);a.checked=rd.length>0&&rd.every(function(o){return S.sel[o.id]})}}
+/* ---- packing screen: one order at a time, design images + quantities, Enter = packed & next ---- */
+function packMode(ids){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('Nothing to pack');return}
+ $('#ov').innerHTML='<div class="scrim" id="sc"></div><div class="drawer" style="width:min(780px,100%)"><p class="mut">Loading items…</p></div>';
+ var P={ids:ids,i:0,packed:[],skipped:[],data:{}};
+ function stop(){document.removeEventListener('keydown',keys);close();loadOrders()}
+ function keys(e){if(e.target&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.key==='Enter'){var b=$('#pk_ok');if(b&&!b.disabled){e.preventDefault();b.click()}}else if(e.key==='ArrowRight'){var s=$('#pk_skip');if(s){e.preventDefault();s.click()}}else if(e.key==='Escape')stop()}
+ function draw(){var d=$('#ov').querySelector('.drawer');if(!d)return;
+  if(P.i>=P.ids.length){
+   d.innerHTML='<div class="row"><b>Packing done</b><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div><p style="font-size:18px;margin:14px 0"><b>'+P.packed.length+'</b> packed'+(P.skipped.length?' · '+P.skipped.length+' skipped':'')+'</p>'
+    +(P.packed.length?'<div class="row"><button class="btn" id="pk_ship">Ship '+P.packed.length+' with Shiprocket</button></div><p class="small mut" style="margin-top:8px">Books the cheapest courier for each packed order, creates the AWBs and asks for pickup.</p>':'');
+   $('#pk_x').onclick=stop;var sh=$('#pk_ship');if(sh)sh.onclick=function(){S.sel={};P.packed.forEach(function(id){S.sel[id]=1});document.removeEventListener('keydown',keys);close();rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});bulkShip()}).catch(function(er){toast(er.message)})};return}
+  var id=P.ids[P.i],o=P.data[id]||{},row=S.rows[id]||{};
+  var h='<div class="row"><b>Packing '+(P.i+1)+' of '+P.ids.length+'</b><span class="small mut">'+P.packed.length+' packed'+(P.skipped.length?' · '+P.skipped.length+' skipped':'')+'</span><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div>';
+  if(o.missing){h+='<p class="err" style="margin-top:12px">'+esc(row.name||id)+': could not load this order from Shopify.</p><div class="row"><button class="btn ghost" id="pk_skip">Skip →</button></div>'}
+  else{
+   h+='<h2 style="margin:12px 0 2px;font-size:22px">'+esc(o.name||row.name)+' <span class="mut" style="font-weight:500;font-size:15px">· '+esc(o.first_name||row.customer||'')+(o.city?', '+esc(o.city):'')+'</span> <span class="pill'+(o.cod?' warn':'')+'">'+(o.cod?'COD':'Prepaid')+'</span></h2>';
+   var n=(o.items||[]).reduce(function(s,x){return s+(x.qty||0)},0);
+   h+='<p class="small mut" style="margin:0">'+n+' item'+(n===1?'':'s')+(o.parcel?' · '+esc(o.parcel):'')+'</p>';
+   h+='<div class="pkgrid">'+(o.items||[]).map(function(x){return '<div class="pkc">'+(x.image?'<img src="'+esc(x.image)+'" alt="" loading="eager">':'<div style="aspect-ratio:1;background:var(--cream);border-radius:8px"></div>')+'<span class="qty'+(x.qty>1?' many':'')+'">× '+x.qty+'</span><b>'+esc(x.title)+'</b><span class="small mut">'+esc(x.size||'')+(x.sku?' · '+esc(x.sku):'')+'</span></div>'}).join('')+'</div>';
+   h+='<div class="row"><button class="btn" id="pk_ok">Packed, next ⏎</button><button class="btn ghost" id="pk_skip">Skip →</button></div>';
+  }
+  d.innerHTML=h;d.scrollTop=0;$('#pk_x').onclick=stop;
+  var ok=$('#pk_ok');if(ok)ok.onclick=function(){ok.disabled=true;ok.textContent='Saving…';rpc('pack',{ids:[id],packed:true}).then(function(r){var x=r.results[0];if(x&&!x.ok)throw new Error(x.note);if(S.rows[id])S.rows[id].packed_at=Math.floor(Date.now()/1000);P.packed.push(id);P.i++;draw()}).catch(function(er){ok.disabled=false;ok.textContent='Packed, next ⏎';toast(er.message)})};
+  var sk=$('#pk_skip');if(sk)sk.onclick=function(){P.skipped.push(id);P.i++;draw()};
+  var nx=P.data[P.ids[P.i+1]];if(nx&&nx.items)nx.items.forEach(function(x){if(x.image){var im=new Image();im.src=x.image}})}
+ $('#sc').onclick=stop;document.addEventListener('keydown',keys);
+ rpc('pack_list',{ids:ids}).then(function(r){r.orders.forEach(function(o){P.data[o.id]=o});draw()}).catch(function(er){$('#ov').querySelector('.drawer').innerHTML='<div class="row"><span class="err">'+esc(er.message)+'</span><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div>';$('#pk_x').onclick=stop})}
 /* mark the selected orders packed / not packed; the selection is kept so they can be shipped right after */
 function bulkPack(on,btn){var ids=selIds().filter(function(id){return on?!S.rows[id].packed_at:!!S.rows[id].packed_at});if(!ids.length)return;
  btn.disabled=true;btn.textContent=on?'Marking…':'Updating…';

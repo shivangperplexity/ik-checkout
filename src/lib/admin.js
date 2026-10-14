@@ -1,7 +1,7 @@
 import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js';
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
-import { orderForShipping } from './shopify.js';
+import { orderForShipping, packingItems } from './shopify.js';
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
@@ -325,6 +325,20 @@ const ACTIONS = {
     return { order: orderOut(o, all), risk: r, shop, messages: msgs, session: sess };
   },
   async pack(env, b) { return { ok: true, results: await packOrders(env, b.ids, b.packed !== false) }; },
+  /** Packing screen: what goes in each parcel (design image, size, SKU, quantity) and the envelope / roll it needs. */
+  async pack_list(env, b) {
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 150);
+    if (!ids.length) throw new Error('Select at least one order');
+    const [items, rows, fresh] = await Promise.all([packingItems(env, ids), env.DB.prepare(`SELECT order_id, method, packed_at, pincode, city FROM orders WHERE order_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all().then((r) => r.results), withSettingsFresh(env)]);
+    const cfg = packCfg(fresh.SETTINGS?.shipping?.pack);
+    return { ok: true, orders: ids.map((id) => {
+      const it = items[id], o = rows.find((r) => String(r.order_id) === id) || {};
+      if (!it) return { id, missing: true };
+      let parcel = ''; try { parcel = packOrder(it.items, cfg).label; } catch { parcel = ''; }
+      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: o.method === 'cod', packed_at: num(o.packed_at) || null, parcel,
+        items: it.items.map((x) => ({ title: x.title, qty: x.quantity, size: x.variantTitle, sku: x.sku, image: x.image })) };
+    }) };
+  },
   async confirm(env, b) {
     const gid = `gid://shopify/Order/${b.id}`;
     await removeTags(env, gid, ['cod-unconfirmed']); await addTags(env, gid, ['cod-confirmed']);
