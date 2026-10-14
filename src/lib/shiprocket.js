@@ -157,6 +157,9 @@ export async function bookShipment(env, order, row, { pickOption }) {
   const s = env.SETTINGS?.shipping || {};
   if (!s.sr_pickup) throw new Error('Choose your Shiprocket pickup location in Settings, Shipping carriers, first.');
   let rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
+  /* a cancelled earlier booking: start a fresh Shiprocket order (new order id suffix, Shiprocket keeps the old one) */
+  let rebook = '';
+  if (rec && rec.status === 'cancelled') { rebook = '-R' + String(now()).slice(-4); await db.prepare('DELETE FROM shipments WHERE order_id=?').bind(id).run(); rec = null; }
   if (rec?.awb) return { ok: true, already: true, shipment: publicRec(rec) };
 
   const plan = await planShipment(env, order, row, { pickOption });
@@ -177,7 +180,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
     const a = order.address || {}, parts = String(a.name || row.first_name || 'Customer').trim().split(/\s+/);
     const first = a.firstName || parts.shift(), last = a.lastName || parts.join(' ');
     const body = {
-      order_id: String(row.order_name || id).replace(/^#/, ''), order_date: istDate(), pickup_location: s.sr_pickup, channel_id: '', comment: 'Ink Kulture',
+      order_id: String(row.order_name || id).replace(/^#/, '') + rebook, order_date: istDate(), pickup_location: s.sr_pickup, channel_id: '', comment: 'Ink Kulture',
       billing_customer_name: first, billing_last_name: last || '', billing_address: a.address1 || '', billing_address_2: a.address2 || '',
       billing_city: a.city || row.city || '', billing_pincode: plan.pin, billing_state: a.province || '', billing_country: 'India',
       billing_email: order.email || row.email || s.sr_fallback_email || '', billing_phone: digits10(a.phone) || digits10(row.phone),

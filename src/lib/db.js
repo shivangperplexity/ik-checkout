@@ -48,6 +48,13 @@ export const SCHEMA = [
   /* order cancelled while the parcel was booked: 'cancelled' (pickup stopped), 'picked' (too late, needs RTO), 'error' (retrying) */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS cancel_state TEXT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS cancel_note TEXT`,
+  /* Shipments tab: Shiprocket's own status text, our stage (lib/ship-status.js) and when it was last checked */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS stage TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sr_status TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS tracked_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS picked_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS delivered_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS edd TEXT`,
   /* COD -> prepaid conversion */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_txnid TEXT`,
