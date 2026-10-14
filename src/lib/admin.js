@@ -129,7 +129,7 @@ function orderOut(o, all) {
   const r = scoreOrder(o, all);
   return {
     id: o.order_id, name: o.order_name, txnid: o.txnid, method: o.method, status: o.status, total: num(o.total_paise) / 100, phone: o.phone, customer: `${o.first_name || ''} ${o.last_name || ''}`.trim(),
-    city: o.city, pincode: o.pincode, state: o.state_code, created_at: num(o.created_at), confirmed_at: num(o.confirmed_at) || null, shipped_at: num(o.shipped_at) || null, tracking: o.tracking || '',
+    city: o.city, pincode: o.pincode, state: o.state_code, created_at: num(o.created_at), confirmed_at: num(o.confirmed_at) || null, shipped_at: num(o.shipped_at) || null, packed_at: num(o.packed_at) || null, tracking: o.tracking || '',
     risk: r.score, level: r.level,
   };
 }
@@ -244,6 +244,29 @@ async function analytics(env, days) {
  * Mark a booked order fulfilled in Shopify (tracking = the Shiprocket AWB) and send the WhatsApp "shipped" message.
  * Never throws: returns '' when done, otherwise the reason (also saved on the shipment so the dashboard can show it).
  */
+/**
+ * Mark orders packed (or not). Only orders that are not shipped / cancelled. The Shopify order gets a "packed" tag
+ * so the state is visible there too (best effort). Returns per-order results.
+ */
+export async function packOrders(env, ids, packed) {
+  ids = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 200);
+  if (!ids.length) throw new Error('Select at least one order');
+  const rows = (await env.DB.prepare(`SELECT order_id, order_name, status, shipped_at, packed_at FROM orders WHERE order_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results;
+  const booked = await bookedMap(env).catch(() => ({}));
+  const t = now(), results = [];
+  for (const id of ids) {
+    const o = rows.find((r) => String(r.order_id) === id);
+    if (!o) { results.push({ id, name: id, ok: false, note: 'Order not found' }); continue; }
+    if (o.status === 'cancelled') { results.push({ id, name: o.order_name, ok: false, note: 'Cancelled' }); continue; }
+    if (o.shipped_at || booked[id]) { results.push({ id, name: o.order_name, ok: false, note: 'Already shipped' }); continue; }
+    await env.DB.prepare('UPDATE orders SET packed_at=? WHERE order_id=?').bind(packed ? t : null, id).run();
+    const gid = `gid://shopify/Order/${id}`;
+    try { if (packed) await addTags(env, gid, ['packed']); else await removeTags(env, gid, ['packed']); } catch { /* tag is cosmetic */ }
+    results.push({ id, name: o.order_name, ok: true, note: packed ? 'Packed' : 'Not packed' });
+  }
+  return results;
+}
+
 /** Live (not cancelled) shipment rows for these order ids. */
 async function shipRecs(env, ids, max) {
   ids = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, max);
@@ -286,6 +309,7 @@ const ACTIONS = {
     if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
     if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && o.status !== 'cancelled');
     if (b.filter === 'shipped') list = list.filter((o) => o.shipped);
+    if (b.filter === 'packed') list = list.filter((o) => o.packed_at && !o.shipped && o.status !== 'cancelled');
     if (b.q) { const q = String(b.q).toLowerCase(); list = list.filter((o) => `${o.name} ${o.phone} ${o.customer} ${o.pincode}`.toLowerCase().includes(q)); }
     return { orders: list.slice(0, 200) };
   },
@@ -300,6 +324,7 @@ const ACTIONS = {
     const sess = o.sid ? await env.DB.prepare('SELECT source,device,first_seen,page FROM sessions WHERE sid=?').bind(o.sid).first() : null;
     return { order: orderOut(o, all), risk: r, shop, messages: msgs, session: sess };
   },
+  async pack(env, b) { return { ok: true, results: await packOrders(env, b.ids, b.packed !== false) }; },
   async confirm(env, b) {
     const gid = `gid://shopify/Order/${b.id}`;
     await removeTags(env, gid, ['cod-unconfirmed']); await addTags(env, gid, ['cod-confirmed']);
@@ -323,6 +348,7 @@ const ACTIONS = {
     if (!o) throw new Error('Order not found');
     await shipOrder(env, b.id, { company, number, url: String(b.url || '').trim(), notify: b.notify !== false });
     await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=?').bind(now(), `${company} ${number}`, String(b.id)).run();
+    if (o.packed_at) removeTags(env, `gid://shopify/Order/${b.id}`, ['packed']).catch(() => {});
     const w = await fireTrigger(env, 'order_shipped', { to: o.phone, vars: { name: o.first_name, order: o.order_name, courier: company, tracking: number }, orderName: o.order_name });
     return { ok: true, whatsapp: w };
   },
