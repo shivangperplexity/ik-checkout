@@ -567,6 +567,7 @@ const ACTIONS = {
       attention: {
         pickup_failed: live.filter((x) => x.stage === 'pickup_failed').length,
         pickup_late: live.filter((x) => x.stage === 'pickup_pending' && x.booked_at < t - DAY).length,
+        pending_pickups: live.filter((x) => x.stage === 'pickup_pending' || x.stage === 'pickup_failed').length,
         to_pack: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at).sort((a, b) => a.booked_at - b.booked_at).map((x) => x.order_id),
         ndr: live.filter((x) => x.stage === 'ndr').length,
         cancelled_after_pickup: all.filter((x) => x.cancel_state === 'picked' && !['delivered', 'rto'].includes(x.stage)).length,
@@ -576,6 +577,12 @@ const ACTIONS = {
         packed: all.filter((x) => x.packed_at && x.packed_at >= today0).length },
       stats: { booked: liveR.length, rto_pct: liveR.length ? Math.round(rto.length * 1000 / liveR.length) / 10 : 0,
         rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(liveR.reduce((a, x) => a + x.charge, 0)) } };
+  },
+  /** Every parcel still waiting for pickup (or pickup failed), any date: the ids the "Cancel all pending pickups" button works through. */
+  async ship_pending_ids(env) {
+    const rows = (await env.DB.prepare(`SELECT order_id FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'
+        AND COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed') AND COALESCE(cancel_state,'')<>'picked' AND created_at > ? ORDER BY created_at`).bind(now() - 45 * 86400).all()).results;
+    return { ok: true, ids: rows.map((r) => String(r.order_id)) };
   },
   /** Re-check these shipments with Shiprocket now (max 80). */
   async ship_refresh(env, b) {

@@ -425,6 +425,7 @@ function loadShip(quiet){
   if(at.pickup_late)att.push('<button class="chip" data-att="pickup_pending" style="border-color:var(--warn);color:var(--warn)">'+at.pickup_late+' waiting for pickup over a day</button>');
   if(at.ndr)att.push('<button class="chip" data-att="ndr" style="border-color:var(--bad);color:var(--bad)">'+at.ndr+' NDR</button>');
   if(at.cancelled_after_pickup)att.push('<button class="chip" data-att="cap" style="border-color:var(--bad);color:var(--bad)">'+at.cancelled_after_pickup+' cancelled after pickup</button>');
+  if(at.pending_pickups)att.push('<span class="grow"></span><button class="btn bad sm" id="sh_cxall">Cancel all pending pickups · '+at.pending_pickups+'</button>');
   if(att.length)h+='<div class="row" style="margin-bottom:10px"><b class="small">Needs action (any date):</b>'+att.join('')+'</div>';
   h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&f[0]!=='to_pack'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+(f[0]==='to_pack'&&k?' tp':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')
    +(SH.stage==='to_pack'&&j.shipments.length?'<span class="grow"></span><button class="btn sm" data-pack="list">Start packing these · '+j.shipments.length+'</button>':'')+'</div>';
@@ -450,6 +451,7 @@ function loadShip(quiet){
    var f=t.closest('[data-f]');if(f){SH.stage=f.dataset.f;SH.sel={};loadShip();return}
    var av=t.closest('[data-att]');if(av){SH.range='all';SH.stage=av.dataset.att==='cap'?'all':av.dataset.att;if(av.dataset.att==='cap')SH.q='';SH.sel={};loadShip();return}
    if(t.id==='sh_rf'){shRefresh(t,Object.keys(SH.rows));return}
+   if(t.id==='sh_cxall'){cancelAllPending(t);return}
    if(t.id==='sh_all'){var on=t.checked;Object.keys(SH.rows).forEach(function(k){if(SH.rows[k].stage!=='cancelled'){if(on)SH.sel[k]=1;else delete SH.sel[k]}});[].forEach.call(document.querySelectorAll('input.ssel'),function(i){if(!i.disabled)i.checked=on});shBar();return}
    var ck=t.closest('td.ck');if(ck){var i=ck.querySelector('input.ssel');if(i&&!i.disabled){if(t!==i)i.checked=!i.checked;if(i.checked)SH.sel[i.dataset.id]=1;else delete SH.sel[i.dataset.id];shBar()}return}
    var lb=t.closest('[data-lb]');if(lb){e.preventDefault();dlLabels([lb.dataset.lb],null);return}
@@ -460,6 +462,14 @@ function loadShip(quiet){
    var ra=t.closest('[data-ra]'),rt=t.closest('[data-rt]');
    if(ra){var dt=prompt('Re-attempt on which date? Leave blank for next working day. Format 2026-10-20','');if(dt===null)return;ra.disabled=true;rpc('ndr_do',{awb:ra.dataset.ra,action_type:'reattempt',deferred_date:dt}).then(function(){toast('Re-attempt requested');loadShip()}).catch(function(er){ra.disabled=false;toast(er.message)})}
    if(rt){if(!confirm('Send this parcel back to you? You pay the return freight.'))return;rt.disabled=true;rpc('ndr_do',{awb:rt.dataset.rt,action_type:'return'}).then(function(){toast('Return requested');loadShip()}).catch(function(er){rt.disabled=false;toast(er.message)})}}}).catch(function(e){if(!quiet)fail(e)})}
+/* Cancel every Shiprocket booking still waiting for pickup. Orders are NOT cancelled: they go back to "To ship" and can be booked again. */
+function cancelAllPending(btn){var n=+(btn.textContent.match(/\d+/)||[0])[0];
+ if(!confirm('Cancel ALL '+n+' pending pickups in Shiprocket?\n\nOnly parcels the courier has not collected are cancelled. The orders are NOT cancelled: they go back to "To ship" in the Orders tab, where you can book them again (new AWB).'))return;
+ btn.disabled=true;var t0=btn.textContent;var res=[],i=0,ids=[];
+ function fin(){var ok=shReport('Cancel pending pickups',res);btn.disabled=false;btn.textContent=t0;toast(ok+' of '+res.length+' cancelled');SH.sel={};loadShip()}
+ function step(){if(i>=ids.length)return fin();var chunk=ids.slice(i,i+4);i+=chunk.length;btn.textContent='Cancelling '+Math.min(i,ids.length)+' of '+ids.length+'…';
+  rpc('ship_cancel',{ids:chunk}).then(function(r){res=res.concat(r.results)}).catch(function(er){chunk.forEach(function(id){res.push({id:id,name:(SH.rows[id]||{}).order_name||id,ok:false,note:er.message})})}).then(step)}
+ rpc('ship_pending_ids').then(function(r){ids=r.ids||[];if(!ids.length){btn.disabled=false;btn.textContent=t0;toast('Nothing waiting for pickup');return}step()}).catch(function(er){btn.disabled=false;btn.textContent=t0;toast(er.message)})}
 function shBar(){var b=$('#sh_bar');if(!b)return;var ids=shSel();b.classList.toggle('hide',!ids.length);
  var st=ids.map(function(k){return SH.rows[k].stage}),pk=st.filter(function(s){return s==='pickup_pending'||s==='pickup_failed'}).length;
  var up=ids.filter(function(k){var x=SH.rows[k];return (x.stage==='pickup_pending'||x.stage==='pickup_failed')&&!x.packed_at}).length;
