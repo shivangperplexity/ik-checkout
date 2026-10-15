@@ -23,12 +23,20 @@ export async function orderForShipping(env, id) {
   };
 }
 
+/** Shown when the custom app's Admin API token cannot undo a fulfilment. */
+export const SCOPE_HINT = 'Shopify did not allow undoing the fulfilment: the app token is missing the "write_fulfillments" scope. In Shopify admin open Settings > Apps and sales channels > Develop apps > your app > Configuration > Admin API integration > Edit, tick Fulfillments: write_fulfillments, save, then press "Install app" / "Update" on the app. The token stays the same; try again after that.';
+
 /** Undo our Shopify fulfilment(s) for this AWB (when the Shiprocket shipment is cancelled before pickup). Returns how many. */
 export async function cancelFulfilmentsFor(env, id, awb) {
   const d = await gql(env, `query($id:ID!){ order(id:$id){ cancelledAt fulfillments(first:10){ id status trackingInfo{ number } } } }`, { id: `gid://shopify/Order/${id}` });
   const list = (d.order?.fulfillments || []).filter((f) => f.status === 'SUCCESS' && (!awb || (f.trackingInfo || []).some((t) => String(t.number) === String(awb))));
   for (const f of list) {
-    const r = await gql(env, `mutation($id:ID!){ fulfillmentCancel(id:$id){ fulfillment{ id status } userErrors{ message } } }`, { id: f.id });
+    let r;
+    try { r = await gql(env, `mutation($id:ID!){ fulfillmentCancel(id:$id){ fulfillment{ id status } userErrors{ message } } }`, { id: f.id }); }
+    catch (e) {
+      if (/Access denied for fulfillmentCancel/i.test(String(e.message))) throw new Error(SCOPE_HINT);
+      throw e;
+    }
     const e = r.fulfillmentCancel?.userErrors;
     if (e && e.length) throw new Error('fulfillmentCancel: ' + e.map((x) => x.message).join('; '));
   }

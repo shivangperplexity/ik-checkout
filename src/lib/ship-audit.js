@@ -181,9 +181,11 @@ export async function fix(env, { id, fix: what }, deps = {}) {
       const r = ship && ship.awb && ship.status !== 'cancelled' ? await stopShipment(env, id, 'Order cancelled (reconciliation)') : { state: 'none' };
       if (r.state === 'picked') throw new Error('The courier already has this parcel; it cannot be cancelled. Ask Shiprocket for RTO.');
       if (r.state === 'error') throw new Error(r.note);
-      const n = await cancelFulfilmentsFor(env, id);          // any fulfilment still active (stopShipment only undoes its own AWB)
-      note = (r.state === 'cancelled' ? 'Shiprocket booking cancelled. ' : '') + (n ? `${n} Shopify fulfilment${n === 1 ? '' : 's'} undone.` : 'Nothing left to unfulfil.');
       if (shop.cancelled || shop.cancelTag) await env.DB.prepare("UPDATE orders SET status='cancelled', shipped_at=NULL, tracking=NULL WHERE order_id=?").bind(id).run();
+      let n = 0, err = '';
+      try { n = await cancelFulfilmentsFor(env, id); } catch (e) { err = String(e.message || e); }   // any fulfilment still active (stopShipment only undoes its own AWB)
+      note = (r.state === 'cancelled' ? 'Shiprocket booking cancelled. ' : '') + (err ? '' : n ? `${n} Shopify fulfilment${n === 1 ? '' : 's'} undone.` : 'Nothing left to unfulfil.');
+      if (err) throw new Error(note + err);
       break;
     }
     case 'unfulfil': {                               // Shopify fulfilment undone; the order goes back to To ship here unless it is cancelled
