@@ -133,6 +133,23 @@ export async function ndrAction(env, { awb, action, comments, phone, deferred_da
 }
 
 /* ---------- booking ---------- */
+/**
+ * Shiprocket line items. Shiprocket rejects an order when two lines share a SKU ("SKU cannot be repeated"), and the
+ * store does create such orders (the same tattoo added twice is two Shopify lines). Same SKU + same price -> one line
+ * with the units added up; same SKU at different prices -> the SKU gets a -2, -3 suffix so each line stays unique.
+ */
+export function srItems(items) {
+  const out = [], seen = {};
+  for (const i of items || []) {
+    const base = String(i.sku || i.title || 'item').trim().slice(0, 30) || 'item';
+    const price = Math.max(1, Math.round(i.unitPrice) || 1), units = Math.max(1, Math.round(Number(i.quantity) || 1));
+    const same = out.find((o) => o.sku === base && o.selling_price === price);
+    if (same) { same.units += units; continue; }
+    const n = (seen[base] = (seen[base] || 0) + 1);
+    out.push({ name: i.title, sku: n > 1 ? `${base.slice(0, 27)}-${n}` : base, units, selling_price: price, discount: '', tax: '', hsn: '' });
+  }
+  return out;
+}
 const istDate = () => new Date(Date.now() + 19800000).toISOString().slice(0, 16).replace('T', ' ');
 const digits10 = (s) => String(s || '').replace(/\D/g, '').slice(-10);
 
@@ -192,7 +209,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
       billing_city: a.city || row.city || '', billing_pincode: plan.pin, billing_state: a.province || '', billing_country: 'India',
       billing_email: order.email || row.email || s.sr_fallback_email || '', billing_phone: digits10(a.phone) || digits10(row.phone),
       shipping_is_billing: true,
-      order_items: order.items.map((i) => ({ name: i.title, sku: i.sku || i.title.slice(0, 30), units: i.quantity, selling_price: Math.max(1, Math.round(i.unitPrice) || 1), discount: '', tax: '', hsn: '' })),
+      order_items: srItems(order.items),
       payment_method: plan.cod ? 'COD' : 'Prepaid', shipping_charges: 0, giftwrap_charges: 0, transaction_charges: 0, total_discount: 0,
       sub_total: Math.round(plan.amount), length: plan.pack.length, breadth: plan.pack.breadth, height: plan.pack.height, weight: plan.pack.weight_kg,
     };
