@@ -407,13 +407,14 @@ function trLabel(k){var t=(W&&W.triggers||[]).filter(function(x){return x.key===
 function bindWaTabs(){$('#t1').onclick=function(){S.msgTab=false;drawWa()};$('#t2').onclick=function(){S.msgTab=true;drawWa()}}
 
 /* ---- shipments: every Shiprocket parcel by stage, with pickup / cancel / label / manifest controls ---- */
-var SH={range:'all',stage:'all',q:'',sel:{},report:'',rows:{}};
+var SH={range:'all',stage:'all',q:'',sel:{},report:'',rows:{},issues:0,showDis:false};
 var STG=[['all','All'],['to_pack','To pack'],['pickup_pending','Pickup pending'],['pickup_failed','Pickup failed'],['transit','In transit'],['ofd','Out for delivery'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['lost','Lost / damaged'],['cancelled','Cancelled']];
 var STGC={pickup_pending:'warn',pickup_failed:'bad',ndr:'bad',rto:'bad',lost:'bad',delivered:'ok',ofd:'ok'};
 function shDay(t){return t?new Date(t*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}):''}
 function shSel(){return Object.keys(SH.sel).filter(function(k){return SH.rows[k]})}
 function loadShip(quiet){
- Promise.all([rpc('shipments',{range:SH.range,stage:SH.stage,q:SH.q}),SH.stage==='all'||SH.stage==='ndr'?rpc('ndr_list').catch(function(){return{ndr:[]}}):Promise.resolve({ndr:[]})]).then(function(a){if(tab!=='ship')return;var j=a[0],n=a[1].ndr||[],at=j.attention,td=j.today,c=j.counts;
+ if(SH.stage==='issues'){loadIssues(quiet);return}
+ Promise.all([rpc('shipments',{range:SH.range,stage:SH.stage,q:SH.q}),SH.stage==='all'||SH.stage==='ndr'?rpc('ndr_list').catch(function(){return{ndr:[]}}):Promise.resolve({ndr:[]}),rpc('audit',{}).catch(function(){return{open:0}})]).then(function(a){if(tab!=='ship')return;var j=a[0],n=a[1].ndr||[],at=j.attention,td=j.today,c=j.counts;SH.issues=a[2].open||0;
   SH.rows={};j.shipments.forEach(function(x){SH.rows[x.order_id]=x});
   var h='<div class="row" style="margin-bottom:10px">'+[['today','Today'],['yesterday','Yesterday'],['7d','7 days'],['30d','30 days'],['all','All']].map(function(r){return '<button class="chip'+(SH.range===r[0]?' on':'')+'" data-r="'+r[0]+'">'+r[1]+'</button>'}).join('')
    +'<input type="search" id="sh_q" placeholder="Order, AWB, name, phone, PIN" value="'+esc(SH.q)+'" style="max-width:260px"><span class="grow"></span><button class="btn ghost sm" id="sh_rf">Refresh status</button></div>';
@@ -425,8 +426,9 @@ function loadShip(quiet){
   if(at.pickup_late)att.push('<button class="chip" data-att="pickup_pending" style="border-color:var(--warn);color:var(--warn)">'+at.pickup_late+' waiting for pickup over a day</button>');
   if(at.ndr)att.push('<button class="chip" data-att="ndr" style="border-color:var(--bad);color:var(--bad)">'+at.ndr+' NDR</button>');
   if(at.cancelled_after_pickup)att.push('<button class="chip" data-att="cap" style="border-color:var(--bad);color:var(--bad)">'+at.cancelled_after_pickup+' cancelled after pickup</button>');
+  att.push('<button class="chip" data-f="issues" style="'+(SH.issues?'border-color:var(--bad);color:var(--bad);font-weight:700':'')+'" title="Shopify, Shiprocket and this dashboard checked against each other">'+(SH.issues?SH.issues+' mismatch'+(SH.issues===1?'':'es')+' to fix':'Reconcile · all clear')+'</button>');
   if(at.pending_pickups)att.push('<span class="grow"></span><button class="btn bad sm" id="sh_cxall">Cancel all pending pickups · '+at.pending_pickups+'</button>');
-  if(att.length)h+='<div class="row" style="margin-bottom:10px"><b class="small">Needs action (any date):</b>'+att.join('')+'</div>';
+  h+='<div class="row" style="margin-bottom:10px"><b class="small">Needs action (any date):</b>'+att.join('')+'</div>';
   h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&f[0]!=='to_pack'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+(f[0]==='to_pack'&&k?' tp':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')
    +(SH.stage==='to_pack'&&j.shipments.length?'<span class="grow"></span><button class="btn sm" data-pack="list">Start packing these · '+j.shipments.length+'</button>':'')+'</div>';
   h+=SH.report||'';
@@ -462,6 +464,41 @@ function loadShip(quiet){
    var ra=t.closest('[data-ra]'),rt=t.closest('[data-rt]');
    if(ra){var dt=prompt('Re-attempt on which date? Leave blank for next working day. Format 2026-10-20','');if(dt===null)return;ra.disabled=true;rpc('ndr_do',{awb:ra.dataset.ra,action_type:'reattempt',deferred_date:dt}).then(function(){toast('Re-attempt requested');loadShip()}).catch(function(er){ra.disabled=false;toast(er.message)})}
    if(rt){if(!confirm('Send this parcel back to you? You pay the return freight.'))return;rt.disabled=true;rpc('ndr_do',{awb:rt.dataset.rt,action_type:'return'}).then(function(){toast('Return requested');loadShip()}).catch(function(er){rt.disabled=false;toast(er.message)})}}}).catch(function(e){if(!quiet)fail(e)})}
+/* ---- Reconciliation: every order where Shopify, Shiprocket and this dashboard disagree, each with a one-click fix ---- */
+var SEVC={bad:'bad',warn:'warn',info:''};
+function loadIssues(quiet,run){
+ if(run){$('#main').innerHTML='<p class="mut">Checking every order of the last 45 days against Shopify and Shiprocket…</p>'}
+ rpc('audit',run?{run:true,days:45}:{}).then(function(j){if(tab!=='ship'||SH.stage!=='issues')return;SH.issues=j.open;
+  var K=j.kinds,FL=j.fix_labels,order=['bad','warn','info'],groups={};
+  j.issues.forEach(function(x){if(x.dismissed_at&&!SH.showDis)return;(groups[x.kind]=groups[x.kind]||[]).push(x)});
+  var kinds=Object.keys(groups).sort(function(a,b){return order.indexOf(K[a].sev)-order.indexOf(K[b].sev)||groups[b].length-groups[a].length});
+  var h='<div class="row" style="margin-bottom:10px"><button class="chip" data-f="all">&larr; All shipments</button><span class="small mut">'+(j.audited_at?'Last checked '+shDay(j.audited_at):'Not checked yet')+(run?' · '+j.checked+' orders checked':'')+'</span><span class="grow"></span>'
+   +'<label class="small"><input type="checkbox" id="is_dis"'+(SH.showDis?' checked':'')+'> Show dismissed</label><button class="btn sm" id="is_run">Check now</button></div>';
+  h+='<div class="card small" style="margin-bottom:12px"><b>How this works.</b> Every order of the last 45 days is read from Shopify (cancelled? fulfilled? which AWB?), from Shiprocket (where the parcel is) and from this dashboard. Anything that does not line up is listed here with the fix that settles it. The check also runs by itself every 30 minutes; nothing is fixed without you pressing the button.</div>';
+  if(!kinds.length)h+='<div class="card"><h3>All clear</h3><p class="mut">Shopify, Shiprocket and this dashboard agree on every order checked.</p></div>';
+  kinds.forEach(function(k){var g=groups[k],kd=K[k],sug=kd.fixes[0],canAll=sug&&sug!=='dismiss'&&g.filter(function(x){return !x.dismissed_at}).length>1;
+   h+='<div class="card" style="margin-bottom:12px"><div class="row"><h3 style="margin:0"><span class="pill '+(SEVC[kd.sev]||'')+'">'+g.length+'</span> '+esc(kd.title)+'</h3><span class="grow"></span>'+(canAll?'<button class="btn sm" data-fixall="'+esc(k)+'">'+esc(FL[sug])+' · all '+g.length+'</button>':'')+'</div><p class="small mut" style="margin:6px 0 10px">'+esc(kd.why)+'</p>'
+    +'<div class="tw"><table><thead><tr><th>Order</th><th>Shopify says</th><th>Shiprocket says</th><th>This dashboard</th><th></th></tr></thead><tbody>'+g.map(function(x){var awb=/\b(\d{8,})\b/.exec(x.shiprocket||'');
+    return '<tr'+(x.dismissed_at?' style="opacity:.55"':'')+'><td><b>'+esc(x.order_name)+'</b>'+(awb?'<div class="small"><a target="_blank" rel="noopener" href="https://shiprocket.co/tracking/'+esc(awb[1])+'">Track</a> · <a target="_blank" rel="noopener" href="https://admin.shopify.com/store/'+esc(j.shop||'')+'/orders/'+esc(x.order_id)+'">Shopify</a></div>':'<div class="small"><a target="_blank" rel="noopener" href="https://admin.shopify.com/store/'+esc(j.shop||'')+'/orders/'+esc(x.order_id)+'">Shopify</a></div>')+'<div class="small mut">since '+shDay(x.first_seen)+'</div></td>'
+     +'<td class="small">'+esc(x.shopify)+'</td><td class="small">'+esc(x.shiprocket)+'</td><td class="small">'+esc(x.here)+'</td>'
+     +'<td style="white-space:nowrap">'+(x.dismissed_at?'<button class="btn ghost sm" data-fix="dismiss" data-undo="1" data-id="'+esc(x.order_id)+'" data-kind="'+esc(x.kind)+'">Restore</button>':x.fixes.map(function(f,i){return '<button class="btn sm'+(i?' ghost':'')+'" data-fix="'+esc(f)+'" data-id="'+esc(x.order_id)+'" data-kind="'+esc(x.kind)+'">'+esc(FL[f]||f)+'</button>'}).join(' ')+(x.fixes.indexOf('dismiss')<0?' <button class="btn ghost sm" data-fix="dismiss" data-id="'+esc(x.order_id)+'" data-kind="'+esc(x.kind)+'">Dismiss</button>':''))+'</td></tr>'}).join('')+'</tbody></table></div></div>'});
+  if(quiet&&document.activeElement&&document.activeElement.tagName==='BUTTON')return;
+  $('#main').innerHTML=h;
+  $('#main').onclick=function(e){var t=e.target;
+   var f=t.closest('[data-f]');if(f){SH.stage=f.dataset.f;SH.sel={};loadShip();return}
+   if(t.id==='is_run'){loadIssues(false,true);return}
+   if(t.id==='is_dis'){SH.showDis=t.checked;loadIssues();return}
+   var fa=t.closest('[data-fixall]');if(fa){var k=fa.dataset.fixall,ids=groups[k].filter(function(x){return !x.dismissed_at}).map(function(x){return x.order_id}),sug=K[k].fixes[0];
+    if(!confirm(FL[sug]+' for all '+ids.length+' orders under "'+K[k].title+'"?'))return;fa.disabled=true;var res=[];
+    (function step(){if(!ids.length){var ok=shReport(FL[sug],res);toast(ok+' of '+res.length+' done');loadIssues();return}var id=ids.shift();fa.textContent='Working… '+(res.length+1);
+     rpc('audit_fix',{id:id,fix:sug}).then(function(r){res.push({id:id,name:(groups[k].find(function(x){return x.order_id===id})||{}).order_name||id,ok:true,note:r.note})}).catch(function(er){res.push({id:id,name:(groups[k].find(function(x){return x.order_id===id})||{}).order_name||id,ok:false,note:er.message})}).then(step)})();return}
+   var fx=t.closest('[data-fix]');if(fx){var fix=fx.dataset.fix,id=fx.dataset.id,kind=fx.dataset.kind;
+    if(fix==='stop'&&!confirm('Cancel the Shiprocket pickup (only possible before the courier collects it) and undo the Shopify fulfilment for this order?'))return;
+    if(fix==='unfulfil'&&!confirm('Undo the Shopify fulfilment? The order goes back to To ship here unless it is cancelled.'))return;
+    if(fix==='cancel_shop'&&!confirm('Cancel this order in Shopify?'))return;
+    fx.disabled=true;fx.textContent='Working…';
+    rpc('audit_fix',{id:id,fix:fix,kind:kind,undo:fx.dataset.undo==='1'}).then(function(r){toast(r.note||'Done');loadIssues()}).catch(function(er){toast(er.message);loadIssues()});return}};
+ }).catch(function(e){if(!quiet)fail(e)})}
 /* Cancel every Shiprocket booking still waiting for pickup. Orders are NOT cancelled: they go back to "To ship" and can be booked again. */
 function cancelAllPending(btn){var n=+(btn.textContent.match(/\d+/)||[0])[0];
  if(!confirm('Cancel ALL '+n+' pending pickups in Shiprocket?\n\nOnly parcels the courier has not collected are cancelled. The orders are NOT cancelled: they go back to "To ship" in the Orders tab, where you can book them again (new AWB).'))return;

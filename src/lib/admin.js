@@ -8,6 +8,7 @@ import { pickOption } from './rates.js';
 import { labelPdf } from './labels.js';
 import { stopShipment, sweepCancelled, syncCancelledOrders } from './ship-cancel.js';
 import { stageOf, LABEL as STAGE_LABEL, refreshShipment, refreshDue, requestPickup, manifestUrl } from './ship-status.js';
+import { audit as shipAudit, listIssues as shipIssues, fix as shipFix, dismissIssue, KINDS as ISSUE_KINDS, FIX_LABEL } from './ship-audit.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
@@ -613,6 +614,21 @@ const ACTIONS = {
     const recs = (await shipRecs(env, b.ids, 200)).filter((r) => r.sr_shipment_id);
     return { ok: true, url: await manifestUrl(await withSettingsFresh(env), recs) };
   },
+  /* ---- Reconciliation: Shopify x Shiprocket x this dashboard. Lists every mismatch with a one-click fix. ---- */
+  /** Open issues; with run=true the audit is run first (days: how far back, default 45). */
+  async audit(env, b) {
+    const fresh = await withSettingsFresh(env);
+    const r = b.run ? await shipAudit(fresh, { days: Math.min(120, Math.max(1, +b.days || 45)) }) : { issues: await shipIssues(fresh) };
+    const { issues, audited_at } = r.issues;
+    const open = issues.filter((x) => !x.dismissed_at);
+    return { ok: true, checked: r.checked || 0, audited_at, issues, open: open.length, shop: String(fresh.SHOP_DOMAIN || env.SHOP_DOMAIN || '').replace(/\.myshopify\.com.*$/, ''), by_kind: open.reduce((a, x) => ((a[x.kind] = (a[x.kind] || 0) + 1), a), {}),
+      kinds: Object.fromEntries(Object.entries(ISSUE_KINDS).map(([k, v]) => [k, { sev: v.sev, title: v.title, why: v.why, fixes: v.fixes }])), fix_labels: FIX_LABEL };
+  },
+  /** Apply one fix to one order: { id, fix }. Returns what is left for that order. */
+  async audit_fix(env, b) {
+    if (b.fix === 'dismiss') { await dismissIssue(env, b.id, b.kind, !!b.undo); return { ok: true, note: b.undo ? 'Restored' : 'Dismissed', left: [] }; }
+    return shipFix(await withSettingsFresh(env), { id: b.id, fix: b.fix }, { fulfilBooked });
+  },
   async ndr_list(env) {
     const f = await withSettingsFresh(env);
     const list = await ndrList(f);
@@ -1039,6 +1055,11 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; } catch (e) { console.error('cancel-sweep', e); }
+  /* Reconciliation audit (Shopify x Shiprocket x here) every ~30 minutes; it only records issues, the owner fixes them from the Shipments tab */
+  try {
+    const last = Number((await env.DB.prepare("SELECT v FROM settings WHERE k='ship_audit_at'").first())?.v) || 0;
+    if (t - last > 29 * 60) { const a = await shipAudit(env, { days: 45, max: 300 }); out.audit = { checked: a.checked, found: a.found }; }
+  } catch (e) { console.error('ship-audit', e); }
   /* Shiprocket bookings that are not fulfilled in Shopify yet (the step failed, or the page was closed mid-way): retry a few per run */
   try {
     const stuck = (await env.DB.prepare(`SELECT s.order_id FROM shipments s JOIN orders o ON o.order_id = s.order_id
