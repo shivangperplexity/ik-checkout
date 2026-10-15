@@ -9,7 +9,7 @@ import { labelPdf } from './labels.js';
 import { stopShipment, sweepCancelled, syncCancelledOrders } from './ship-cancel.js';
 import { stageOf, LABEL as STAGE_LABEL, refreshShipment, refreshDue, requestPickup, manifestUrl } from './ship-status.js';
 import { audit as shipAudit, listIssues as shipIssues, fix as shipFix, dismissIssue, KINDS as ISSUE_KINDS, FIX_LABEL } from './ship-audit.js';
-import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder } from './shopify.js';
+import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder, gql } from './shopify.js';
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
@@ -363,6 +363,13 @@ const ACTIONS = {
     return { order: orderOut(o, all), risk: r, shop, messages: msgs, session: sess };
   },
   async pack(env, b) { return { ok: true, results: await packOrders(env, b.ids, b.packed !== false) }; },
+  /** Which Shopify app the dashboard token belongs to, and the scopes it really has (so a missing one can be named). */
+  async shopify_scopes(env) {
+    const d = await gql(env, '{ currentAppInstallation { app { title } accessScopes { handle } } shop { myshopifyDomain } }');
+    const scopes = (d.currentAppInstallation?.accessScopes || []).map((x) => x.handle).sort();
+    const need = ['write_fulfillments', 'write_merchant_managed_fulfillment_orders', 'write_orders', 'read_orders', 'write_draft_orders', 'read_products'];
+    return { ok: true, app: d.currentAppInstallation?.app?.title || '', shop: d.shop?.myshopifyDomain || '', scopes, missing: need.filter((x) => !scopes.includes(x)) };
+  },
   async save_profit(env, b) {
     const unit_cost = Number(b.unit_cost), cac = Number(b.cac);
     if (!(unit_cost >= 0 && unit_cost < 100000) || !(cac >= 0 && cac < 100000)) throw new Error('Enter amounts in rupees');
