@@ -14,7 +14,9 @@
 
 import { sr, srTrack } from './shiprocket.js';
 import { stageOf, summarize } from './sr-scan.js';
-import { cancelFulfilmentsFor } from './shopify.js';
+import { cancelFulfilmentsFor, activeFulfilments } from './shopify.js';
+import { nimbus } from './shipping.js';
+import { classify } from './wa-ship.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 /** '2026-10-14 15:30:00' (IST) -> epoch seconds, or 0 */
@@ -25,8 +27,23 @@ export const FINAL = ['delivered', 'rto_done', 'cancelled', 'lost'];
 export { stageOf };
 export const LABEL = { pickup_pending: 'Pickup pending', pickup_failed: 'Pickup failed', transit: 'In transit', ofd: 'Out for delivery', ndr: 'NDR', delivered: 'Delivered', rto: 'RTO', lost: 'Lost / damaged', cancelled: 'Cancelled' };
 
+/** A parcel that was not booked here (imported from a Shopify fulfilment, usually an old NimbusPost AWB): NimbusPost tracking if it is set up, else what the WhatsApp tracker last saw. */
+async function otherStatus(env, rec) {
+  try {
+    const tr = (await nimbus(env, `shipments/track/${encodeURIComponent(rec.awb)}`)).data || {};
+    const c = classify(tr);
+    const stage = { picked: 'transit', failed: 'ndr', pending: 'pickup_pending' }[c.stage] || c.stage;
+    return { stage, picked: !['pickup_pending', 'pickup_failed', 'cancelled'].includes(stage), text: String(tr.status || c.stage || '').replace(/_/g, ' '), edd: String(tr.edd || '').slice(0, 10), pickedTs: 0, lastTs: c.at || 0 };
+  } catch { /* NimbusPost not configured or AWB unknown there */ }
+  const t = await env.DB.prepare('SELECT status FROM ship_track WHERE order_id=?').bind(String(rec.order_id)).first().catch(() => null);
+  const st = stageOf(String(t?.status || ''));
+  if (!t?.status) return null;
+  return { stage: st, picked: !['pickup_pending', 'pickup_failed', 'cancelled'].includes(st), text: String(t.status).replace(/_/g, ' '), edd: '' };
+}
+
 /** Where a booking is, read like Shiprocket's tracking page (lib/sr-scan.js); before the first scan, from the Shiprocket order. */
 async function srStatus(env, rec) {
+  if (rec.provider && rec.provider !== 'shiprocket') return otherStatus(env, rec);
   let sum = null;
   try { sum = summarize(await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(rec.awb)}`)); } catch { /* no scans yet or tracking down */ }
   if (sum && (sum.current || sum.scans.length)) {
@@ -46,6 +63,14 @@ async function srStatus(env, rec) {
 
 /** Refresh one shipment row; returns the new stage. Also keeps things consistent if it was cancelled inside Shiprocket. */
 export async function refreshShipment(env, rec) {
+  /* an imported (non-Shiprocket) parcel without its own tracking link yet: take Shopify's */
+  if (rec.provider && rec.provider !== 'shiprocket' && !rec.track_url) {
+    try {
+      const f = (await activeFulfilments(env, String(rec.order_id))).list.find((x) => x.numbers.includes(String(rec.awb)));
+      const url = f?.url || (/nimbus/i.test(rec.provider + ' ' + (rec.courier || '') + ' ' + (f?.company || '')) ? `https://ship.nimbuspost.com/tracking/${rec.awb}` : '');
+      if (url) { await env.DB.prepare('UPDATE shipments SET track_url=? WHERE order_id=?').bind(url, String(rec.order_id)).run(); rec.track_url = url; }
+    } catch { /* next time */ }
+  }
   const s = await srStatus(env, rec);
   const t = now();
   if (!s) {

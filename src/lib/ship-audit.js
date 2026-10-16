@@ -15,6 +15,7 @@ import { gql } from './shopify.orig.js';
 import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking } from './shopify.js';
 import { stopShipment, CANCEL_TAG } from './ship-cancel.js';
 import { refreshShipment } from './ship-status.js';
+import { sr } from './shiprocket.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const PICKED = ['transit', 'ofd', 'ndr', 'delivered', 'rto', 'lost'];
@@ -57,7 +58,7 @@ export async function ordersShipState(env, ids) {
       fulfillments(first:10){ id status trackingInfo{ number company url } } } } }`, { ids: ids.slice(i, i + 50).map((x) => `gid://shopify/Order/${x}`) });
     for (const n of d.nodes || []) {
       if (!n || !n.legacyResourceId) continue;
-      const active = (n.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '' }));
+      const active = (n.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '', url: f.trackingInfo?.[0]?.url || '' }));
       out[String(n.legacyResourceId)] = { name: n.name, cancelled: !!n.cancelledAt, status: n.displayFulfillmentStatus || '', tags: n.tags || [],
         cancelTag: (n.tags || []).find((t) => CANCEL_TAG.test(t)) || '', fulfilments: active, awbs: active.flatMap((f) => f.numbers) };
     }
@@ -200,9 +201,14 @@ export async function fix(env, { id, fix: what }, deps = {}) {
       const f = shop.fulfilments.find((x) => x.numbers.length);
       if (!f) throw new Error('The Shopify fulfilment has no tracking number to import');
       const awb = f.numbers[0], t = now();
-      await env.DB.prepare(`INSERT INTO shipments (order_id, order_name, awb, courier, status, created_at, updated_at) VALUES (?,?,?,?,'booked',?,?)
-        ON CONFLICT (order_id) DO UPDATE SET awb=EXCLUDED.awb, courier=EXCLUDED.courier, status='booked', cancel_state=NULL, cancel_note=NULL, stage=NULL, sr_status=NULL, tracked_at=NULL, rto=FALSE, updated_at=EXCLUDED.updated_at`)
-        .bind(id, o?.order_name || shop.name, awb, f.company || 'Shiprocket', t, t).run();
+      /* which carrier? Shiprocket knows its own AWBs; anything else (older NimbusPost parcels, by hand) keeps Shopify's own tracking link */
+      let provider = 'other';
+      try { const tr = await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(awb)}`); if (tr?.tracking_data && (tr.tracking_data.track_status || (tr.tracking_data.shipment_track || []).length)) provider = 'shiprocket'; } catch { /* not a Shiprocket AWB */ }
+      if (provider === 'other' && /nimbus/i.test(f.company + ' ' + (f.url || ''))) provider = 'nimbuspost';
+      const trackUrl = provider === 'shiprocket' ? '' : (f.url || (provider === 'nimbuspost' ? `https://ship.nimbuspost.com/tracking/${awb}` : ''));
+      await env.DB.prepare(`INSERT INTO shipments (order_id, order_name, awb, courier, status, provider, track_url, created_at, updated_at) VALUES (?,?,?,?,'booked',?,?,?,?)
+        ON CONFLICT (order_id) DO UPDATE SET awb=EXCLUDED.awb, courier=EXCLUDED.courier, status='booked', provider=EXCLUDED.provider, track_url=EXCLUDED.track_url, cancel_state=NULL, cancel_note=NULL, stage=NULL, sr_status=NULL, tracked_at=NULL, rto=FALSE, updated_at=EXCLUDED.updated_at`)
+        .bind(id, o?.order_name || shop.name, awb, f.company || (provider === 'nimbuspost' ? 'NimbusPost' : 'Courier'), provider, trackUrl || null, t, t).run();
       await env.DB.prepare('UPDATE orders SET shipped_at=COALESCE(shipped_at, ?), tracking=? WHERE order_id=?').bind(t, `${f.company || 'Shiprocket'} ${awb}`, id).run();
       const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
       let stage = ''; try { stage = await refreshShipment(env, rec); } catch { /* tracked on the next cron */ }

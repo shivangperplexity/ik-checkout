@@ -141,7 +141,7 @@ export async function shipUpdates(env) {
         awb = ti.number; courier = ti.company || ''; url = ti.url || '';
       }
       /* AWBs booked from the dashboard are followed in Shiprocket; older ones (NimbusPost) keep their old route. */
-      const mine = await env.DB.prepare('SELECT 1 AS x FROM shipments WHERE awb=?').bind(String(awb)).first();
+      const mine = await env.DB.prepare("SELECT 1 AS x FROM shipments WHERE awb=? AND COALESCE(provider,'shiprocket')='shiprocket'").bind(String(awb)).first();
       const tr = mine ? await srTrack(env, awb) : ((await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)).data || {});
       const c = classify(tr);
       let sent = {};

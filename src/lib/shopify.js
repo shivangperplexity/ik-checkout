@@ -45,9 +45,9 @@ export async function cancelFulfilmentsFor(env, id, awb) {
 
 /** Active (SUCCESS) fulfilments of one order with their tracking numbers. */
 export async function activeFulfilments(env, id) {
-  const d = await gql(env, `query($id:ID!){ order(id:$id){ cancelledAt displayFulfillmentStatus fulfillments(first:10){ id status trackingInfo{ number company } } } }`, { id: `gid://shopify/Order/${id}` });
+  const d = await gql(env, `query($id:ID!){ order(id:$id){ cancelledAt displayFulfillmentStatus fulfillments(first:10){ id status trackingInfo{ number company url } } } }`, { id: `gid://shopify/Order/${id}` });
   const o = d.order || {};
-  return { cancelled: !!o.cancelledAt, status: o.displayFulfillmentStatus || '', list: (o.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '' })) };
+  return { cancelled: !!o.cancelledAt, status: o.displayFulfillmentStatus || '', list: (o.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '', url: f.trackingInfo?.[0]?.url || '' })) };
 }
 /** Point an existing Shopify fulfilment at another AWB (after a rebook). */
 export async function updateTracking(env, fulfillmentId, { company, number, url }) {

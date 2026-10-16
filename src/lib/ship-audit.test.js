@@ -59,7 +59,8 @@ function world({ orders = {}, shipments = {}, shop = {} }) {
         else if (/^UPDATE orders SET status='cancelled'/.test(q)) Object.assign(orders[a[0]], { status: 'cancelled' });
         else if (/^UPDATE orders SET shipped_at=NULL/.test(q)) Object.assign(orders[a[0]], { shipped_at: null });
         else if (/^UPDATE orders SET status='placed'/.test(q)) orders[a[0]].status = 'placed';
-        else if (/^INSERT INTO shipments/.test(q)) shipments[a[0]] = { order_id: a[0], order_name: a[1], awb: a[2], courier: a[3], status: 'booked' };
+        else if (/^INSERT INTO shipments/.test(q)) shipments[a[0]] = { order_id: a[0], order_name: a[1], awb: a[2], courier: a[3], status: 'booked', provider: a[4], track_url: a[5] };
+        else if (/^UPDATE shipments SET track_url/.test(q)) shipments[a[1]].track_url = a[0];
         else if (/^UPDATE orders SET shipped_at=COALESCE/.test(q)) orders[a[2]].shipped_at = orders[a[2]].shipped_at || a[0];
         else if (/^UPDATE shipments SET status='cancelled', cancel_state='cancelled'/.test(q)) Object.assign(shipments[a[2]], { status: 'cancelled' });
         else if (/^UPDATE shipments SET cancel_state=\?/.test(q)) Object.assign(shipments[a[3]], { cancel_state: a[0] });
@@ -88,13 +89,14 @@ function world({ orders = {}, shipments = {}, shop = {} }) {
     const url = String(u), ok = (j) => new Response(JSON.stringify(j), { status: 200 });
     if (/shiprocket/.test(url)) {
       if (/auth\/login/.test(url)) return ok({ token: 't' });
-      if (/track\/awb/.test(url)) return ok({ tracking_data: { shipment_track: [{ current_status: 'PICKUP SCHEDULED' }], shipment_track_activities: [] } });
+      if (/track\/awb\/ZZ/.test(url)) return ok({ tracking_data: { track_status: 0, shipment_status: 0, error: 'Invalid AWB' } });   // not a Shiprocket parcel
+      if (/track\/awb/.test(url)) return ok({ tracking_data: { track_status: 1, shipment_track: [{ current_status: 'PICKUP SCHEDULED' }], shipment_track_activities: [] } });
       if (/orders\/cancel/.test(url)) { calls.push('sr-cancel'); return ok({ message: 'cancelled' }); }
       return ok({});
     }
     const body = JSON.parse(o?.body || '{}'), q = body.query || '', v = body.variables || {};
     if (/nodes\(ids/.test(q)) return ok({ data: { nodes: v.ids.map((g) => { const id = g.split('/').pop(), s = shop[id]; return s ? { legacyResourceId: id, name: '#' + id, cancelledAt: s.cancelled ? 'x' : null, displayFulfillmentStatus: s.fulfilments?.length ? 'FULFILLED' : 'UNFULFILLED', tags: s.tags || [],
-      fulfillments: (s.fulfilments || []).map((f, i) => ({ id: 'gid://shopify/Fulfillment/' + id + i, status: 'SUCCESS', trackingInfo: [{ number: f, company: 'Delhivery' }] })) } : null; }) } });
+      fulfillments: (s.fulfilments || []).map((f, i) => ({ id: 'gid://shopify/Fulfillment/' + id + i, status: 'SUCCESS', trackingInfo: [{ number: f, company: 'Delhivery', url: 'https://x.example/t/' + f }] })) } : null; }) } });
     if (/fulfillments\(first/.test(q)) { const id = v.id.split('/').pop(), s = shop[id]; return ok({ data: { order: { cancelledAt: null, fulfillments: (s.fulfilments || []).map((f, i) => ({ id: 'gid://shopify/Fulfillment/' + id + i, status: 'SUCCESS', trackingInfo: [{ number: f }] })) } } }); }
     if (/fulfillmentCancel/.test(q)) { const id = v.id.split('/').pop().slice(0, -1); calls.push('unfulfil ' + id); shop[id].fulfilments = []; return ok({ data: { fulfillmentCancel: { fulfillment: { id: v.id, status: 'CANCELLED' }, userErrors: [] } } }); }
     if (/fulfillmentTrackingInfoUpdate/.test(q)) { const id = v.id.split('/').pop().slice(0, -1); calls.push('retrack ' + v.t.number); shop[id].fulfilments = [v.t.number]; return ok({ data: { fulfillmentTrackingInfoUpdate: { userErrors: [] } } }); }
@@ -155,6 +157,8 @@ test('fix "import" turns a hand-made Shopify fulfilment into a tracked booking h
   try {
     const r = await fix(w.env, { id: '1', fix: 'import' });
     assert.equal(w.shipments[1].awb, 'ZZ1'); assert.match(r.note, /Imported AWB ZZ1/); assert.deepEqual(r.left, []);
+    assert.equal(w.shipments[1].provider, 'other', 'Shiprocket does not know this AWB, so it is not tracked there');
+    assert.equal(w.shipments[1].track_url, 'https://x.example/t/ZZ1', 'keeps the tracking link Shopify has');
     const r2 = await fix(w.env, { id: '2', fix: 'retrack' });
     assert.ok(w.calls.includes('retrack NEW2')); assert.deepEqual(r2.left, []);
   } finally { w.done(); }
