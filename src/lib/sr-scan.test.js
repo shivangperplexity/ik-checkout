@@ -49,3 +49,20 @@ test('WhatsApp updates: no "picked up" / "in transit" for parcels not collected 
   const moving = classify(adaptTrack(DL_1550));
   assert.ok(['transit', 'picked'].includes(moving.stage), moving.stage);
 });
+
+test('no scan list at all: Shiprocket\'s own pickup / delivered dates and overall status are trusted', () => {
+  const bare = (current, extra = {}) => ({ tracking_data: { shipment_track: [{ current_status: current, ...extra }], shipment_track_activities: [] } });
+  assert.equal(summarize(bare('Delivered', { delivered_date: '2026-10-15 14:02:00' })).stage, 'delivered');
+  assert.equal(summarize(bare('DELIVERED')).stage, 'delivered');
+  assert.equal(summarize(bare('OUT FOR DELIVERY')).stage, 'ofd');
+  const p = summarize(bare('IN TRANSIT', { pickup_date: '2026-10-14 16:00:00' }));
+  assert.equal(p.stage, 'transit'); assert.equal(p.picked, true); assert.equal(p.pickedAt, '2026-10-14 16:00:00');
+  assert.equal(summarize(bare('PICKED UP')).stage, 'transit');
+  /* still nothing to go on before pickup: hub-side statuses stay "waiting" */
+  assert.equal(summarize(bare('PICKUP SCHEDULED')).stage, 'pickup_pending');
+  assert.equal(summarize(bare('Manifested')).stage, 'pickup_pending');
+  assert.equal(summarize(bare('PICKUP EXCEPTION')).stage, 'pickup_failed');
+  /* a delivered date wins even when the scan list is only hub scans */
+  const r = { tracking_data: { shipment_track: [{ current_status: 'Delivered', delivered_date: '2026-10-15 14:02:00' }], shipment_track_activities: [{ date: '2026-10-13 23:10:00', activity: 'Order Received' }] } };
+  assert.equal(summarize(r).stage, 'delivered');
+});

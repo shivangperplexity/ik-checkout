@@ -12,7 +12,7 @@
 // admin.js; everything the audit finds beyond those is a decision for the owner.
 
 import { gql } from './shopify.orig.js';
-import { addTags, cancelOrder, cancelFulfilmentsFor } from './shopify.js';
+import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking } from './shopify.js';
 import { stopShipment, CANCEL_TAG } from './ship-cancel.js';
 import { refreshShipment } from './ship-status.js';
 
@@ -63,13 +63,6 @@ export async function ordersShipState(env, ids) {
     }
   }
   return out;
-}
-
-async function updateTracking(env, fulfillmentId, { company, number, url }) {
-  const d = await gql(env, `mutation($id:ID!,$t:FulfillmentTrackingInput!){ fulfillmentTrackingInfoUpdate(fulfillmentId:$id, trackingInfoInput:$t, notifyCustomer:false){ userErrors{ message } } }`,
-    { id: fulfillmentId, t: { company, number, url: url || undefined } });
-  const e = d.fulfillmentTrackingInfoUpdate?.userErrors;
-  if (e && e.length) throw new Error('fulfillmentTrackingInfoUpdate: ' + e.map((x) => x.message).join('; '));
 }
 
 /** Decide the issues for one order from the three views. Pure. */

@@ -1,7 +1,7 @@
 import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js';
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
-import { orderForShipping, packingItems } from './shopify.js';
+import { orderForShipping, packingItems, activeFulfilments, updateTracking, cancelFulfilmentsFor } from './shopify.js';
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
@@ -285,21 +285,48 @@ async function shipRecs(env, ids, max) {
   return (await env.DB.prepare(`SELECT * FROM shipments WHERE order_id IN (${ids.map(() => '?').join(',')}) AND awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'`).bind(...ids).all()).results;
 }
 
+/** The WhatsApp tracking row follows the live AWB: a new AWB (rebook) restarts it, the same AWB leaves it alone. */
+async function syncTrackRow(env, id, awb, courier) {
+  const t = now();
+  await env.DB.prepare(`INSERT INTO ship_track (order_id, awb, courier, url, status, sent, checked_at, done, updated_at) VALUES (?,?,?,?,NULL,'{}',0,FALSE,?)
+    ON CONFLICT (order_id) DO UPDATE SET awb=excluded.awb, courier=excluded.courier, url=excluded.url, status=NULL, sent='{}', checked_at=0, done=FALSE, updated_at=excluded.updated_at
+    WHERE ship_track.awb IS DISTINCT FROM excluded.awb OR ship_track.done = TRUE`).bind(String(id), String(awb), courier, `https://shiprocket.co/tracking/${awb}`, t).run().catch(() => {});
+}
+
+/**
+ * Make Shopify show this order as shipped with the live Shiprocket AWB. Idempotent:
+ *  - not fulfilled yet            -> fulfilmentCreate
+ *  - fulfilled with the same AWB  -> nothing to do
+ *  - fulfilled with another AWB   -> after a rebook: retarget the fulfilment's tracking to the new AWB (or undo + refulfil)
+ * Returns '' on success or the reason it could not (kept on the shipment row; the cron retries).
+ */
 export async function fulfilBooked(env, id) {
   const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(id)).first();
   if (!rec?.awb) return 'No Shiprocket AWB for this order yet';
-  const courier = rec.courier || 'Shiprocket';
+  const courier = rec.courier || 'Shiprocket', awb = String(rec.awb), url = `https://shiprocket.co/tracking/${awb}`;
   let err = '';
-  try { await ACTIONS.ship(env, { id, company: courier, number: rec.awb, url: `https://shiprocket.co/tracking/${rec.awb}`, notify: false }); }
+  try { await ACTIONS.ship(env, { id, company: courier, number: awb, url, notify: false }); }
   catch (e) {
     err = String(e.message || e);
-    if (/Nothing left to fulfil/.test(err)) {   // already fulfilled in Shopify some other way: record that here, nothing to retry
-      let st = ''; try { st = (await orderDetail(env, String(id)))?.displayFulfillmentStatus || ''; } catch { /* keep the error */ }
-      if (st && st !== 'UNFULFILLED') {
-        await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=? AND shipped_at IS NULL').bind(now(), `${courier} ${rec.awb}`, String(id)).run();
-        err = '';
-      }
+    if (/Nothing left to fulfil/.test(err)) {
+      try {
+        const f = await activeFulfilments(env, String(id));
+        const same = f.list.find((x) => x.numbers.includes(awb)), other = f.list.find((x) => !x.numbers.includes(awb));
+        if (!same && other) {                                    // rebooked: Shopify still carries the old AWB
+          try { await updateTracking(env, other.id, { company: courier, number: awb, url }); }
+          catch (e2) {
+            if (!/Access denied/i.test(String(e2.message))) throw e2;
+            await cancelFulfilmentsFor(env, String(id), other.numbers[0]);     // may need write_fulfillments; its own message explains
+            await shipOrder(env, String(id), { company: courier, number: awb, url, notify: false });
+          }
+        }
+        if (same || other || (f.status && f.status !== 'UNFULFILLED')) err = '';   // Shopify shows it shipped (with this AWB where it can)
+      } catch (e3) { err = String(e3.message || e3); }
     }
+  }
+  if (!err) {
+    await env.DB.prepare('UPDATE orders SET shipped_at=COALESCE(shipped_at, ?), tracking=? WHERE order_id=?').bind(now(), `${courier} ${awb}`, String(id)).run();
+    await syncTrackRow(env, id, awb, courier);
   }
   await env.DB.prepare('UPDATE shipments SET fulfil_error=? WHERE order_id=?').bind(err ? err.slice(0, 400) : null, String(id)).run();
   return err;
@@ -446,9 +473,11 @@ const ACTIONS = {
     return { messages: (await env.DB.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 150').all()).results };
   },
   async settings(env) {
+    const cronAt = Number((await env.DB.prepare("SELECT v FROM settings WHERE k='cron_at'").first().catch(() => null))?.v) || 0, cronVia = String((await env.DB.prepare("SELECT v FROM settings WHERE k='cron_via'").first().catch(() => null))?.v || '').replace(/"/g, '');
     const s = await getSettings(env, true);
     const w = s.wa;
     return {
+      cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
@@ -518,7 +547,7 @@ const ACTIONS = {
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
     const r = await bookShipment(fresh, order, row, { pickOption });
     /* the AWB exists in Shiprocket either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
-    const fulfil = row.shipped_at ? '' : await fulfilBooked(env, b.id);
+    const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
     return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil };
   },
   async sr_docs(env, b) {
@@ -547,7 +576,9 @@ const ACTIONS = {
     const to = range === 'yesterday' ? today0 : t + DAY;
     /* parcels never checked yet (new bookings, or just after an update): ask Shiprocket now, a few at a time */
     try {
-      const fresh = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND tracked_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 16`).bind(t - 45 * DAY).all()).results;
+      const fresh = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND COALESCE(stage,'') NOT IN ('delivered','lost','cancelled') AND created_at > ?
+          AND COALESCE(tracked_at,0) < (CASE WHEN COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed','ofd','ndr') THEN ?::bigint ELSE ?::bigint END)
+          ORDER BY COALESCE(tracked_at,0) LIMIT 24`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
       if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
     } catch (e) { console.error('ship first check', e); }
     const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at
@@ -620,6 +651,14 @@ const ACTIONS = {
   async ship_manifest(env, b) {
     const recs = (await shipRecs(env, b.ids, 200)).filter((r) => r.sr_shipment_id);
     return { ok: true, url: await manifestUrl(await withSettingsFresh(env), recs) };
+  },
+  /** Called by the dashboard every few minutes while it is open: runs the cron work if nobody did in the last 4 minutes. */
+  async tick(env) {
+    const last = Number((await env.DB.prepare("SELECT v FROM settings WHERE k='cron_at'").first())?.v) || 0, t = now();
+    if (t - last < 240) return { ok: true, ran: false, last };
+    const { runCron } = await import('./app.js');
+    const r = await runCron(env, 'dashboard');
+    return { ok: true, ran: true, last: t, result: r };
   },
   /* ---- Reconciliation: Shopify x Shiprocket x this dashboard. Lists every mismatch with a one-click fix. ---- */
   /** Open issues; with run=true the audit is run first (days: how far back, default 45). */

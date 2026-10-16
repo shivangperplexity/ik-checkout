@@ -43,6 +43,20 @@ export async function cancelFulfilmentsFor(env, id, awb) {
   return list.length;
 }
 
+/** Active (SUCCESS) fulfilments of one order with their tracking numbers. */
+export async function activeFulfilments(env, id) {
+  const d = await gql(env, `query($id:ID!){ order(id:$id){ cancelledAt displayFulfillmentStatus fulfillments(first:10){ id status trackingInfo{ number company } } } }`, { id: `gid://shopify/Order/${id}` });
+  const o = d.order || {};
+  return { cancelled: !!o.cancelledAt, status: o.displayFulfillmentStatus || '', list: (o.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '' })) };
+}
+/** Point an existing Shopify fulfilment at another AWB (after a rebook). */
+export async function updateTracking(env, fulfillmentId, { company, number, url }) {
+  const d = await gql(env, `mutation($id:ID!,$t:FulfillmentTrackingInput!){ fulfillmentTrackingInfoUpdate(fulfillmentId:$id, trackingInfoInput:$t, notifyCustomer:false){ userErrors{ message } } }`,
+    { id: fulfillmentId, t: { company, number, url: url || undefined } });
+  const e = d.fulfillmentTrackingInfoUpdate?.userErrors;
+  if (e && e.length) throw new Error('fulfillmentTrackingInfoUpdate: ' + e.map((x) => x.message).join('; '));
+}
+
 /** { <orderId>: { cancelled, tags } } for many orders at once (50 per Shopify call). */
 export async function ordersCancelState(env, ids) {
   const out = {};

@@ -374,8 +374,11 @@ export async function handle(req, env0, ctx) {
   }
 }
 
-export async function runCron(env0) {
+export async function runCron(env0, via = 'vercel') {
   const env = await withSettings(env0);
+  /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
+  await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
+  await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {

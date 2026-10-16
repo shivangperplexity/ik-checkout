@@ -56,3 +56,35 @@ test('already fulfilled in Shopify: just recorded, no error, nothing to retry', 
     assert.ok(t.order.shipped_at);
   } finally { t.done(); }
 });
+
+test('rebooked order: Shopify still carries the old AWB, so the fulfilment is retargeted to the new one', async () => {
+  const calls = [];
+  const t = setup((q, reply) => {
+    if (/fulfillmentOrders\(first:10\)/.test(q)) return reply({ data: { order: { fulfillmentOrders: { nodes: [{ id: 'fo1', status: 'CLOSED' }] } } } });
+    if (/fulfillments\(first:10\)\{ id status trackingInfo/.test(q)) return reply({ data: { order: { cancelledAt: null, displayFulfillmentStatus: 'FULFILLED', fulfillments: [{ id: 'gid://shopify/Fulfillment/9', status: 'SUCCESS', trackingInfo: [{ number: 'OLD1', company: 'Xpressbees' }] }] } } });
+    if (/fulfillmentTrackingInfoUpdate/.test(q)) { calls.push('retrack'); return reply({ data: { fulfillmentTrackingInfoUpdate: { userErrors: [] } } }); }
+    return reply({ data: {} });
+  });
+  try {
+    assert.equal(await fulfilBooked(t.env, '1'), '');
+    assert.ok(calls.includes('retrack'), 'tracking updated to AWB1');
+    assert.ok(t.order.shipped_at, 'shipped here');
+    assert.ok(t.log.some(([s]) => /INSERT INTO ship_track/.test(s)), 'WhatsApp tracking row restarted with the new AWB');
+    assert.deepEqual(errOf(t.log).slice(-1), [null]);
+  } finally { t.done(); }
+});
+
+test('already fulfilled with the same AWB: nothing changes in Shopify, just recorded here', async () => {
+  const calls = [];
+  const t = setup((q, reply) => {
+    if (/fulfillmentOrders\(first:10\)/.test(q)) return reply({ data: { order: { fulfillmentOrders: { nodes: [{ id: 'fo1', status: 'CLOSED' }] } } } });
+    if (/fulfillments\(first:10\)\{ id status trackingInfo/.test(q)) return reply({ data: { order: { cancelledAt: null, displayFulfillmentStatus: 'FULFILLED', fulfillments: [{ id: 'gid://shopify/Fulfillment/9', status: 'SUCCESS', trackingInfo: [{ number: 'AWB1', company: 'Delhivery' }] }] } } });
+    if (/fulfillmentTrackingInfoUpdate|fulfillmentCancel|fulfillmentCreate/.test(q)) calls.push('write');
+    return reply({ data: {} });
+  });
+  try {
+    assert.equal(await fulfilBooked(t.env, '1'), '');
+    assert.deepEqual(calls, []);
+    assert.ok(t.order.shipped_at);
+  } finally { t.done(); }
+});

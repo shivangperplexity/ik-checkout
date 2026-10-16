@@ -46,13 +46,20 @@ export function summarize(raw) {
     .sort((x, y) => (y.at > x.at ? 1 : y.at < x.at ? -1 : 0));
   const current = String(trk.current_status || '').trim();
   const pickScans = scans.filter((s) => isPickupScan(s.text));
-  const picked = pickScans.length > 0;
+  const pickupDate = String(trk.pickup_date || trk.picked_up_date || '').replace('T', ' ').slice(0, 19);
+  const deliveredDate = String(trk.delivered_date || '').replace('T', ' ').slice(0, 19);
   const newest = scans[0]?.text || '';
+  const cur = stageOf(current);
+  /* the courier has the parcel when a movement scan exists, Shiprocket records a pickup/delivery date, or (with no
+     scans to go by at all) the overall status is clearly post-pickup */
+  const picked = pickScans.length > 0 || !!pickupDate || !!deliveredDate || ['ofd', 'ndr', 'delivered', 'rto'].includes(cur) || (!scans.length && isPickupScan(current));
   let stage;
-  if (!picked) {
-    const c = stageOf(current);
-    if (c === 'cancelled' || c === 'lost') stage = c;
+  if (deliveredDate && !['rto', 'lost'].includes(cur)) stage = 'delivered';
+  else if (!picked) {
+    if (cur === 'cancelled' || cur === 'lost') stage = cur;
     else stage = FAIL.test(newest || current) ? 'pickup_failed' : 'pickup_pending';
+  } else if (!pickScans.length && !scans.length) {
+    stage = ['ofd', 'ndr', 'delivered', 'rto', 'lost', 'cancelled'].includes(cur) ? cur : 'transit';
   } else {
     const n = stageOf(newest, true);
     if (['ofd', 'ndr', 'delivered', 'rto', 'lost'].includes(n)) stage = n;
@@ -61,6 +68,6 @@ export function summarize(raw) {
       stage = ['ofd', 'ndr', 'delivered', 'rto', 'lost', 'cancelled'].includes(c) ? c : 'transit';
     }
   }
-  return { stage, picked, current, newest, newestAt: scans[0]?.at || '', pickedAt: pickScans.length ? pickScans[pickScans.length - 1].at : '',
+  return { stage, picked, current, newest, newestAt: scans[0]?.at || deliveredDate || pickupDate, pickedAt: pickScans.length ? pickScans[pickScans.length - 1].at : pickupDate,
     edd: String(td.etd || trk.edd || '').slice(0, 10), scans };
 }
