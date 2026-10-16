@@ -42,6 +42,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .bars .r{display:grid;grid-template-columns:170px 1fr 70px;gap:8px;align-items:center;margin:6px 0;font-size:13px}.bars .t{height:16px;background:#efeadf;border-radius:5px;overflow:hidden}.bars .t u{display:block;height:100%;background:var(--ink);text-decoration:none}
 .drawer{position:fixed;inset:0 0 0 auto;width:min(560px,100%);background:#fff;z-index:50;box-shadow:-10px 0 40px #0004;overflow-y:auto;padding:18px}
 .scrim{position:fixed;inset:0;background:#0006;z-index:40}
+.vfy{position:fixed;inset:0;background:#0a0a0c;color:#fff;z-index:60;display:flex;flex-direction:column}.vfy video{width:100%;max-height:42vh;object-fit:cover;background:#000}.vfy .res{padding:14px 16px;font-size:17px;line-height:1.35;min-height:88px}.vfy .res.ok{background:#14532d}.vfy .res.bad{background:#7f1d1d}.vfy .res.warn{background:#92400e}.vfy .res.mut{background:#1f2937}.vfy .bar{display:flex;gap:8px;align-items:center;padding:10px 12px;flex-wrap:wrap}.vfy .bar .btn{background:#fff;color:#0a0a0c;border-color:#fff}.vfy .bar .btn.ghost{background:transparent;color:#fff;border-color:#fff8}.vfy input{background:#111;color:#fff;border:1px solid #444;border-radius:8px;padding:10px 12px;font-size:16px;flex:1;min-width:160px}.vfy .list{overflow:auto;flex:1;padding:0 12px 12px;font-size:14px}.vfy .list div{display:flex;gap:8px;padding:7px 4px;border-bottom:1px solid #222;align-items:center}.vfy .list .ok{color:#86efac}.vfy .list .no{color:#fca5a5}.vfy .list .exp{outline:2px solid #fff;border-radius:6px;padding:7px}
 .gauge{height:10px;border-radius:99px;background:linear-gradient(90deg,#15803d,#f59e0b,#b3261e);position:relative}.gauge i{position:absolute;top:-4px;width:4px;height:18px;background:var(--ink);border-radius:2px}
 .fac{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #e6e1d6;font-size:13px}.fac b.p{color:var(--bad)}.fac b.n{color:var(--ok)}
 .sw{position:relative;width:42px;height:24px;display:inline-block;flex:none}.sw input{opacity:0;position:absolute;inset:0;margin:0;cursor:pointer;z-index:2}.sw span{position:absolute;inset:0;background:#cfc9ba;border-radius:99px;transition:.15s}.sw span:before{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:.15s}.sw input:checked+span{background:var(--ok)}.sw input:checked+span:before{left:21px}
@@ -428,6 +429,7 @@ function loadShip(quiet){
   if(at.ndr)att.push('<button class="chip" data-att="ndr" style="border-color:var(--bad);color:var(--bad)">'+at.ndr+' NDR</button>');
   if(at.cancelled_after_pickup)att.push('<button class="chip" data-att="cap" style="border-color:var(--bad);color:var(--bad)">'+at.cancelled_after_pickup+' cancelled after pickup</button>');
   att.push('<button class="chip" data-f="issues" style="'+(SH.issues?'border-color:var(--bad);color:var(--bad);font-weight:700':'')+'" title="Shopify, Shiprocket and this dashboard checked against each other">'+(SH.issues?SH.issues+' mismatch'+(SH.issues===1?'':'es')+' to fix':'Reconcile · all clear')+'</button>');
+  if(at.pending_pickups)att.push('<button class="chip" id="sh_vfy" style="border-color:var(--ink);font-weight:700" title="Scan the barcode on each packed parcel to check it is the right, current label">Verify parcels · '+(at.unverified||0)+' not scanned</button>');
   if(at.pending_pickups)att.push('<span class="grow"></span><button class="btn bad sm" id="sh_cxall">Cancel all pending pickups · '+at.pending_pickups+'</button>');
   h+='<div class="row" style="margin-bottom:10px"><b class="small">Needs action (any date):</b>'+att.join('')+'</div>';
   h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&f[0]!=='to_pack'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+(f[0]==='to_pack'&&k?' tp':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')
@@ -442,7 +444,7 @@ function loadShip(quiet){
    return '<tr data-id="'+esc(x.order_id)+'"><td class="ck"><input type="checkbox" class="ssel" data-id="'+esc(x.order_id)+'"'+(live?'':' disabled')+(live&&SH.sel[x.order_id]?' checked':'')+'></td>'
     +'<td><b>'+esc(x.order_name)+'</b><div class="small mut">'+esc(x.customer)+(x.city?' · '+esc(x.city):'')+(x.cod?' · COD':' · Prepaid')+'</div></td>'
     +'<td>'+esc(x.courier)+'<div class="small mut">'+esc(x.awb)+'</div></td>'
-    +'<td><span class="pill '+(STGC[x.stage]||'')+'">'+esc(x.stage_label)+'</span>'+(x.packed_at?' <span class="pill ok" title="Packed '+ist(x.packed_at)+'">Packed</span>':pre?' <span class="pill warn">Not packed</span>':'')+sub+note+'</td>'
+    +'<td><span class="pill '+(STGC[x.stage]||'')+'">'+esc(x.stage_label)+'</span>'+(x.packed_at?' <span class="pill ok" title="Packed '+ist(x.packed_at)+'">Packed</span>':pre?' <span class="pill warn">Not packed</span>':'')+(pre&&x.verified_at?' <span class="pill ok" title="Label scanned '+ist(x.verified_at)+'">Verified</span>':'')+sub+note+'</td>'
     +'<td class="small mut">'+shDay(x.booked_at)+'</td><td>'+rup(x.charge)+'</td>'
     +'<td class="small" style="white-space:nowrap">'+(pre&&!x.packed_at?'<a href="#" data-pack="'+esc(x.order_id)+'"><b>Pack</b></a> · ':'')+(live?'<a href="#" data-lb="'+esc(x.order_id)+'">Label</a> · ':'')+'<a target="_blank" rel="noopener" href="'+esc(x.track_url)+'">Track</a>'+(pre?' · <a href="#" data-cxo="'+esc(x.order_id)+'" style="color:var(--bad)">Cancel order</a>':'')+'</td></tr>'}).join('')+'</tbody></table>'+(j.total>j.shipments.length?'<p class="small mut">Showing the newest '+j.shipments.length+' of '+j.total+'. Narrow the dates or search.</p>':'')+'</div>'
    :'<p class="mut">'+(SH.stage==='to_pack'?'Nothing left to pack'+(SH.range==='today'?' from today':'')+'.':'No shipments here'+(SH.range==='today'?' today':'')+'. Book orders from the Orders tab and they appear here.')+'</p>';
@@ -455,6 +457,7 @@ function loadShip(quiet){
    var av=t.closest('[data-att]');if(av){SH.range='all';SH.stage=av.dataset.att==='cap'?'all':av.dataset.att;if(av.dataset.att==='cap')SH.q='';SH.sel={};loadShip();return}
    if(t.id==='sh_rf'){shRefresh(t,Object.keys(SH.rows));return}
    if(t.id==='sh_cxall'){cancelAllPending(t);return}
+   if(t.id==='sh_vfy'){verifyMode();return}
    if(t.id==='sh_all'){var on=t.checked;Object.keys(SH.rows).forEach(function(k){if(SH.rows[k].stage!=='cancelled'){if(on)SH.sel[k]=1;else delete SH.sel[k]}});[].forEach.call(document.querySelectorAll('input.ssel'),function(i){if(!i.disabled)i.checked=on});shBar();return}
    var ck=t.closest('td.ck');if(ck){var i=ck.querySelector('input.ssel');if(i&&!i.disabled){if(t!==i)i.checked=!i.checked;if(i.checked)SH.sel[i.dataset.id]=1;else delete SH.sel[i.dataset.id];shBar()}return}
    var lb=t.closest('[data-lb]');if(lb){e.preventDefault();dlLabels([lb.dataset.lb],null);return}
@@ -505,6 +508,38 @@ function loadIssues(quiet,run){
     fx.disabled=true;fx.textContent='Working…';
     rpc('audit_fix',{id:id,fix:fix,kind:kind,undo:fx.dataset.undo==='1'}).then(function(r){toast(r.note||'Done');loadIssues()}).catch(function(er){toast(er.message);loadIssues()});return}};
  }).catch(function(e){if(!quiet)fail(e)})}
+/* ---- Verify parcels: scan the barcode on each packed parcel; the AWB tells whether it is the right, current label ---- */
+function verifyMode(){
+ var V={pending:[],exp:'',last:'',lastAt:0,reader:null,busy:false,stats:{ok:0,bad:0}};
+ var el=document.createElement('div');el.className='vfy';el.innerHTML='<div class="bar"><b>Verify parcels</b><span class="small" id="vf_n"></span><span class="grow"></span><button class="btn ghost sm" id="vf_x">Close</button></div><video id="vf_v" playsinline muted autoplay></video><div class="res mut" id="vf_r">Point the camera at the barcode on the label. Or type / scan the AWB below.</div><div class="bar"><input id="vf_in" placeholder="AWB or order number" inputmode="numeric" autocomplete="off"><button class="btn sm" id="vf_go">Check</button><button class="btn ghost sm hide" id="vf_lbl">Print current label</button><button class="btn ghost sm hide" id="vf_undo">Not this one</button></div><div class="list" id="vf_l"></div>';
+ document.body.appendChild(el);document.body.style.overflow='hidden';
+ function stop(){try{if(V.reader)V.reader.reset()}catch(e){}var v=$('#vf_v');if(v&&v.srcObject){v.srcObject.getTracks().forEach(function(t){t.stop()})}el.remove();document.body.style.overflow='';loadShip()}
+ $('#vf_x').onclick=stop;
+ function beep(okk){try{if(navigator.vibrate)navigator.vibrate(okk?60:[80,60,80]);var C=window.AudioContext||window.webkitAudioContext;if(!C)return;var c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=okk?1200:300;g.gain.value=.15;o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+(okk?.12:.35))}catch(e){}}
+ function list(){var L=$('#vf_l');if(!L)return;var done=V.pending.filter(function(x){return x.verified_at}).length;$('#vf_n').textContent=done+' of '+V.pending.length+' verified';
+  L.innerHTML=V.pending.map(function(x){return '<div data-exp="'+esc(x.order_id)+'" class="'+(V.exp===x.order_id?'exp':'')+'"><span class="'+(x.verified_at?'ok':'no')+'">'+(x.verified_at?'✓':'○')+'</span><b>'+esc(x.order_name)+'</b><span class="mut">'+esc(x.customer)+(x.city?' · '+esc(x.city):'')+'</span><span class="grow"></span><span class="small mut">'+esc(x.courier)+' '+esc(x.awb)+'</span></div>'}).join('');
+  L.onclick=function(e){var d=e.target.closest('[data-exp]');if(!d)return;V.exp=V.exp===d.dataset.exp?'':d.dataset.exp;show(V.exp?'mut':'mut',V.exp?'Now scan the label on <b>'+esc((V.pending.find(function(x){return x.order_id===V.exp})||{}).order_name)+'</b>. Any other label shows as wrong.':'Scan any parcel.');list()}}
+ function show(cls,html){var r=$('#vf_r');if(!r)return;r.className='res '+cls;r.innerHTML=html}
+ function check(code){code=String(code||'').trim();if(!code)return;var nowT=Date.now();if(code===V.last&&nowT-V.lastAt<4000)return;V.last=code;V.lastAt=nowT;if(V.busy)return;V.busy=true;
+  rpc('verify_scan',{code:code,expect:V.exp}).then(function(r){V.busy=false;var o=r.order||{};$('#vf_lbl').classList.add('hide');$('#vf_undo').classList.add('hide');
+   if(r.state==='ok'){beep(true);show('ok','<b>✓ READY · '+esc(o.order_name)+'</b><br>'+esc(o.customer)+' · '+esc(o.courier)+' · '+esc(o.awb)+(o.packed_at?'':'<br><span style="opacity:.85">Not marked packed yet.</span>'));var p=V.pending.find(function(x){return x.order_id===o.order_id});if(p)p.verified_at=o.verified_at||1;if(V.exp===o.order_id)V.exp='';$('#vf_undo').classList.remove('hide');$('#vf_undo').dataset.id=o.order_id;V.stats.ok++}
+   else if(r.state==='wrong'){beep(false);show('bad','<b>✗ WRONG PARCEL</b><br>'+esc(r.note)+'<br><span style="opacity:.85">Put this one aside; it belongs with '+esc(o.order_name)+'.</span>');V.stats.bad++}
+   else if(r.state==='cancelled'){beep(false);show('warn','<b>⚠ UPDATE LABEL · '+esc(o.order_name)+'</b><br>'+esc(r.note));if(r.current){$('#vf_lbl').classList.remove('hide');$('#vf_lbl').dataset.id=r.current.order_id}V.stats.bad++}
+   else if(r.state==='order_cancelled'){beep(false);show('bad','<b>✗ ORDER CANCELLED · '+esc(o.order_name)+'</b><br>'+esc(r.note));V.stats.bad++}
+   else if(r.state==='picked'){beep(false);show('warn','<b>⚠ '+esc(o.order_name)+'</b><br>'+esc(r.note))}
+   else{beep(false);show('bad','<b>✗ NOT FOUND</b><br>'+esc(r.note)+'<br><span class="small">Scanned: '+esc(r.code||code)+'</span>')}
+   list()}).catch(function(e){V.busy=false;show('bad','<b>Could not check</b><br>'+esc(e.message))})}
+ $('#vf_go').onclick=function(){check($('#vf_in').value);$('#vf_in').value='';$('#vf_in').focus()};
+ $('#vf_in').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();$('#vf_go').click()}};
+ $('#vf_lbl').onclick=function(){dlLabels([this.dataset.id],this)};
+ $('#vf_undo').onclick=function(){var id=this.dataset.id;rpc('verify_clear',{id:id}).then(function(){var p=V.pending.find(function(x){return x.order_id===id});if(p)p.verified_at=null;show('mut','Un-verified '+esc((p||{}).order_name||'')+'.');list()}).catch(function(e){toast(e.message)})};
+ rpc('shipments',{range:'all',stage:'all',q:''}).then(function(j){V.pending=j.shipments.filter(function(x){return x.stage==='pickup_pending'||x.stage==='pickup_failed'}).sort(function(a,b){return (a.verified_at?1:0)-(b.verified_at?1:0)||a.booked_at-b.booked_at});list()}).catch(function(e){toast(e.message)});
+ /* camera: ZXing reads Code128 / QR etc. on every phone browser (Safari has no built-in barcode reader) */
+ (window.ZXing?Promise.resolve():loadJs('/zxing.min.js')).then(function(){
+  var hints=new Map();hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.EAN_13]);hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+  V.reader=new ZXing.BrowserMultiFormatReader(hints,300);
+  return V.reader.decodeFromConstraints({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},$('#vf_v'),function(res){if(res&&res.getText){check(res.getText())}})
+ }).catch(function(e){show('mut','Camera not available ('+esc(e.message||e)+'). Type or scan the AWB into the box below.');$('#vf_in').focus()})}
 /* Cancel every Shiprocket booking still waiting for pickup. Orders are NOT cancelled: they go back to "To ship" and can be booked again. */
 function cancelAllPending(btn){var n=+(btn.textContent.match(/\d+/)||[0])[0];
  if(!confirm('Cancel ALL '+n+' pending pickups in Shiprocket?\n\nOnly parcels the courier has not collected are cancelled. The orders are NOT cancelled: they go back to "To ship" in the Orders tab, where you can book them again (new AWB).'))return;

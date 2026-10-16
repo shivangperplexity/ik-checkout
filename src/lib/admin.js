@@ -588,7 +588,7 @@ const ACTIONS = {
       return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '',
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
         cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
-        picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null };
+        picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null };
     });
     const inRange = all.filter((x) => x.booked_at >= from && x.booked_at < to);
     const counts = Object.fromEntries(Object.keys(STAGE_LABEL).map((k) => [k, 0]));
@@ -606,6 +606,7 @@ const ACTIONS = {
         pending_pickups: live.filter((x) => x.stage === 'pickup_pending' || x.stage === 'pickup_failed').length,
         to_pack: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at).sort((a, b) => a.booked_at - b.booked_at).map((x) => x.order_id),
         ndr: live.filter((x) => x.stage === 'ndr').length,
+        unverified: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.verified_at).length,
         cancelled_after_pickup: all.filter((x) => x.cancel_state === 'picked' && !['delivered', 'rto'].includes(x.stage)).length,
       },
       today: { booked: all.filter((x) => x.booked_at >= today0).length, picked: all.filter((x) => x.picked_at && x.picked_at >= today0).length,
@@ -614,6 +615,64 @@ const ACTIONS = {
       stats: { booked: liveR.length, rto_pct: liveR.length ? Math.round(rto.length * 1000 / liveR.length) / 10 : 0,
         rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(liveR.reduce((a, x) => a + x.charge, 0)) } };
   },
+  /**
+   * Verify a packed parcel by the barcode on its label. code: the scanned text (AWB, or the Shiprocket order id
+   * "1571" / "1571-R1234"); expect: optional order id the parcel is supposed to be. Returns one of
+   *   ok              the label is the live booking of a parcel waiting for pickup (marked verified)
+   *   wrong           the label belongs to another order than the one expected
+   *   cancelled       the label is from a cancelled booking: print the current label (current_awb) or it cannot ship
+   *   order_cancelled the order itself is cancelled: do not ship it
+   *   picked          Shiprocket already shows this parcel picked up / delivered
+   *   unknown         no booking has this code
+   */
+  async verify_scan(env, b) {
+    const raw = String(b.code || '').trim();
+    if (!raw) throw new Error('Nothing scanned');
+    const t = now(), digits = raw.replace(/\D/g, '');
+    const pub = (r) => ({ order_id: String(r.order_id), order_name: r.order_name, awb: r.awb || '', courier: r.courier || '', stage: r.status === 'cancelled' ? 'cancelled' : (r.stage || 'pickup_pending'), verified_at: num(r.verified_at) || null, packed_at: num(r.packed_at) || null, customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), order_status: r.order_status || '' });
+    const Q = `SELECT s.*, o.status AS order_status, o.first_name, o.last_name, o.packed_at FROM shipments s LEFT JOIN orders o ON o.order_id = s.order_id`;
+    /* 1. by AWB (exact, then the digits only: some couriers print a prefix/suffix round it) */
+    let recs = (await env.DB.prepare(`${Q} WHERE s.awb=? OR s.awb=? ORDER BY (COALESCE(s.status,'')<>'cancelled') DESC, s.created_at DESC`).bind(raw, digits || raw).all()).results;
+    /* 2. by order number ("#1571", "1571", "1571-R0421" from the Shiprocket order barcode) */
+    let byOrder = false;
+    if (!recs.length) {
+      const m = /^#?\s*(\d{3,6})(?:-R\d{3,5})?$/i.exec(raw);
+      if (m) { recs = (await env.DB.prepare(`${Q} WHERE s.order_name=? OR s.order_name=? ORDER BY (COALESCE(s.status,'')<>'cancelled') DESC, s.created_at DESC`).bind('#' + m[1], m[1]).all()).results; byOrder = true; }
+    }
+    /* 3. an AWB from a booking that was cancelled and since rebooked (its row was replaced) */
+    if (!recs.length) {
+      const old = await env.DB.prepare('SELECT * FROM ship_old_awbs WHERE awb=? OR awb=?').bind(raw, digits || raw).first().catch(() => null);
+      if (old) {
+        const cur = await env.DB.prepare(`${Q} WHERE s.order_id=?`).bind(String(old.order_id)).first();
+        const order = { order_id: String(old.order_id), order_name: old.order_name, awb: old.awb, courier: old.courier || '', stage: 'cancelled', customer: cur ? `${cur.first_name || ''} ${cur.last_name || ''}`.trim() : '' };
+        if (cur && cur.order_status === 'cancelled') return { ok: true, state: 'order_cancelled', code: raw, order, note: `${old.order_name} is cancelled. Do not ship this parcel.` };
+        const liveCur = cur && cur.awb && cur.status !== 'cancelled' ? pub(cur) : null;
+        return { ok: true, state: 'cancelled', code: raw, order, current: liveCur,
+          note: liveCur ? `Old label: this booking of ${old.order_name} was cancelled. The current AWB is ${liveCur.awb} (${liveCur.courier}). Print the new label and stick it on.` : `This booking of ${old.order_name} was cancelled and it has no live booking. Book it again from the Orders tab before shipping.` };
+      }
+      return { ok: true, state: 'unknown', code: raw, note: 'No booking has this code. Is it a Shiprocket label from this account?' };
+    }
+    const live = recs.find((r) => r.awb && r.status !== 'cancelled') || null;
+    const hit = byOrder ? (live || recs[0]) : recs.find((r) => r.awb === raw || r.awb === digits) || recs[0];
+    const order = pub(hit), exp = b.expect ? String(b.expect) : '';
+    if (hit.order_status === 'cancelled') return { ok: true, state: 'order_cancelled', code: raw, order, note: `${hit.order_name} is cancelled. Do not ship this parcel.` };
+    if (exp && exp !== String(hit.order_id)) {
+      const e = await env.DB.prepare('SELECT order_name FROM orders WHERE order_id=?').bind(exp).first();
+      return { ok: true, state: 'wrong', code: raw, order, expected: { order_id: exp, order_name: e?.order_name || exp }, note: `This label is ${hit.order_name}, not ${e?.order_name || 'the expected order'}.` };
+    }
+    if (hit.status === 'cancelled' || (byOrder && !live)) {
+      const cur = live ? pub(live) : null;
+      return { ok: true, state: 'cancelled', code: raw, order, current: cur,
+        note: cur ? `Old label: this booking of ${hit.order_name} was cancelled. The current AWB is ${cur.awb} (${cur.courier}). Print the new label and stick it on.` : `This booking of ${hit.order_name} was cancelled and it has no live booking. Book it again from the Orders tab before shipping.` };
+    }
+    const stage = hit.stage || 'pickup_pending';
+    if (!['pickup_pending', 'pickup_failed'].includes(stage)) return { ok: true, state: 'picked', code: raw, order, note: `${hit.order_name}: Shiprocket already shows this parcel as ${STAGE_LABEL[stage] || stage}.` };
+    await env.DB.prepare('UPDATE shipments SET verified_at=? WHERE order_id=?').bind(t, String(hit.order_id)).run();
+    order.verified_at = t;
+    return { ok: true, state: 'ok', code: raw, order, note: `${hit.order_name} · ${order.customer} · ${hit.courier} ${hit.awb}. Ready for pickup.` };
+  },
+  /** Un-verify (scanned by mistake). */
+  async verify_clear(env, b) { await env.DB.prepare('UPDATE shipments SET verified_at=NULL WHERE order_id=?').bind(String(b.id)).run(); return { ok: true }; },
   /** Every parcel still waiting for pickup (or pickup failed), any date: the ids the "Cancel all pending pickups" button works through. */
   async ship_pending_ids(env) {
     const rows = (await env.DB.prepare(`SELECT order_id FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'
@@ -1008,6 +1067,9 @@ const ACTIONS = {
     return { ok: true };
   },
 };
+
+/** For tests: one dashboard action by name. */
+export const action = (name) => ACTIONS[name];
 
 export async function handleRpc(req, env) {
   const who = await checkToken(env, req);

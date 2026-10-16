@@ -183,7 +183,11 @@ export async function bookShipment(env, order, row, { pickOption }) {
   let rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
   /* a cancelled earlier booking: start a fresh Shiprocket order (new order id suffix, Shiprocket keeps the old one) */
   let rebook = '';
-  if (rec && rec.status === 'cancelled') { rebook = '-R' + String(now()).slice(-4); await db.prepare('DELETE FROM shipments WHERE order_id=?').bind(id).run(); rec = null; }
+  if (rec && rec.status === 'cancelled') {
+    rebook = '-R' + String(now()).slice(-4);
+    if (rec.awb) await db.prepare('INSERT INTO ship_old_awbs (awb, order_id, order_name, courier, cancelled_at) VALUES (?,?,?,?,?) ON CONFLICT (awb) DO NOTHING').bind(String(rec.awb), id, rec.order_name || row.order_name, rec.courier || '', now()).run().catch(() => {});
+    await db.prepare('DELETE FROM shipments WHERE order_id=?').bind(id).run(); rec = null;
+  }
   if (rec?.awb) return { ok: true, already: true, shipment: publicRec(rec) };
 
   const plan = await planShipment(env, order, row, { pickOption });
