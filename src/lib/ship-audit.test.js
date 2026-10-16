@@ -71,6 +71,7 @@ function world({ orders = {}, shipments = {}, shop = {} }) {
         if (/FROM shipments WHERE order_id=\? AND awb/.test(q)) { const s = shipments[a[0]]; return s && s.awb && s.status !== 'cancelled' ? s : null; }
         if (/FROM shipments WHERE order_id=\?$/.test(q)) return shipments[a[0]] || null;
         if (/FROM settings/.test(q)) return settings.ship_audit_at ? { v: settings.ship_audit_at } : null;
+        if (/MIN\(created_at\)/.test(q)) { const b = Object.values(shipments).filter((x) => x.sr_shipment_id).map((x) => x.created_at || 0); return { t: b.length ? Math.min(...b) : null }; }
         return null;
       },
       all: async () => {
@@ -108,7 +109,7 @@ function world({ orders = {}, shipments = {}, shop = {} }) {
   return { env, calls, issues, orders, shipments, shop, done: () => { globalThis.fetch = real; } };
 }
 const o = (id, x = {}) => ({ order_id: id, order_name: '#' + id, status: 'placed', shipped_at: 1, method: 'cod', created_at: 1, ...x });
-const s = (id, x = {}) => ({ order_id: id, order_name: '#' + id, awb: 'A' + id, sr_order_id: '90' + id, status: 'booked', stage: 'pickup_pending', courier: 'Delhivery', ...x });
+const s = (id, x = {}) => ({ order_id: id, order_name: '#' + id, awb: 'A' + id, sr_order_id: '90' + id, sr_shipment_id: 'SH' + id, status: 'booked', stage: 'pickup_pending', courier: 'Delhivery', created_at: 1, ...x });
 
 test('audit records every mismatch, resolves the ones that are gone on the next run, keeps dismissals', async () => {
   const w = world({
@@ -152,15 +153,15 @@ test('fix "unfulfil" on a Shiprocket-cancelled booking sends the order back to T
   } finally { w.done(); }
 });
 
-test('fix "import" turns a hand-made Shopify fulfilment into a tracked booking here; "retrack" points Shopify at the live AWB', async () => {
-  const w = world({ orders: { 1: o('1'), 2: o('2') }, shipments: { 2: s('2', { awb: 'NEW2' }) }, shop: { 1: { fulfilments: ['ZZ1'] }, 2: { fulfilments: ['OLD2'] } } });
+test('a Shopify fulfilment with no booking here: flagged (unfulfil / dismiss) only for orders after the first Shiprocket booking; "retrack" points Shopify at the live AWB', async () => {
+  const w = world({ orders: { 1: o('1', { created_at: 100 }), 2: o('2', { created_at: 300 }), 3: o('3', { created_at: 300 }) }, shipments: { 2: s('2', { awb: 'NEW2', created_at: 200, sr_shipment_id: 'SH2' }) }, shop: { 1: { fulfilments: ['ZZ1'] }, 2: { fulfilments: ['OLD2'] }, 3: { fulfilments: ['ZZ3'] } } });
   try {
-    const r = await fix(w.env, { id: '1', fix: 'import' });
-    assert.equal(w.shipments[1].awb, 'ZZ1'); assert.match(r.note, /Imported AWB ZZ1/); assert.deepEqual(r.left, []);
-    assert.equal(w.shipments[1].provider, 'other', 'Shiprocket does not know this AWB, so it is not tracked there');
-    assert.equal(w.shipments[1].track_url, 'https://x.example/t/ZZ1', 'keeps the tracking link Shopify has');
+    const r = await audit(w.env, {});
+    assert.deepEqual(r.issues.issues.map((x) => x.order_id + ':' + x.kind).sort(), ['2:awb_mismatch', '3:fulfilled_no_booking'], 'order 1 predates Shiprocket here (NimbusPost era), so it is not a mismatch');
+    assert.deepEqual(r.issues.issues.find((x) => x.order_id === '3').fixes, ['unfulfil', 'dismiss']);
     const r2 = await fix(w.env, { id: '2', fix: 'retrack' });
     assert.ok(w.calls.includes('retrack NEW2')); assert.deepEqual(r2.left, []);
+    await assert.rejects(fix(w.env, { id: '3', fix: 'import' }), /Unknown fix/);
   } finally { w.done(); }
 });
 

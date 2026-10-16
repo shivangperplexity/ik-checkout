@@ -21,8 +21,8 @@ export const TRIGGERS = {
     /* *_offer = tattoo photo + the B1G1 / 10%-prepaid offer line; *_img = photo only; plain = text only. A send walks
        offer -> img -> text while one is in review, or when a cart has no picture. */
     variants: ['checkout_reminder_offer', 'checkout_reminder_commitment_offer', 'checkout_reminder_ghosted_offer', 'checkout_reminder_softlaunch_offer', 'checkout_reminder_talkstage_offer', 'checkout_reminder_redflag_offer', 'checkout_reminder_maincharacter_offer', 'checkout_reminder_horoscope_offer', 'checkout_reminder_bluetick_offer', 'checkout_reminder_khanakhaya_offer', 'checkout_reminder_lostfound_offer', 'checkout_reminder_cliffhanger_offer'] },
-  /* Shipment updates from NimbusPost tracking (lib/wa-ship.js, checked on the cron). */
-  ship_picked: { label: 'Shipment picked up', to: 'Customer', when: 'Courier picks the parcel up (NimbusPost "Pickup Done")', vars: ['name', 'order', 'courier', 'edd', 'track'], def: 'ship_picked_up', on: true },
+  /* Shipment updates from Shiprocket tracking (lib/wa-ship.js, checked on the cron). */
+  ship_picked: { label: 'Shipment picked up', to: 'Customer', when: 'Courier picks the parcel up', vars: ['name', 'order', 'courier', 'edd', 'track'], def: 'ship_picked_up', on: true },
   ship_transit: { label: 'Shipment in transit', to: 'Customer', when: 'Moving through the courier network (6h+ after pickup)', vars: ['name', 'order', 'location', 'edd', 'track'], def: 'ship_in_transit', on: true },
   ship_ofd: { label: 'Out for delivery', to: 'Customer', when: 'Courier marks it out for delivery (once a day)', vars: ['name', 'order', 'track'], def: 'ship_out_for_delivery', on: true },
   ship_failed: { label: 'Delivery attempt failed (re-attempt)', to: 'Customer', when: 'Courier could not deliver; skipped if the customer refused / cancelled with OTP', vars: ['name', 'order', 'track'], def: 'ship_delivery_failed', on: true },
@@ -37,10 +37,9 @@ const DEFAULTS = {
   templates: {},
   upsells: [],
   upi_logos: { gpay: '', phonepe: '', paytm: '', any: '' },
-  /* NimbusPost login for the "Express shipping" delivery estimate (Delhivery / Xpressbees from the pickup PIN). */
-  shipping: { nimbus_email: '', nimbus_password: '', origin_pin: '410206', weight_g: 50,
-    /* Rate comparison across carrier accounts (lib/rates.js) */
-    shiprocket_email: '', shiprocket_password: '', nimbus_couriers: 'delhivery|xpress\\s*bees|xpressbees', shiprocket_couriers: '',
+  /* Shiprocket login (API user) for booking, tracking and the "Express shipping" delivery estimate (lib/rates.js) */
+  shipping: { origin_pin: '410206', weight_g: 50,
+    shiprocket_email: '', shiprocket_password: '', shiprocket_couriers: '',
     policy: 'cheapest', tolerance_days: 2 },
   /* Expected-profit column on Orders > Shipped: product cost per item and customer acquisition cost per order (₹) */
   profit: { unit_cost: 40, cac: 80 },

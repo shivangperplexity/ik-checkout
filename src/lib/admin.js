@@ -491,8 +491,7 @@ const ACTIONS = {
       triggers: Object.entries(TRIGGERS).map(([key, t]) => ({ key, label: t.label, to: t.to, when: t.when, buttons: !!t.buttons, allVars: t.vars, ...triggerConfig({ ...env, SETTINGS: s }, key) })),
       var_labels: VAR_LABELS,
       upsells: s.upsells, upi_logos: s.upi_logos, email: s.admin?.email,
-      shipping: { nimbus_email: s.shipping.nimbus_email, nimbus_password: mask(s.shipping.nimbus_password), origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.nimbus_email && s.shipping.nimbus_password),
-        nimbus_ok: !!(s.shipping.nimbus_email && s.shipping.nimbus_password), nimbus_couriers: s.shipping.nimbus_couriers,
+      shipping: { origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password),
         shiprocket_email: s.shipping.shiprocket_email, shiprocket_password: mask(s.shipping.shiprocket_password), shiprocket_ok: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password), shiprocket_couriers: s.shipping.shiprocket_couriers,
         policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days,
         sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack) },
@@ -501,13 +500,11 @@ const ACTIONS = {
   async save_shipping(env, b) {
     const s = await getSettings(env, true);
     const sh = { ...s.shipping };
-    if (b.nimbus_email !== undefined) sh.nimbus_email = String(b.nimbus_email).trim().slice(0, 200);
-    if (b.nimbus_password && !String(b.nimbus_password).startsWith('••')) sh.nimbus_password = String(b.nimbus_password).trim();
     if (b.origin_pin !== undefined && /^\d{6}$/.test(String(b.origin_pin).trim())) sh.origin_pin = String(b.origin_pin).trim();
     if (b.weight_g !== undefined) sh.weight_g = Math.max(10, Math.min(5000, +b.weight_g || 50));
     if (b.shiprocket_email !== undefined) sh.shiprocket_email = String(b.shiprocket_email).trim().slice(0, 200);
     if (b.shiprocket_password && !String(b.shiprocket_password).startsWith('••')) sh.shiprocket_password = String(b.shiprocket_password).trim();
-    for (const k of ['nimbus_couriers', 'shiprocket_couriers']) {
+    for (const k of ['shiprocket_couriers']) {
       if (b[k] === undefined) continue;
       const v = String(b[k]).trim().slice(0, 200);
       try { if (v) new RegExp(v, 'i'); } catch { throw new Error('"' + v + '" is not a valid courier filter. Use names separated by |, like delhivery|xpressbees'); }
@@ -956,46 +953,6 @@ const ACTIONS = {
       catch (e) { out.push({ name: tpl.name, status: 'FAILED', error: String(e.message || e).slice(0, 300) }); }
     }
     return { created: out };
-  },
-  /* Read-only: what tracking data looks like (Shopify fulfilments + one NimbusPost tracking reply), with names,
-     phones and addresses stripped. Used to map NimbusPost statuses to WhatsApp updates. */
-  async ship_probe(env, b) {
-    const { gql } = await import('./shopify.js');
-    const { nimbus } = await import('./shipping.js');
-    if (b.ndr) {
-      const n = await nimbus(env, 'ndr').catch((e) => ({ error: e.message }));
-      const list = Array.isArray(n.data) ? n.data : n.data?.data || [];
-      return { ndr_keys: list[0] ? Object.keys(list[0]) : [], ndr: list.slice(0, 20).map((x) => ({ status: x.status, reason: x.reason || x.ndr_reason || x.remarks || x.message, attempts: x.attempts || x.attempt_count, history: (x.history || x.ndr_history || []).slice(0, 5) })), error: n.error || '' };
-    }
-    const q = String(b.q || 'fulfillment_status:shipped OR fulfillment_status:partial').replace(/"/g, '');
-    const d = await gql(env, `query($q:String){ orders(first: ${Math.min(50, Number(b.n) || 15)}, reverse: true, sortKey: CREATED_AT, query: $q) { nodes { name displayFulfillmentStatus fulfillments(first: 3) { status displayStatus createdAt trackingInfo { company number url } } } } }`, { q });
-    const rows = d.orders.nodes.map((o) => ({ order: o.name, status: o.displayFulfillmentStatus, f: o.fulfillments.map((f) => ({ status: f.status, display: f.displayStatus, at: f.createdAt, t: f.trackingInfo.map((x) => ({ company: x.company, number: x.number, url: (x.url || '').replace(/[?#].*$/, '') })) })) }));
-    const awb = String(b.awb || rows.flatMap((r) => r.f.flatMap((f) => f.t.map((x) => x.number))).find(Boolean) || '');
-    const scrub = (v, k = '') => {
-      if (Array.isArray(v)) return v.slice(0, 25).map((x) => scrub(x));
-      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([kk, vv]) => [kk, scrub(vv, kk)]));
-      if (/name|phone|mobile|address|email|consignee|customer|pincode|pin|city|state|lat|lng|signature|otp/i.test(k) && !/courier|status|warehouse/i.test(k)) return v ? '<hidden>' : v;
-      return v;
-    };
-    if (b.list) {
-      /* Status vocabulary across older shipments: counts of overall status and of history codes/messages. */
-      const page = await nimbus(env, `shipments?per_page=${Math.min(100, Number(b.per_page) || 100)}&page=${Math.max(1, Number(b.page) || 1)}`).catch((e) => ({ error: e.message }));
-      const list = Array.isArray(page.data) ? page.data : page.data?.data || page.data?.shipments || [];
-      const statuses = {}, codes = {}, keys = list[0] ? Object.keys(list[0]) : [];
-      for (const x of list) statuses[x.status] = (statuses[x.status] || 0) + 1;
-      const sample = [];
-      for (const x of list.filter((x) => !/pickup_pending|booked/.test(String(x.status))).slice(0, Number(b.deep) || 12)) {
-        try {
-          const tr = (await nimbus(env, `shipments/track/${encodeURIComponent(x.awb_number || x.awb)}`)).data || {};
-          for (const h of tr.history || []) { const k = `${h.status_code}: ${h.message}`; codes[k] = (codes[k] || 0) + 1; }
-          sample.push({ status: tr.status, edd: tr.edd, pickup: tr.pickup_date, delivered: tr.delivered_date, rto: tr.rto_status, info: tr.shipment_info, hist: (tr.history || []).slice(0, 12).map((h) => `${h.status_code}: ${h.message}`) });
-        } catch (e) { sample.push({ error: e.message }); }
-      }
-      return { keys, statuses, codes, sample, error: page.error || '' };
-    }
-    let track = null, err = '';
-    if (awb) { try { track = scrub(await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)); } catch (e) { err = e.message; } }
-    return { orders: rows, awb, track, error: err };
   },
   async wa_copy_templates(env) {
     const { copyTemplates, accessibleAccounts } = await import('./wa-migrate.js');

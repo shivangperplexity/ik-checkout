@@ -1,8 +1,8 @@
 /**
- * WhatsApp shipment updates from NimbusPost tracking. Runs on the cron.
+ * WhatsApp shipment updates from Shiprocket tracking. Runs on the cron.
  *
- * Shopify gets each shipment's AWB + NimbusPost tracking link from NimbusPost's fulfilment. For every shipped order
- * we poll GET /v1/shipments/track/<awb> (at most every POLL seconds per order) and send each update once:
+ * Every parcel booked from the dashboard (lib/shiprocket.js) is polled (at most every POLL seconds per order) and
+ * each update is sent once. Orders fulfilled some other way are not tracked here:
  *
  *   ship_picked  - first "Pickup Done" (PD/PKD) scan               - with the expected delivery date
  *   ship_transit - in transit (IT/RAD), at least 6h after pickup   - last seen city + expected delivery date
@@ -13,12 +13,11 @@
  * Delivered / RTO end tracking without a message. An order first seen mid-journey (e.g. when this is switched on)
  * only gets the update for where it is now, not a burst of old ones.
  *
- * Status vocabulary observed on this account (Oct 2026): status pickup_pending | in_transit | reached_at_destination |
- * ndr | rto_initiated | delivered; history codes PP, PD, PKD, IT, RAD, OFD, EX, DL, RT.
+ * Shiprocket's reply is adapted (lib/shiprocket.js adaptTrack) to the status vocabulary classify() reads: status pickup_pending |
+ * in_transit | reached_at_destination | ndr | rto_initiated | delivered; history codes PP, PD, PKD, IT, RAD, OFD, EX, DL, RT.
  */
 import { orderDetail, addTags } from './shopify.js';
-import { srTrack } from './shiprocket.js';
-import { nimbus } from './shipping.js';
+import { srTrack, ndrList } from './shiprocket.js';
 import { fireTrigger, logMsg } from './whatsapp.js';
 import { triggerConfig } from './settings.js';
 
@@ -45,7 +44,7 @@ export const cityOf = (loc) => {
   return c && !/^[A-Z0-9/_-]{2,12}$/.test(c) ? c.replace(/\b([a-z])/g, (x) => x.toUpperCase()) : (c ? c.charAt(0) + c.slice(1).toLowerCase() : '');
 };
 
-/** Where the shipment is now, from NimbusPost's tracking reply (newest scan first). */
+/** Where the shipment is now, from the (adapted) tracking reply (newest scan first). */
 export function classify(t) {
   const st = String(t.status || '').toLowerCase();
   const hist = Array.isArray(t.history) ? t.history.slice().sort((a, b) => parseTime(b.event_time) - parseTime(a.event_time)) : [];
@@ -83,7 +82,7 @@ export function decide(c, sent, firstSeen, ndrReason = '') {
   }
   if (c.stage === 'ofd' && !base.ofd.includes(dayOf(c.at))) todo.push('ofd');
   if (c.stage === 'failed' && c.at && !base.failed.includes(c.at)) {
-    /* The newest scan's own words win; NimbusPost's NDR remark is only used when the scan is a bare code ("70"). */
+    /* The newest scan's own words win; the NDR remark is only used when the scan is a bare code ("70"). */
     const reason = /[a-z]{4,}/i.test(c.reason || '') ? c.reason : `${c.reason || ''} ${ndrReason}`;
     todo.push(REFUSED.test(reason) ? 'failed-refused' : 'failed');
   }
@@ -102,11 +101,7 @@ function mark(sent, what, c) {
 
 /** Courier reasons for open NDRs, by AWB (one call per run). */
 async function ndrReasons(env) {
-  try {
-    const n = await nimbus(env, 'ndr');
-    const list = Array.isArray(n.data) ? n.data : n.data?.data || [];
-    return Object.fromEntries(list.map((x) => [String(x.awb_number), String(x.courier_remarks || '')]));
-  } catch { return {}; }
+  try { return Object.fromEntries((await ndrList(env)).map((x) => [String(x.awb), String(x.reason || '')])); } catch { return {}; }
 }
 
 export async function shipUpdates(env) {
@@ -140,9 +135,10 @@ export async function shipUpdates(env) {
         const ti = f.trackingInfo.find((x) => x.number);
         awb = ti.number; courier = ti.company || ''; url = ti.url || '';
       }
-      /* AWBs booked from the dashboard are followed in Shiprocket; older ones (NimbusPost) keep their old route. */
-      const mine = await env.DB.prepare("SELECT 1 AS x FROM shipments WHERE awb=? AND COALESCE(provider,'shiprocket')='shiprocket'").bind(String(awb)).first();
-      const tr = mine ? await srTrack(env, awb) : ((await nimbus(env, `shipments/track/${encodeURIComponent(awb)}`)).data || {});
+      /* only parcels booked from the dashboard are followed (Shiprocket); anything fulfilled another way is left alone */
+      const mine = await env.DB.prepare('SELECT 1 AS x FROM shipments WHERE awb=?').bind(String(awb)).first();
+      if (!mine) { await save(r, { awb, courier, url, status: 'not-tracked', sent: {}, done: true }); continue; }
+      const tr = await srTrack(env, awb);
       const c = classify(tr);
       let sent = {};
       try { sent = JSON.parse(r.sent || '{}') || {}; } catch { sent = {}; }

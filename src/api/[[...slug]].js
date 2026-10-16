@@ -39,7 +39,7 @@ export default {
     if (path === '/api/cron' && env.CRON_SECRET && req.headers.get('Authorization') === `Bearer ${env.CRON_SECRET}`) {
       await offerPrepaidConversion(env).catch((e) => console.error('offerPrepaidConversion', e));
       await autoCancelStale(env).catch((e) => console.error('autoCancelStale', e));
-      /* WhatsApp shipment updates from NimbusPost tracking. */
+      /* WhatsApp shipment updates from Shiprocket tracking. */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { shipUpdates } = await import('../lib/wa-ship.js'); return shipUpdates(await withSettings(env)); })().catch((e) => console.error('shipUpdates', e));
     }
     return handle(req, env, ctx);

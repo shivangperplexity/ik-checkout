@@ -228,7 +228,7 @@ function bulkShip(){var ids=selIds();if(!ids.length)return;
 var COURIERS=['Delhivery','Bluedart','DTDC','Xpressbees','Ecom Express','Shadowfax','India Post','Amazon Shipping','Other'];
 function rup(n){return '₹'+Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function ratesTable(r){
- if(!r.connected||!r.connected.length)return '<b>No carrier is connected yet.</b> Add NimbusPost or Shiprocket under Settings, Shipping carriers.';
+ if(!r.connected||!r.connected.length)return '<b>Shiprocket is not connected yet.</b> Add the API user login under Settings, Shipping carriers.';
  var h='';
  if(r.errors&&r.errors.length)h+='<p style="color:#b45309;margin:4px 0">'+r.errors.map(esc).join('<br>')+'</p>';
  if(!r.options.length)return h+'<p>No connected carrier returned a price for '+esc(r.pin)+'.</p>';
@@ -551,12 +551,8 @@ function shAct(act,btn){var ids=shSel();if(!ids.length)return;
 function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},sh=j.shipping||{};
  $('#main').innerHTML='<div class="grid two"><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
  +[['gpay','Google Pay'],['phonepe','PhonePe'],['paytm','Paytm'],['any','Any UPI app']].map(function(a){return '<label class="f">'+a[1]+'<input type="url" class="lg" data-k="'+a[0]+'" value="'+esc(L[a[0]])+'" placeholder="https://cdn.shopify.com/..."></label>'}).join('')+'<button class="btn" id="lg_sv">Save logos</button></div>'
- +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Shiprocket is the carrier we ship with. NimbusPost is only kept for tracking older shipments and as a fallback for the delivery date until Shiprocket is connected. For every order and every PIN the dashboard compares all connected carriers and picks the cheapest one that is not much slower than the fastest. Customers still see one option, "Express shipping", with the delivery date of the courier we would book.</p>'
- +'<h4 style="margin:6px 0 0">NimbusPost '+(sh.nimbus_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
- +'<label class="f">NimbusPost email<input type="email" id="sh_email" value="'+esc(sh.nimbus_email||'')+'" autocomplete="off"></label>'
- +'<label class="f">NimbusPost password<input type="password" id="sh_pass" value="'+esc(sh.nimbus_password||'')+'" autocomplete="new-password"></label>'
- +'<label class="f">Only use these NimbusPost couriers<input id="sh_ncr" value="'+esc(sh.nimbus_couriers||'')+'" placeholder="delhivery|xpressbees (blank = all)"></label>'
- +'<h4 style="margin:10px 0 0">Shiprocket '+(sh.shiprocket_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
+ +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Shiprocket is the carrier we ship with: booking, labels, tracking and the delivery estimate on the checkout all use this login.</p>'
+ +'<h4 style="margin:6px 0 0">Shiprocket '+(sh.shiprocket_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
  +'<p class="small mut" style="margin:0">In Shiprocket go to Settings, API, Add New API User and use that login here, not your normal one.</p>'
  +'<label class="f">Shiprocket API user email<input type="email" id="sh_sre" value="'+esc(sh.shiprocket_email||'')+'" autocomplete="off"></label>'
  +'<label class="f">Shiprocket API user password<input type="password" id="sh_srp" value="'+esc(sh.shiprocket_password||'')+'" autocomplete="new-password"></label>'
@@ -579,7 +575,7 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  $('#lg_sv').onclick=function(){var l={};[].forEach.call(document.querySelectorAll('.lg'),function(i){l[i.dataset.k]=i.value});rpc('save_logos',{logos:l}).then(function(){toast('Saved')}).catch(function(e){toast(e.message)})};
  $('#sh_pkl').onclick=function(){var b=$('#sh_pkl');b.disabled=true;rpc('sr_pickups').then(function(r){var cur=$('#sh_pk').value;$('#sh_pk').innerHTML=r.pickups.map(function(x){var n=typeof x==='string'?x:x.name;return '<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>'}).join('')||'<option value="">None found</option>';b.disabled=false}).catch(function(e){b.disabled=false;toast(e.message)})};
  $('#sh_sv').onclick=function(){var pk={};['al:a_l','ab:a_b','ca:cap_a','bl:b_l','bb:b_b','cb:cap_b','pad:pad_cm','bh:base_h_cm','sh:step_h_cm','rl:roll_l','rb:roll_b','rh:roll_h','ew:env_weight_g','tw:tattoo_weight_g'].forEach(function(m){var q=m.split(':');pk[q[1]]=$('#pk_'+q[0]).value});
-  rpc('save_shipping',{nimbus_email:$('#sh_email').value,nimbus_password:$('#sh_pass').value,nimbus_couriers:$('#sh_ncr').value,shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,sr_pickup:$('#sh_pk').value,sr_fallback_email:$('#sh_fe').value,pack:pk,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
+  rpc('save_shipping',{shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,sr_pickup:$('#sh_pk').value,sr_fallback_email:$('#sh_fe').value,pack:pk,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
  $('#rt_go').onclick=function(){var o=$('#rt_out');o.textContent='Asking the carriers…';rpc('shipping_rates',{pin:$('#rt_pin').value,cod:$('#rt_cod').checked,amount:$('#rt_amt').value}).then(function(r){o.innerHTML=ratesTable(r)}).catch(function(e){o.textContent='Failed: '+e.message})};
  scopeCheck($('#st_scope'));
  $('#pf_sv').onclick=function(){var b=$('#pf_sv');b.disabled=true;rpc('save_profit',{unit_cost:$('#pf_u').value,cac:$('#pf_c').value}).then(function(){toast('Saved')}).catch(function(er){toast(er.message)}).then(function(){b.disabled=false})};

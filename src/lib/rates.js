@@ -1,8 +1,6 @@
-// src/lib/rates.js — compare shipping rates across every connected carrier account and pick the cheapest.
+// src/lib/rates.js — Shiprocket's couriers for one parcel, with the pick rule.
 //
-// Providers (each is an aggregator that returns several couriers with a price and a delivery estimate):
-//   nimbus     NimbusPost   POST /v1/courier/serviceability
-//   shiprocket Shiprocket   GET  /v1/external/courier/serviceability/
+// Provider: shiprocket  GET /v1/external/courier/serviceability/ (lib/shiprocket.js)
 // Add another by writing one function that returns [{ courier, charge, freight, cod, edd }] and listing it in PROVIDERS.
 //
 // Pick rule (dashboard "Shipping" card):
@@ -10,11 +8,10 @@
 //   fastest             earliest delivery, ties broken by price
 // "charge" is what we pay the courier for this parcel in rupees, including the COD fee when the order is COD.
 
-import { cfg, token, eddRaw, eddDate } from './shipping.js';
+import { cfg, eddDate } from './shipping.js';
 import { srRates } from './shiprocket.js';
 import { packOrder, packCfg } from './packing.js';
 
-const NB = 'https://api.nimbuspost.com/v1';
 const SR = 'https://apiv2.shiprocket.in/v1/external';
 const TIMEOUT = 7000;
 const DAY = 86400000;
@@ -26,27 +23,6 @@ function withTimeout(promise, label) {
   let t;
   return Promise.race([promise, new Promise((_, bad) => { t = setTimeout(() => bad(new Error(label + ' timed out')), TIMEOUT); })]).finally(() => clearTimeout(t));
 }
-function safeRe(src) { try { return src ? new RegExp(src, 'i') : null; } catch { return null; } }
-
-/* ---------- NimbusPost ---------- */
-async function nimbusRates(c, q) {
-  if (!c.email || !c.password) return null;                            // not connected
-  const t = await token(c);
-  const r = await fetch(NB + '/courier/serviceability', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
-    body: JSON.stringify({ origin: c.origin, destination: q.pin, payment_type: q.cod ? 'cod' : 'prepaid', order_amount: q.amount, weight: c.weight, length: 20, breadth: 15, height: 2 }),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!j.status || !Array.isArray(j.data)) throw new Error('NimbusPost: ' + (j.message || 'serviceability failed'));
-  const only = safeRe(c.nimbusCouriers);
-  return j.data.filter((x) => !only || only.test(String(x.name || ''))).map((x) => ({
-    courier: String(x.name || 'Courier'),
-    charge: rupees(x.total_charges ?? x.freight_charges),
-    freight: rupees(x.freight_charges),
-    cod: rupees(x.cod_charges),
-    edd: eddRaw(x),
-  }));
-}
 
 /* ---------- Shiprocket (lib/shiprocket.js) ---------- */
 async function shiprocketRates(c, q, env) {
@@ -56,7 +32,6 @@ async function shiprocketRates(c, q, env) {
 }
 
 export const PROVIDERS = {
-  nimbus: { label: 'NimbusPost', run: (c, q) => nimbusRates({ ...c }, q) },
   shiprocket: { label: 'Shiprocket', run: (c, q, env) => shiprocketRates(c, q, env) },
 };
 
@@ -81,8 +56,7 @@ export function pickOption(options, { policy = 'cheapest', toleranceDays = 2 } =
 export async function compareRates(env, { pin, cod = false, amount = 499, pack = null }) {
   const c = cfg(env);
   const q = { pin, cod: !!cod, amount: Number(amount) || 499, pack };
-  /* Shiprocket is the fixed partner. Until its login is saved, NimbusPost (if connected) keeps the date estimate working. */
-  const only = c.shiprocketEmail && c.shiprocketPassword && c.provider !== 'all' ? ['shiprocket'] : Object.keys(PROVIDERS);
+  const only = Object.keys(PROVIDERS);
   const errors = [];
   let tried = 0;
   const connected = [];

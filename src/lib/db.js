@@ -58,9 +58,8 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS edd TEXT`,
   /* 15 Oct 2026: the first status reader counted courier hub scans ("Manifested - Out for Pickup") as picked up. Re-check those. */
   `UPDATE shipments SET tracked_at=NULL, picked_at=NULL, delivered_at=NULL WHERE tracked_at IS NOT NULL AND tracked_at < 1792005497`,
-  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS provider TEXT`,
-  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS track_url TEXT`,
-  `UPDATE shipments SET provider='other' WHERE provider IS NULL AND sr_shipment_id IS NULL AND sr_order_id IS NULL AND awb IS NOT NULL`,
+  /* parcels imported from Shopify fulfilments that were never booked with Shiprocket (old NimbusPost AWBs): not ours to track */
+  `DELETE FROM shipments WHERE sr_shipment_id IS NULL AND sr_order_id IS NULL AND COALESCE(status,'')<>'booking'`,
   `CREATE TABLE IF NOT EXISTS ship_issues (order_id TEXT, kind TEXT, order_name TEXT, detail TEXT, first_seen BIGINT, last_seen BIGINT, resolved_at BIGINT, dismissed_at BIGINT, PRIMARY KEY (order_id, kind))`,
   /* COD -> prepaid conversion */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,

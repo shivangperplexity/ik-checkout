@@ -78,7 +78,7 @@ export async function srRates(env, { pin, cod, amount, pack }) {
   }));
 }
 
-/* ---------- tracking, shaped like NimbusPost's reply so lib/wa-ship.js classifies it unchanged ---------- */
+/* ---------- tracking, adapted to the status vocabulary lib/wa-ship.js classify() reads ---------- */
 function codeOf(text, srStatus) {
   const t = String(text || '').toLowerCase(), id = Number(srStatus);
   if (id === 7 || (/delivered/.test(t) && !/rto|return|undelivered|not delivered/.test(t))) return 'DL';
@@ -242,7 +242,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
 export function publicRec(r) {
   if (!r) return null;
   let pack = null; try { pack = JSON.parse(r.pack || 'null'); } catch { /* ignore */ }
-  return { order_id: r.order_id, order_name: r.order_name, awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: r.track_url || (r.awb ? `https://shiprocket.co/tracking/${r.awb}` : ''), sr_order_id: r.sr_order_id || '', provider: r.provider || 'shiprocket' };
+  return { order_id: r.order_id, order_name: r.order_name, awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: r.awb ? `https://shiprocket.co/tracking/${r.awb}` : '', sr_order_id: r.sr_order_id || '' };
 }
 
 export async function cancelShipment(env, rec) {

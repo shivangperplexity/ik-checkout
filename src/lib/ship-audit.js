@@ -14,8 +14,6 @@
 import { gql } from './shopify.orig.js';
 import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking } from './shopify.js';
 import { stopShipment, CANCEL_TAG } from './ship-cancel.js';
-import { refreshShipment } from './ship-status.js';
-import { sr } from './shiprocket.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const PICKED = ['transit', 'ofd', 'ndr', 'delivered', 'rto', 'lost'];
@@ -32,8 +30,8 @@ export const KINDS = {
     fixes: ['unfulfil'] },
   booked_not_fulfilled: { sev: 'warn', title: 'Booked with Shiprocket, not fulfilled in Shopify', why: 'The AWB exists but Shopify still shows the order as unfulfilled (the fulfilment step failed or was never run).',
     fixes: ['fulfil'] },
-  fulfilled_no_booking: { sev: 'warn', title: 'Fulfilled in Shopify, no booking here', why: 'Shopify has an active fulfilment (shipped by hand or through another app) that this dashboard knows nothing about, so it cannot track or label it.',
-    fixes: ['import', 'unfulfil'] },
+  fulfilled_no_booking: { sev: 'warn', title: 'Fulfilled in Shopify, no booking here', why: 'Shopify has an active fulfilment (shipped by hand or through another app) that this dashboard knows nothing about, so it cannot track or label it. Book it from the Orders tab after unfulfilling, or dismiss if it really went out another way.',
+    fixes: ['unfulfil', 'dismiss'] },
   awb_mismatch: { sev: 'warn', title: 'Shopify tracking number differs from the live AWB', why: 'The customer sees the wrong tracking link (usually after a rebook).',
     fixes: ['retrack'] },
   shop_cancelled_db_open: { sev: 'warn', title: 'Cancelled in Shopify, still open here', why: 'The order is cancelled in Shopify but still counts as placed in this dashboard (it may sit in To ship).',
@@ -46,7 +44,7 @@ export const KINDS = {
     fixes: ['dismiss'] },
 };
 export const FIX_LABEL = {
-  stop: 'Cancel pickup & unfulfil', unfulfil: 'Unfulfil in Shopify', fulfil: 'Fulfil in Shopify', import: 'Import booking from Shopify', retrack: 'Update Shopify tracking',
+  stop: 'Cancel pickup & unfulfil', unfulfil: 'Unfulfil in Shopify', fulfil: 'Fulfil in Shopify', retrack: 'Update Shopify tracking',
   sync_cancel: 'Mark cancelled here', cancel_shop: 'Cancel in Shopify', reopen_db: 'Re-open here', reset_shipped: 'Back to To ship', reopen_shop_note: 'Tag for RTO follow-up', dismiss: 'Dismiss',
 };
 
@@ -67,7 +65,7 @@ export async function ordersShipState(env, ids) {
 }
 
 /** Decide the issues for one order from the three views. Pure. */
-export function diagnose(o, ship, shop) {
+export function diagnose(o, ship, shop, { since = 0 } = {}) {
   const issues = [];
   if (!shop) return issues;                                                  // not in Shopify at all: nothing to reconcile
   const push = (kind, extra = {}) => issues.push({ kind, ...extra });
@@ -93,7 +91,7 @@ export function diagnose(o, ship, shop) {
   if (ship && ship.awb && ship.status === 'cancelled' && fulfilled && shop.awbs.includes(String(ship.awb))) push('sr_cancelled_fulfilled');
   if (live && !fulfilled) push('booked_not_fulfilled');
   if (live && fulfilled && !liveAwbInShop) push('awb_mismatch', { shop_awb: shop.awbs.join(', ') });
-  if (!live && fulfilled && !(ship && ship.awb && ship.status === 'cancelled' && shop.awbs.includes(String(ship.awb)))) push('fulfilled_no_booking', { shop_awb: shop.awbs.join(', '), company: shop.fulfilments[0]?.company || '' });
+  if (!live && fulfilled && Number(o.created_at || 0) >= since && !(ship && ship.awb && ship.status === 'cancelled' && shop.awbs.includes(String(ship.awb)))) push('fulfilled_no_booking', { shop_awb: shop.awbs.join(', '), company: shop.fulfilments[0]?.company || '' });
   if (!live && !fulfilled && o.shipped_at) push('shipped_flag_stale');
   return issues;
 }
@@ -114,11 +112,13 @@ export async function audit(env, { days = 45, max = 400, ids = null } = {}) {
   if (!oids.length) return { checked: 0, found: 0, issues: await listIssues(env) };
   const ships = Object.fromEntries((await env.DB.prepare(`SELECT * FROM shipments WHERE order_id IN (${oids.map(() => '?').join(',')})`).bind(...oids).all()).results.map((s) => [String(s.order_id), s]));
   const shop = await ordersShipState(env, oids);
+  /* orders from before the first Shiprocket booking were shipped another way (NimbusPost): a Shopify fulfilment without a booking here is normal for them */
+  const since = Number((await env.DB.prepare('SELECT MIN(created_at) AS t FROM shipments WHERE sr_shipment_id IS NOT NULL').first().catch(() => null))?.t) || 0;
 
   const found = [];
   for (const o of orders) {
     const id = String(o.order_id), s = ships[id] || null, sh = shop[id];
-    for (const is of diagnose(o, s, sh)) {
+    for (const is of diagnose(o, s, sh, { since })) {
       const detail = {
         shopify: sh ? (sh.cancelled ? 'Cancelled' : sh.cancelTag ? `Open · tagged "${sh.cancelTag}"` : 'Open') + ' · ' + (sh.fulfilments.length ? 'Fulfilled' + (sh.awbs.length ? ' (' + sh.awbs.join(', ') + ')' : '') : (sh.status || 'Unfulfilled').toLowerCase().replace(/_/g, ' ')) : 'Not found',
         shiprocket: s && s.awb ? (s.status === 'cancelled' ? 'Booking cancelled' : (s.stage ? s.stage.replace(/_/g, ' ') : 'booked')) + ' · ' + `${s.courier || ''} ${s.awb}`.trim() + (s.cancel_state === 'picked' ? ' · cancelled after pickup' : '') : 'No booking',
@@ -195,24 +195,6 @@ export async function fix(env, { id, fix: what }, deps = {}) {
       const err = await deps.fulfilBooked(env, id);
       if (err) throw new Error(err);
       note = 'Fulfilled in Shopify with AWB ' + (ship?.awb || '') + '.';
-      break;
-    }
-    case 'import': {                                 // Shopify's fulfilment becomes a booking row here, so it is tracked and labelled like the rest
-      const f = shop.fulfilments.find((x) => x.numbers.length);
-      if (!f) throw new Error('The Shopify fulfilment has no tracking number to import');
-      const awb = f.numbers[0], t = now();
-      /* which carrier? Shiprocket knows its own AWBs; anything else (older NimbusPost parcels, by hand) keeps Shopify's own tracking link */
-      let provider = 'other';
-      try { const tr = await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(awb)}`); if (tr?.tracking_data && (tr.tracking_data.track_status || (tr.tracking_data.shipment_track || []).length)) provider = 'shiprocket'; } catch { /* not a Shiprocket AWB */ }
-      if (provider === 'other' && /nimbus/i.test(f.company + ' ' + (f.url || ''))) provider = 'nimbuspost';
-      const trackUrl = provider === 'shiprocket' ? '' : (f.url || (provider === 'nimbuspost' ? `https://ship.nimbuspost.com/tracking/${awb}` : ''));
-      await env.DB.prepare(`INSERT INTO shipments (order_id, order_name, awb, courier, status, provider, track_url, created_at, updated_at) VALUES (?,?,?,?,'booked',?,?,?,?)
-        ON CONFLICT (order_id) DO UPDATE SET awb=EXCLUDED.awb, courier=EXCLUDED.courier, status='booked', provider=EXCLUDED.provider, track_url=EXCLUDED.track_url, cancel_state=NULL, cancel_note=NULL, stage=NULL, sr_status=NULL, tracked_at=NULL, rto=FALSE, updated_at=EXCLUDED.updated_at`)
-        .bind(id, o?.order_name || shop.name, awb, f.company || (provider === 'nimbuspost' ? 'NimbusPost' : 'Courier'), provider, trackUrl || null, t, t).run();
-      await env.DB.prepare('UPDATE orders SET shipped_at=COALESCE(shipped_at, ?), tracking=? WHERE order_id=?').bind(t, `${f.company || 'Shiprocket'} ${awb}`, id).run();
-      const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
-      let stage = ''; try { stage = await refreshShipment(env, rec); } catch { /* tracked on the next cron */ }
-      note = `Imported AWB ${awb}` + (stage ? ` (${stage.replace(/_/g, ' ')}).` : '.');
       break;
     }
     case 'retrack': {
