@@ -11,7 +11,7 @@
 
 import { srTrack, cancelShipment } from './shiprocket.js';
 import { classify } from './wa-ship.js';
-import { addTags, cancelOrder, cancelFulfilmentsFor, ordersCancelState } from './shopify.js';
+import { addTags, cancelOrder, cancelFulfilmentsFor, ordersCancelState, ordersShipState } from './shopify.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 /** Tags other apps / our own flows put on an order the customer cancelled. */
@@ -80,6 +80,25 @@ export async function syncCancelledOrders(env, ids) {
   const gone = ids.filter((id) => { const s = shop[id]; return s && (s.cancelled || s.tags.some((t) => CANCEL_TAG.test(t))); });
   for (const id of gone) await env.DB.prepare("UPDATE orders SET status='cancelled' WHERE order_id=? AND COALESCE(status,'')<>'cancelled'").bind(id).run();
   return gone;
+}
+
+/**
+ * Orders Shopify shows as fulfilled (by another app, by hand, or by a booking whose record here was reset) but that still
+ * count as "to ship" here: mark them shipped with whatever tracking Shopify has. Returns the ids marked.
+ */
+export async function syncFulfilledOrders(env, ids) {
+  ids = [...new Set((ids || []).map(String).filter(Boolean))];
+  if (!ids.length) return [];
+  const shop = await ordersShipState(env, ids), done = [];
+  for (const id of ids) {
+    const s = shop[id];
+    if (!s || s.cancelled || !s.fulfilments.length) continue;
+    const f = s.fulfilments.find((x) => x.numbers.length) || s.fulfilments[0];
+    const tracking = f.numbers.length ? `${f.company || 'Courier'} ${f.numbers[0]}` : 'Fulfilled in Shopify';
+    await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=? AND shipped_at IS NULL').bind(f.at || now(), tracking, id).run();
+    done.push(id);
+  }
+  return done;
 }
 
 /**

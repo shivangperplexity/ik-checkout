@@ -57,6 +57,21 @@ export async function updateTracking(env, fulfillmentId, { company, number, url 
   if (e && e.length) throw new Error('fulfillmentTrackingInfoUpdate: ' + e.map((x) => x.message).join('; '));
 }
 
+/** What Shopify says about many orders' shipping at once (50 per call): cancelled?, fulfilment status, tags, active fulfilments with tracking. */
+export async function ordersShipState(env, ids) {
+  const out = {};
+  for (let i = 0; i < ids.length; i += 50) {
+    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Order { legacyResourceId name cancelledAt displayFulfillmentStatus tags
+      fulfillments(first:10){ id status createdAt trackingInfo{ number company url } } } } }`, { ids: ids.slice(i, i + 50).map((x) => `gid://shopify/Order/${x}`) });
+    for (const n of d.nodes || []) {
+      if (!n || !n.legacyResourceId) continue;
+      const active = (n.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, at: Math.floor(Date.parse(f.createdAt || '') / 1000) || 0, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '', url: f.trackingInfo?.[0]?.url || '' }));
+      out[String(n.legacyResourceId)] = { name: n.name, cancelled: !!n.cancelledAt, status: n.displayFulfillmentStatus || '', tags: n.tags || [], fulfilments: active, awbs: active.flatMap((f) => f.numbers) };
+    }
+  }
+  return out;
+}
+
 /** { <orderId>: { cancelled, tags } } for many orders at once (50 per Shopify call). */
 export async function ordersCancelState(env, ids) {
   const out = {};

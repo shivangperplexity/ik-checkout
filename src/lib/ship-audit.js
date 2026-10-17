@@ -12,8 +12,9 @@
 // admin.js; everything the audit finds beyond those is a decision for the owner.
 
 import { gql } from './shopify.orig.js';
-import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking } from './shopify.js';
-import { stopShipment, CANCEL_TAG } from './ship-cancel.js';
+import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking, ordersShipState } from './shopify.js';
+import { stopShipment } from './ship-cancel.js';
+import { CANCEL_TAG } from './ship-cancel.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const PICKED = ['transit', 'ofd', 'ndr', 'delivered', 'rto', 'lost'];
@@ -48,22 +49,6 @@ export const FIX_LABEL = {
   sync_cancel: 'Mark cancelled here', cancel_shop: 'Cancel in Shopify', reopen_db: 'Re-open here', reset_shipped: 'Back to To ship', reopen_shop_note: 'Tag for RTO follow-up', dismiss: 'Dismiss',
 };
 
-/** What Shopify says about many orders at once (50 per call). */
-export async function ordersShipState(env, ids) {
-  const out = {};
-  for (let i = 0; i < ids.length; i += 50) {
-    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Order { legacyResourceId name cancelledAt displayFulfillmentStatus tags
-      fulfillments(first:10){ id status trackingInfo{ number company url } } } } }`, { ids: ids.slice(i, i + 50).map((x) => `gid://shopify/Order/${x}`) });
-    for (const n of d.nodes || []) {
-      if (!n || !n.legacyResourceId) continue;
-      const active = (n.fulfillments || []).filter((f) => f.status === 'SUCCESS').map((f) => ({ id: f.id, numbers: (f.trackingInfo || []).map((t) => String(t.number || '')).filter(Boolean), company: f.trackingInfo?.[0]?.company || '', url: f.trackingInfo?.[0]?.url || '' }));
-      out[String(n.legacyResourceId)] = { name: n.name, cancelled: !!n.cancelledAt, status: n.displayFulfillmentStatus || '', tags: n.tags || [],
-        cancelTag: (n.tags || []).find((t) => CANCEL_TAG.test(t)) || '', fulfilments: active, awbs: active.flatMap((f) => f.numbers) };
-    }
-  }
-  return out;
-}
-
 /** Decide the issues for one order from the three views. Pure. */
 export function diagnose(o, ship, shop, { since = 0 } = {}) {
   const issues = [];
@@ -73,7 +58,8 @@ export function diagnose(o, ship, shop, { since = 0 } = {}) {
   const live = ship && ship.awb && ship.status !== 'cancelled';
   const stage = live ? (ship.stage || 'pickup_pending') : '';
   const picked = live && (PICKED.includes(stage) || ship.cancel_state === 'picked');
-  const shopCancelled = shop.cancelled || !!shop.cancelTag;
+  const cancelTag = (shop.tags || []).find((t) => CANCEL_TAG.test(t)) || '';
+  const shopCancelled = shop.cancelled || !!cancelTag;
   const fulfilled = shop.fulfilments.length > 0;
   const liveAwbInShop = live && shop.awbs.includes(String(ship.awb));
 
@@ -92,7 +78,7 @@ export function diagnose(o, ship, shop, { since = 0 } = {}) {
   if (live && !fulfilled) push('booked_not_fulfilled');
   if (live && fulfilled && !liveAwbInShop) push('awb_mismatch', { shop_awb: shop.awbs.join(', ') });
   /* shipped outside Shiprocket but recorded here (orders.tracking carries the AWB Shopify shows): not a mismatch */
-  const recorded = !!(o.tracking && shop.awbs.some((a) => String(o.tracking).includes(a)));
+  const recorded = !!(o.tracking && (shop.awbs.some((a) => String(o.tracking).includes(a)) || !shop.awbs.length));
   if (!live && fulfilled && !recorded && Number(o.created_at || 0) >= since && !(ship && ship.awb && ship.status === 'cancelled' && shop.awbs.includes(String(ship.awb)))) push('fulfilled_no_booking', { shop_awb: shop.awbs.join(', '), company: shop.fulfilments[0]?.company || '' });
   if (!live && !fulfilled && o.shipped_at) push('shipped_flag_stale');
   return issues;
@@ -122,7 +108,7 @@ export async function audit(env, { days = 45, max = 400, ids = null } = {}) {
     const id = String(o.order_id), s = ships[id] || null, sh = shop[id];
     for (const is of diagnose(o, s, sh, { since })) {
       const detail = {
-        shopify: sh ? (sh.cancelled ? 'Cancelled' : sh.cancelTag ? `Open · tagged "${sh.cancelTag}"` : 'Open') + ' · ' + (sh.fulfilments.length ? 'Fulfilled' + (sh.awbs.length ? ' (' + sh.awbs.join(', ') + ')' : '') : (sh.status || 'Unfulfilled').toLowerCase().replace(/_/g, ' ')) : 'Not found',
+        shopify: sh ? (sh.cancelled ? 'Cancelled' : sh.tags.some((x) => CANCEL_TAG.test(x)) ? `Open · tagged "${sh.tags.find((x) => CANCEL_TAG.test(x))}"` : 'Open') + ' · ' + (sh.fulfilments.length ? 'Fulfilled' + (sh.awbs.length ? ' (' + sh.awbs.join(', ') + ')' : '') : (sh.status || 'Unfulfilled').toLowerCase().replace(/_/g, ' ')) : 'Not found',
         shiprocket: s && s.awb ? (s.status === 'cancelled' ? 'Booking cancelled' : (s.stage ? s.stage.replace(/_/g, ' ') : 'booked')) + ' · ' + `${s.courier || ''} ${s.awb}`.trim() + (s.cancel_state === 'picked' ? ' · cancelled after pickup' : '') : 'No booking',
         here: (o.status === 'cancelled' ? 'Cancelled' : o.status === 'placed' ? (o.shipped_at ? 'Shipped' : 'To ship') : o.status || '') + (o.method === 'cod' ? ' · COD' : ' · Prepaid'),
         ...is,
@@ -171,6 +157,7 @@ export async function fix(env, { id, fix: what }, deps = {}) {
   const ship = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
   const shop = (await ordersShipState(env, [id]))[id];
   if (!shop) throw new Error('Order not found in Shopify');
+  shop.cancelTag = (shop.tags || []).find((t) => CANCEL_TAG.test(t)) || '';
   let note = '';
   switch (what) {
     case 'stop': {                                   // cancel the Shiprocket pickup (never after pickup) and undo the Shopify fulfilment

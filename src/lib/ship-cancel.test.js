@@ -148,3 +148,18 @@ test('orders cancelled in Shopify or tagged cancelled by another COD app are mar
     assert.deepEqual(st, { 1: 'cancelled', 2: 'cancelled', 3: 'placed', 4: 'cancelled' });
   } finally { globalThis.fetch = real; }
 });
+
+test('orders Shopify shows as fulfilled (another app / by hand) are marked shipped here, with the tracking Shopify has', async () => {
+  const { syncFulfilledOrders } = await import('./ship-cancel.js');
+  const st = { 1: { shipped_at: null, tracking: null }, 2: { shipped_at: null, tracking: null }, 3: { shipped_at: null, tracking: null }, 4: { shipped_at: 5, tracking: 'x' } }, real = globalThis.fetch;
+  const env = { SHOP_DOMAIN: 'x.myshopify.com', SHOPIFY_ADMIN_TOKEN: 't', DB: { prepare: (sql) => ({ bind: (...a) => ({ run: async () => { if (/SET shipped_at=\?, tracking=\?/.test(sql) && st[a[2]].shipped_at == null) { st[a[2]].shipped_at = a[0]; st[a[2]].tracking = a[1]; } return {}; } }) }) } };
+  const shop = { 1: [{ status: 'SUCCESS', createdAt: '2026-10-16T13:22:25Z', trackingInfo: [{ number: '153768760633697', company: 'Xpressbees Surface' }] }], 2: [{ status: 'SUCCESS', createdAt: '2026-10-16T13:22:25Z', trackingInfo: [] }], 3: [], 4: [{ status: 'SUCCESS', createdAt: '2026-10-16T13:22:25Z', trackingInfo: [] }] };
+  globalThis.fetch = async (u, o) => { const v = JSON.parse(o.body).variables; return new Response(JSON.stringify({ data: { nodes: v.ids.map((g) => { const id = g.split('/').pop(); return { legacyResourceId: id, cancelledAt: null, displayFulfillmentStatus: shop[id].length ? 'FULFILLED' : 'UNFULFILLED', tags: [], fulfillments: shop[id] }; }) } })); };
+  try {
+    assert.deepEqual(await syncFulfilledOrders(env, ['1', '2', '3', '4']), ['1', '2', '4']);
+    assert.equal(st[1].tracking, 'Xpressbees Surface 153768760633697'); assert.equal(st[1].shipped_at, Math.floor(Date.parse('2026-10-16T13:22:25Z') / 1000));
+    assert.equal(st[2].tracking, 'Fulfilled in Shopify');
+    assert.equal(st[3].shipped_at, null, 'unfulfilled stays to ship');
+    assert.equal(st[4].tracking, 'x', 'already shipped here: untouched');
+  } finally { globalThis.fetch = real; }
+});
