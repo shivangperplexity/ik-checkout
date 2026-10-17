@@ -175,3 +175,8 @@ test('fix "cancel_shop" refuses while fulfilled; "reopen_db" and "sync_cancel" f
     assert.deepEqual((await listIssues(w.env)).issues.filter((x) => x.order_id === '3'), []);
   } finally { w.done(); }
 });
+
+test('shipped by another carrier and recorded here with that AWB: not a mismatch', () => {
+  assert.deepEqual(kinds(order({ tracking: 'Xpressbees 153768760633697' }), null, fulfilled('153768760633697')), []);
+  assert.deepEqual(kinds(order({ tracking: 'Xpressbees 111' }), null, fulfilled('153768760633697')), ['fulfilled_no_booking']);
+});

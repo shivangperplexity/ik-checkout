@@ -88,3 +88,17 @@ test('already fulfilled with the same AWB: nothing changes in Shopify, just reco
     assert.ok(t.order.shipped_at);
   } finally { t.done(); }
 });
+
+test('"ship" with a number Shopify already carries: recorded here without a new fulfilment', async () => {
+  const { action } = await import('./admin.js');
+  const t = setup((q, reply) => {
+    if (/fulfillmentOrders\(first:10\)/.test(q)) return reply({ data: { order: { fulfillmentOrders: { nodes: [{ id: 'fo1', status: 'CLOSED' }] } } } });
+    if (/fulfillments\(first:10\)\{ id status trackingInfo/.test(q)) return reply({ data: { order: { cancelledAt: null, displayFulfillmentStatus: 'FULFILLED', fulfillments: [{ id: 'gid://shopify/Fulfillment/9', status: 'SUCCESS', trackingInfo: [{ number: 'NB123', company: 'Xpressbees' }] }] } } });
+    return reply({ data: {} });
+  });
+  try {
+    await action('ship')(t.env, { id: '1', company: 'Xpressbees', number: 'NB123', notify: false });
+    assert.ok(t.order.shipped_at);
+    await assert.rejects(action('ship')(t.env, { id: '1', company: 'Xpressbees', number: 'OTHER', notify: false }), /Nothing left to fulfil/);
+  } finally { t.done(); }
+});

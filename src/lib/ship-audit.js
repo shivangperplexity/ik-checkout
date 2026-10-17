@@ -91,7 +91,9 @@ export function diagnose(o, ship, shop, { since = 0 } = {}) {
   if (ship && ship.awb && ship.status === 'cancelled' && fulfilled && shop.awbs.includes(String(ship.awb))) push('sr_cancelled_fulfilled');
   if (live && !fulfilled) push('booked_not_fulfilled');
   if (live && fulfilled && !liveAwbInShop) push('awb_mismatch', { shop_awb: shop.awbs.join(', ') });
-  if (!live && fulfilled && Number(o.created_at || 0) >= since && !(ship && ship.awb && ship.status === 'cancelled' && shop.awbs.includes(String(ship.awb)))) push('fulfilled_no_booking', { shop_awb: shop.awbs.join(', '), company: shop.fulfilments[0]?.company || '' });
+  /* shipped outside Shiprocket but recorded here (orders.tracking carries the AWB Shopify shows): not a mismatch */
+  const recorded = !!(o.tracking && shop.awbs.some((a) => String(o.tracking).includes(a)));
+  if (!live && fulfilled && !recorded && Number(o.created_at || 0) >= since && !(ship && ship.awb && ship.status === 'cancelled' && shop.awbs.includes(String(ship.awb)))) push('fulfilled_no_booking', { shop_awb: shop.awbs.join(', '), company: shop.fulfilments[0]?.company || '' });
   if (!live && !fulfilled && o.shipped_at) push('shipped_flag_stale');
   return issues;
 }

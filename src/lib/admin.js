@@ -10,6 +10,7 @@ import { stopShipment, sweepCancelled, syncCancelledOrders } from './ship-cancel
 import { stageOf, LABEL as STAGE_LABEL, refreshShipment, refreshDue, requestPickup, manifestUrl } from './ship-status.js';
 import { audit as shipAudit, listIssues as shipIssues, fix as shipFix, dismissIssue, KINDS as ISSUE_KINDS, FIX_LABEL } from './ship-audit.js';
 import { orderDetail, shipOrder, searchProducts, addTags, removeTags, cancelOrder, gql } from './shopify.js';
+const shopOrderShip = shipOrder;
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
@@ -445,7 +446,13 @@ const ACTIONS = {
     if (!company || !number) throw new Error('Enter courier name and tracking number');
     const o = await env.DB.prepare('SELECT * FROM orders WHERE order_id=?').bind(String(b.id)).first();
     if (!o) throw new Error('Order not found');
-    await shipOrder(env, b.id, { company, number, url: String(b.url || '').trim(), notify: b.notify !== false });
+    try { await shopOrderShip(env, b.id, { company, number, url: String(b.url || '').trim(), notify: b.notify !== false }); }
+    catch (e) {
+      /* Shopify already shows it shipped with this very number (fulfilled by another app or by hand): just record it here */
+      if (!/Nothing left to fulfil/.test(String(e.message))) throw e;
+      const f = await activeFulfilments(env, String(b.id));
+      if (!f.list.some((x) => x.numbers.includes(number))) throw e;
+    }
     await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=?').bind(now(), `${company} ${number}`, String(b.id)).run();
     const w = await fireTrigger(env, 'order_shipped', { to: o.phone, vars: { name: o.first_name, order: o.order_name, courier: company, tracking: number }, orderName: o.order_name });
     return { ok: true, whatsapp: w };
