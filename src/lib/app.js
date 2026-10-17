@@ -1,5 +1,6 @@
 import { corsHeaders, allowedOrigins, json, cleanPhone, stateCode } from './util.js';
-import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder } from './shopify.js';
+import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
+import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees } from './pricing.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase } from './meta.js';
@@ -46,7 +47,15 @@ async function handleQuote(req, env) {
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
-  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, ...q });
+  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), ...q });
+}
+
+/** Partial COD: does this address / number pay the advance first? The checkout asks once the delivery details are in. */
+async function handleCodCheck(req, env) {
+  const b = await req.json().catch(() => ({}));
+  const total = Math.max(0, Math.round(Number(b.total) || 0));
+  const d = await decide(env, { phone: String(b.phone || ''), pincode: String(b.pincode || ''), address1: String(b.address1 || '').slice(0, 200), address2: String(b.address2 || '').slice(0, 200) }, total);
+  return json({ ok: true, partial: d.partial, mode: d.mode, advance: d.advance, balance: d.balance, hint: d.hint });
 }
 
 async function handleLead(req, env) {
@@ -103,6 +112,7 @@ async function handleOrder(req, env, ctx) {
   if (!(await rateLimit(env, ip, 20))) return json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
   const b = await req.json();
   const method = b.method === 'prepaid' ? 'prepaid' : 'cod';
+  const wantPartial = b.method === 'partial';
   const idem = String(b.idem || '').slice(0, 64);
   if (!idem) return json({ ok: false, error: 'bad request' }, 400);
 
@@ -116,18 +126,30 @@ async function handleOrder(req, env, ctx) {
   const lines = await loadLines(env, raw);
   applyUpsells(env, raw, lines);
   const price = priceCart(lines, method, {});
+  /* Partial COD: the server decides again with the real total; a stale checkout gets told to switch. */
+  let partial = null;
+  if (method === 'cod') {
+    const d = await decide(env, buyer, price.total);
+    if (wantPartial && d.mode === 'off') return json({ ok: false, error: 'Please choose your payment method again.' }, 409);
+    if (wantPartial || d.partial) {
+      if (!wantPartial) return json({ ok: false, partial_required: true, advance: d.advance, balance: d.balance, hint: d.hint, error: `Pay ₹${d.advance / 100} now to confirm Cash on Delivery, the rest on delivery.` });
+      if (price.total <= d.advance) return json({ ok: false, error: 'Please pay online for this order.' }, 409);
+      partial = { advance: d.advance, reasons: d.reasons.length ? d.reasons : ['chosen'] };
+    }
+  }
   const txnid = `IK${Date.now().toString(36)}${rand()}`.toUpperCase();
   const eventId = `ik_${txnid}`;
   const a = b.attribution || {};
   const attributes = [
     { key: 'Checkout', value: 'Ink Kulture custom' },
-    { key: 'Payment choice', value: method === 'cod' ? 'COD' : 'Prepaid' },
-    ...(method === 'prepaid' ? [{ key: 'PayU txn id', value: txnid }] : []),
+    { key: 'Payment choice', value: partial ? `Partial COD (₹${partial.advance / 100} online + rest on delivery)` : method === 'cod' ? 'COD' : 'Prepaid' },
+    ...(method === 'prepaid' || partial ? [{ key: 'PayU txn id', value: txnid }] : []),
+    ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
     ...(buyer.edd ? [{ key: 'Promised delivery', value: buyer.edd }] : []),
     ...(a.sid ? [{ key: 'Session', value: String(a.sid).slice(0, 40) }] : []),
     ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'landing'].filter((k) => a[k]).map((k) => ({ key: k, value: String(a[k]).slice(0, 250) })),
   ];
-  const tags = ['ik-checkout', method, ...(method === 'cod' ? ['cod-unconfirmed'] : [])];
+  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : method === 'cod' ? ['cod-unconfirmed'] : [])];
   const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes });
   if (Math.abs(draft.total - price.total) > 100) {
     console.error('total mismatch', { ours: price.total, shopify: draft.total, draft: draft.id });
@@ -137,8 +159,21 @@ async function handleOrder(req, env, ctx) {
   const contents = lines.map((l) => ({ id: l.variantId.split('/').pop(), quantity: l.qty, item_price: Number(rupees(l.unit)) }));
   const row = {
     sid: String(a.sid || '').slice(0, 40), idem, txnid, eventId, draftId: draft.id, method, total: draft.total, buyer, a, contents,
-    sourceUrl: String(a.landing || env.STORE_URL),
+    sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
   };
+
+  if (partial) {
+    /* Only the advance goes through PayU now; the Shopify order is created when PayU confirms it (completePaid). */
+    await saveOrder(env, row, null, 'pending_payment');
+    const payu = await buildPayuForm(env, {
+      txnid, amount: rupees(partial.advance), productinfo: `Ink Kulture ${draft.name} advance`.slice(0, 100), firstname: buyer.firstName.slice(0, 60),
+      email: buyer.email || `orders+${buyer.phone}@inkkulture.in`, phone: buyer.phone,
+      surl: `${env.WORKER_URL}/api/payu/return`, furl: `${env.WORKER_URL}/api/payu/return`, udf1: draft.id.split('/').pop(),
+    });
+    let upi = null;
+    if (b.upi) { try { upi = await upiIntent(env, payu.fields, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent')); } catch (e) { console.error('upi intent', e); } }
+    return json({ ok: true, method: 'partial', payu, upi, txnid, advance: partial.advance, balance: draft.total - partial.advance });
+  }
 
   if (method === 'prepaid') {
     await saveOrder(env, row, null, 'pending_payment');
@@ -166,17 +201,18 @@ async function handleOrder(req, env, ctx) {
 async function saveOrder(env, r, order, status) {
   if (!env.DB) return;
   await env.DB.prepare(
-    `INSERT INTO orders (idem,txnid,event_id,draft_id,order_id,order_gid,order_name,status_url,method,total_paise,phone,email,first_name,last_name,city,state_code,pincode,fbp,fbc,source_url,contents_json,status,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(idem) DO UPDATE SET txnid=excluded.txnid,event_id=excluded.event_id,draft_id=excluded.draft_id,order_id=excluded.order_id,order_gid=excluded.order_gid,order_name=excluded.order_name,status_url=excluded.status_url,total_paise=excluded.total_paise,status=excluded.status`,
+    `INSERT INTO orders (idem,txnid,event_id,draft_id,order_id,order_gid,order_name,status_url,method,total_paise,phone,email,first_name,last_name,city,state_code,pincode,fbp,fbc,source_url,contents_json,status,created_at,advance_paise,partial_reason)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(idem) DO UPDATE SET txnid=excluded.txnid,event_id=excluded.event_id,draft_id=excluded.draft_id,order_id=excluded.order_id,order_gid=excluded.order_gid,order_name=excluded.order_name,status_url=excluded.status_url,total_paise=excluded.total_paise,status=excluded.status,advance_paise=excluded.advance_paise,partial_reason=excluded.partial_reason`,
   )
-    .bind(r.idem, r.txnid, r.eventId, r.draftId, order?.legacyResourceId || null, order?.id || null, order?.name || null, order?.statusPageUrl || null, r.method, r.total, r.buyer.phone, r.buyer.email, r.buyer.firstName, r.buyer.lastName, r.buyer.city, stateCode(r.buyer.state), r.buyer.pincode, r.a.fbp || null, r.a.fbc || null, r.sourceUrl, JSON.stringify(r.contents), status, now())
+    .bind(r.idem, r.txnid, r.eventId, r.draftId, order?.legacyResourceId || null, order?.id || null, order?.name || null, order?.statusPageUrl || null, r.method, r.total, r.buyer.phone, r.buyer.email, r.buyer.firstName, r.buyer.lastName, r.buyer.city, stateCode(r.buyer.state), r.buyer.pincode, r.a.fbp || null, r.a.fbc || null, r.sourceUrl, JSON.stringify(r.contents), status, now(), r.advance || null, r.partialReason || null)
     .run();
   await env.DB.prepare("UPDATE leads SET status='ordered', updated_at=? WHERE phone=?").bind(now(), r.buyer.phone).run();
   if (r.sid) await env.DB.prepare('UPDATE orders SET sid=? WHERE idem=?').bind(r.sid, r.idem).run();
 }
 
 async function replayResponse(env, p) {
+  if (Number(p.advance_paise) > 0) return p.status === 'placed' ? { ok: true, method: 'partial', orderName: p.order_name, statusUrl: p.status_url, eventId: p.event_id, value: p.total_paise / 100, advance: Number(p.advance_paise), balance: p.total_paise - p.advance_paise } : { ok: false, error: 'This payment attempt is already in progress. Please reload and try again.' };
   if (p.method === 'cod') return { ok: true, method: 'cod', orderName: p.order_name, statusUrl: p.status_url, eventId: p.event_id, value: p.total_paise / 100 };
   return { ok: false, error: 'This payment attempt is already in progress. Please reload and try again.' };
 }
@@ -205,18 +241,26 @@ async function afterCod(env, req, row, order) {
 }
 
 /** Shared by the PayU return and the status poll. `row` is the orders row; returns { ok, order_name, status_url } or { ok:false, why }. */
+/* A partial-COD order is done once it is 'placed' (the courier still collects the rest); a prepaid one once 'paid'. */
+const isPartial = (row) => Number(row.advance_paise) > 0;
+const isDone = (row) => row.status === 'paid' || (isPartial(row) && ['placed', 'cancelled'].includes(row.status) && !!row.order_id);
+/** What PayU must have collected for this row: the advance for partial COD, the whole total for prepaid. */
+const payable = (row) => (isPartial(row) ? Number(row.advance_paise) : Number(row.total_paise));
+const partialBits = (row) => (isPartial(row) ? { partial: true, advance: Number(row.advance_paise), balance: Number(row.total_paise) - Number(row.advance_paise) } : {});
+
 async function completePaid(env, ctx, req, row) {
-  if (row.status === 'paid') return { ok: true, order_name: row.order_name, status_url: row.status_url };
+  if (isDone(row)) return { ok: true, order_name: row.order_name, status_url: row.status_url };
   /* claim atomically so duplicate callbacks (browser, PayU server, poll) can't complete the draft twice */
   const claim = await env.DB.prepare("UPDATE orders SET status='completing' WHERE txnid=? AND status IN ('pending_payment','failed') RETURNING txnid").bind(row.txnid).first();
   if (!claim) {
     for (let i = 0; i < 8; i++) {
       await new Promise((res) => setTimeout(res, 800));
       const cur = await env.DB.prepare('SELECT * FROM orders WHERE txnid=?').bind(row.txnid).first();
-      if (cur && cur.status === 'paid') return { ok: true, order_name: cur.order_name, status_url: cur.status_url };
+      if (cur && isDone(cur)) return { ok: true, order_name: cur.order_name, status_url: cur.status_url };
     }
     return { ok: false, why: 'review' };
   }
+  if (isPartial(row)) return completePartial(env, ctx, req, row);
   try {
     const order = await completeDraft(env, row.draft_id, false);
     await env.DB.prepare("UPDATE orders SET status='paid', order_id=?, order_gid=?, order_name=?, status_url=? WHERE txnid=?").bind(order.legacyResourceId, order.id, order.name, order.statusPageUrl, row.txnid).run();
@@ -234,6 +278,37 @@ async function completePaid(env, ctx, req, row) {
   }
 }
 
+/** Partial COD after PayU confirmed the advance: Shopify order as PARTIALLY_PAID, IK row 'placed' + confirmed. */
+async function completePartial(env, ctx, req, row) {
+  let order, problem = '';
+  try { order = await createPartialOrder(env, { draftId: row.draft_id, advancePaise: Number(row.advance_paise), txnid: row.txnid }); }
+  catch (e) {
+    /* never lose a paid order: fall back to the normal COD completion and flag it for a manual payment entry */
+    problem = String(e.message || e).slice(0, 300);
+    console.error('PARTIAL COD: orderCreate failed, completing the draft as COD instead', row.txnid, problem);
+    try {
+      order = await completeDraft(env, row.draft_id, true);
+      await addTags(env, order.id, ['partial-cod', 'advance-paid-' + Math.round(Number(row.advance_paise) / 100), 'needs-payment-entry']).catch(() => {});
+    } catch (e2) {
+      console.error('PAID ADVANCE BUT ORDER NOT COMPLETED', row.txnid, row.draft_id, e2);
+      await env.DB.prepare("UPDATE orders SET status='paid_needs_attention' WHERE txnid=?").bind(row.txnid).run();
+      return { ok: false, why: 'review' };
+    }
+  }
+  const t = now();
+  await env.DB.prepare("UPDATE orders SET status='placed', confirmed_at=?, order_id=?, order_gid=?, order_name=?, status_url=?, total_paise=COALESCE(?, total_paise), partial_reason=CASE WHEN ?<>'' THEN COALESCE(partial_reason,'') || ' | shopify: ' || ? ELSE partial_reason END WHERE txnid=?")
+    .bind(t, String(order.legacyResourceId), order.id, order.name, order.statusPageUrl, order.total || null, problem, problem, row.txnid).run();
+  const fresh = { ...row, status: 'placed', confirmed_at: t, order_id: String(order.legacyResourceId), order_name: order.name, total_paise: order.total || row.total_paise };
+  const balance = Number(fresh.total_paise) - Number(row.advance_paise);
+  ctx.waitUntil(purchaseEvent(env, fresh, order.name, (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, req.headers.get('User-Agent')).catch((e) => console.error('capi', e)));
+  ctx.waitUntil(Promise.all([
+    markSessionOrdered(env, row.sid, order.name),
+    fireTrigger(env, 'partial_paid', { to: row.phone, vars: { name: row.first_name, order: order.name, total: rupees(row.advance_paise), balance: rupees(balance) }, orderId: String(order.legacyResourceId), orderName: order.name }),
+    afterOrderRisk(env, fresh, order),
+  ]).catch((e) => console.error('post-partial', e)));
+  return { ok: true, order_name: order.name, status_url: order.statusPageUrl };
+}
+
 async function handlePayuReturn(req, env, ctx) {
   const wantJson = new URL(req.url).searchParams.get('json') === '1'; /* in-page (PayU Bolt) flow */
   const form = await req.formData();
@@ -243,10 +318,10 @@ async function handlePayuReturn(req, env, ctx) {
   const row = env.DB && (await env.DB.prepare('SELECT * FROM orders WHERE txnid=?').bind(r.txnid).first());
   if (!row) return fail('failed');
   const ok = (st) => (wantJson
-    ? json({ ok: true, orderName: st.order_name, eventId: row.event_id, value: row.total_paise / 100, statusUrl: st.status_url || '' })
-    : Response.redirect(`${env.STORE_URL}/?ik_paid=1&o=${encodeURIComponent(st.order_name)}&e=${encodeURIComponent(row.event_id)}&v=${row.total_paise / 100}&u=${encodeURIComponent(st.status_url || '')}`, 303));
-  if (row.status === 'paid') return ok(row);
-  if (r.status !== 'success' || r.amount !== rupees(row.total_paise)) {
+    ? json({ ok: true, orderName: st.order_name, eventId: row.event_id, value: row.total_paise / 100, statusUrl: st.status_url || '', ...partialBits(row) })
+    : Response.redirect(`${env.STORE_URL}/?ik_paid=1&o=${encodeURIComponent(st.order_name)}&e=${encodeURIComponent(row.event_id)}&v=${row.total_paise / 100}&u=${encodeURIComponent(st.status_url || '')}${isPartial(row) ? `&pa=${row.advance_paise}&pb=${row.total_paise - row.advance_paise}` : ''}`, 303));
+  if (isDone(row)) return ok(row);
+  if (r.status !== 'success' || r.amount !== rupees(payable(row))) {
     await env.DB.prepare("UPDATE orders SET status='failed' WHERE txnid=? AND status='pending_payment'").bind(r.txnid).run();
     return fail('failed');
   }
@@ -259,12 +334,12 @@ async function handlePayuStatus(req, env, ctx) {
   const b = await req.json().catch(() => ({}));
   const txnid = String(b.txnid || '').slice(0, 40);
   const row = txnid && env.DB && (await env.DB.prepare('SELECT * FROM orders WHERE txnid=?').bind(txnid).first());
-  if (!row || row.method !== 'prepaid') return json({ ok: false, state: 'failed' });
-  const reply = (st) => json({ ok: true, state: 'paid', orderName: st.order_name, eventId: row.event_id, value: row.total_paise / 100, statusUrl: st.status_url || '' });
-  if (row.status === 'paid') return reply(row);
+  if (!row || (row.method !== 'prepaid' && !isPartial(row))) return json({ ok: false, state: 'failed' });
+  const reply = (st) => json({ ok: true, state: 'paid', orderName: st.order_name, eventId: row.event_id, value: row.total_paise / 100, statusUrl: st.status_url || '', ...partialBits(row) });
+  if (isDone(row)) return reply(row);
   const v = await verifyPayment(env, txnid).catch(() => null);
   if (!v || !['success', 'failure', 'failed', 'bounced', 'usercancelled', 'dropped'].includes(v.status)) return json({ ok: true, state: 'pending' });
-  if (v.status !== 'success' || v.amount !== rupees(row.total_paise)) {
+  if (v.status !== 'success' || v.amount !== rupees(payable(row))) {
     await env.DB.prepare("UPDATE orders SET status='failed' WHERE txnid=? AND status='pending_payment'").bind(txnid).run();
     return json({ ok: true, state: 'failed' });
   }
@@ -360,6 +435,7 @@ export async function handle(req, env0, ctx) {
       else if (path === '/api/lead' && req.method === 'POST') res = await handleLead(req, env);
       else if (path === '/api/track' && req.method === 'POST') res = await handleTrack(req, env);
       else if (path === '/api/order' && req.method === 'POST') res = await handleOrder(req, env, ctx);
+      else if (path === '/api/cod-check' && req.method === 'POST') res = await handleCodCheck(req, env);
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
       else if (path.startsWith('/api/pincode/')) res = await handlePincode(path.split('/').pop());
       else if (path === '/api/shipping' && req.method === 'GET') res = await shippingEstimate(req, env);

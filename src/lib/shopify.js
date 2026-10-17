@@ -4,6 +4,7 @@
 import './address-guard.js';
 export * from './shopify.orig.js';
 import { gql } from './shopify.orig.js';
+import { toPaise } from './pricing.js';
 
 const GRAMS = { GRAMS: 1, KILOGRAMS: 1000, OUNCES: 28.3495, POUNDS: 453.592 };
 /** Everything Shiprocket + the package-size engine need from one order. Read live; nothing here is stored. */
@@ -100,4 +101,60 @@ export async function packingItems(env, ids) {
     }
   }
   return out;
+}
+
+/**
+ * Partial COD: turn the checkout's draft into a real order that Shopify shows as PARTIALLY_PAID — the advance as a
+ * successful PayU sale, the rest outstanding (collected by the courier). draftOrderComplete can only leave an order
+ * fully pending or fully paid, and recording part of a payment later (orderCreateManualPayment amount) needs Shopify
+ * Plus, so the order is created with orderCreate from the draft's own lines, discount, shipping, address and tags.
+ * Returns the same shape as completeDraft: { id, name, legacyResourceId, statusPageUrl, total (paise), outstanding (paise) }.
+ */
+export async function createPartialOrder(env, { draftId, advancePaise, txnid }) {
+  const d = await gql(env, `query($id:ID!){ draftOrder(id:$id){ id name email phone note2 tags customAttributes{ key value }
+    shippingAddress{ firstName lastName address1 address2 city provinceCode zip countryCodeV2 phone }
+    appliedDiscount{ title amountSet{ shopMoney{ amount } } }
+    shippingLine{ title originalPriceSet{ shopMoney{ amount } } }
+    lineItems(first:50){ nodes{ quantity title variant{ id } originalUnitPriceSet{ shopMoney{ amount } } } }
+    totalPriceSet{ shopMoney{ amount } } } }`, { id: draftId });
+  const dr = d.draftOrder;
+  if (!dr) throw new Error('draft order not found: ' + draftId);
+  const money = (a) => ({ shopMoney: { amount: String(a), currencyCode: 'INR' } });
+  const a = dr.shippingAddress || {};
+  const addr = { firstName: a.firstName || 'Customer', lastName: a.lastName || '', address1: a.address1 || '', address2: a.address2 || '', city: a.city || '', provinceCode: a.provinceCode || undefined, zip: a.zip || '', countryCode: a.countryCodeV2 || 'IN', phone: a.phone || dr.phone || undefined };
+  const disc = Number(dr.appliedDiscount?.amountSet?.shopMoney?.amount || 0);
+  const advance = (advancePaise / 100).toFixed(2);
+  const order = {
+    lineItems: dr.lineItems.nodes.filter((l) => l.variant?.id).map((l) => ({ variantId: l.variant.id, quantity: l.quantity, priceSet: money(l.originalUnitPriceSet.shopMoney.amount) })),
+    shippingAddress: addr, billingAddress: addr,
+    phone: dr.phone || undefined, email: dr.email || undefined,
+    tags: [...new Set([...(dr.tags || []), 'partial-cod'])],
+    customAttributes: (dr.customAttributes || []).map((x) => ({ key: x.key, value: String(x.value ?? '') })),
+    note: dr.note2 || undefined,
+    shippingLines: dr.shippingLine ? [{ title: dr.shippingLine.title || 'Shipping', priceSet: money(dr.shippingLine.originalPriceSet?.shopMoney?.amount || '0') }] : [],
+    financialStatus: 'PARTIALLY_PAID',
+    transactions: [{ kind: 'SALE', status: 'SUCCESS', gateway: 'PayU (partial COD advance)', authorizationCode: txnid || undefined, amountSet: money(advance) }],
+    currency: 'INR',
+  };
+  if (disc > 0) order.discountCode = { itemFixedDiscountCode: { code: (dr.appliedDiscount.title || 'Offer').slice(0, 60), amountSet: money(disc) } };
+  const nm = [addr.firstName, addr.lastName];
+  const tries = [
+    { ...order, sourceName: 'web', customer: dr.phone ? { toUpsert: { phone: dr.phone, firstName: nm[0], lastName: nm[1] || undefined, email: dr.email || undefined } } : undefined },
+    { ...order },
+  ];
+  let last;
+  for (const input of tries) {
+    try {
+      const r = await gql(env, `mutation($o:OrderCreateOrderInput!,$opt:OrderCreateOptionsInput){ orderCreate(order:$o, options:$opt){
+        order{ id name legacyResourceId statusPageUrl displayFinancialStatus totalPriceSet{ shopMoney{ amount } } totalOutstandingSet{ shopMoney{ amount } } }
+        userErrors{ field message } } }`, { o: input, opt: { inventoryBehaviour: 'DECREMENT_OBEYING_POLICY', sendReceipt: false, sendFulfillmentReceipt: false } });
+      const e = r.orderCreate.userErrors;
+      if (e && e.length) throw new Error('orderCreate: ' + e.map((x) => (x.field ? x.field.join('.') + ': ' : '') + x.message).join('; '));
+      const o = r.orderCreate.order;
+      /* the draft served its purpose (price check); remove it so it doesn't sit in Drafts looking unpaid */
+      gql(env, `mutation($id:ID!){ draftOrderDelete(input:{id:$id}){ deletedId } }`, { id: draftId }).catch(() => {});
+      return { ...o, total: toPaise(o.totalPriceSet.shopMoney.amount), outstanding: toPaise(o.totalOutstandingSet?.shopMoney?.amount || 0), draftTotal: toPaise(dr.totalPriceSet.shopMoney.amount) };
+    } catch (e) { last = e; console.warn('createPartialOrder attempt failed', e.message); }
+  }
+  throw last;
 }

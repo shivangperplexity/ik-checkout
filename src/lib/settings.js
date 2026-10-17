@@ -1,3 +1,4 @@
+import { DEFAULTS as PARTIAL } from './partial-cod.js';
 // Dashboard-editable settings (stored in the settings table) layered over env vars.
 //
 // Variable names matter on the Go4WhatsUp path: they are sent as named key/value pairs and must match the
@@ -13,6 +14,9 @@ export const TRIGGERS = {
   cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm_v2', fallback: 'cod_order_confirm', on: true },
   cod_reminder: { label: 'COD reminder (not confirmed)', to: 'Customer', when: 'COD order still unconfirmed after 20h (checked every cron run)', vars: ['name', 'order', 'total'], buttons: true, def: 'cod_order_reminder', on: false },
   cod_to_prepaid: { label: 'Convert COD to prepaid (discount offer)', to: 'Customer', when: 'COD order still unconfirmed after COD_CONVERT_HOURS (off unless that env var is set)', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay'], media: true, marketing: true, def: 'cod_to_prepaid', on: true },
+  /* Partial COD (lib/partial-cod.js): by default the same approved "payment received" template, with total = the advance.
+     Make a dedicated template (e.g. partial_cod_paid with name, order, total, balance) and select it here to mention the balance. */
+  partial_paid: { label: 'Partial COD advance received', to: 'Customer', when: 'Right after the ₹99 (advance) is paid for a partial COD order', vars: ['name', 'order', 'total'], def: 'order_paid', on: true },
   prepaid_paid: { label: 'Prepaid order confirmed', to: 'Customer', when: 'Right after a successful UPI / card payment', vars: ['name', 'order', 'total'], def: 'order_paid', on: true },
   order_shipped: { label: 'Order shipped', to: 'Customer', when: 'When you mark an order shipped in this dashboard', vars: ['name', 'order', 'courier', 'tracking'], def: 'order_shipped', on: false },
   abandoned_cart: { label: 'Abandoned checkout nudge', to: 'Customer (phone captured, no order)', when: '20 minutes after they left the checkout popup', vars: ['name', 'items', 'link'], media: true, marketing: true, def: 'checkout_reminder_offer', fallback: 'checkout_reminder_commitment', on: false,
@@ -30,7 +34,7 @@ export const TRIGGERS = {
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
 export const VAR_LABELS = { edd: 'Expected delivery date', location: 'Last scan city', track: 'Tracking link', name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
-  confirm: 'One-tap confirm link (automatic)', pay: 'Pay-online link (automatic)', pct: 'Prepaid discount %', newtotal: 'Total if paid online (Rs)', btnurl: 'Confirm link for a Dynamic URL button (automatic)' };
+  confirm: 'One-tap confirm link (automatic)', pay: 'Pay-online link (automatic)', pct: 'Prepaid discount %', newtotal: 'Total if paid online (Rs)', btnurl: 'Confirm link for a Dynamic URL button (automatic)', balance: 'Partial COD: amount to pay on delivery (Rs)' };
 
 const DEFAULTS = {
   wa: { phone_id: '', token: '', waba_id: '', verify_token: '', app_secret: '', admin_phone: '', lang: 'en' },
@@ -45,6 +49,8 @@ const DEFAULTS = {
   profit: { unit_cost: 40, cac: 80 },
   /* WhatsApp assistant (lib/wa-ai.js): answers plain-text customer messages. Provider groq (free) by default; key falls back to GROQ_API_KEY etc. */
   ai: { enabled: false, provider: 'groq', key: '', model: '', knowledge: '', rpm: 20, rpd: 800 },
+  /* Partial COD: ₹99 online now, the rest on delivery (lib/partial-cod.js). mode off = full COD as before. */
+  partial: { ...PARTIAL },
 };
 
 let cache = { at: 0, s: null };
@@ -58,6 +64,7 @@ export async function getSettings(env, fresh) {
   s.shipping = { ...DEFAULTS.shipping, ...(s.shipping || {}) };
   s.profit = { ...DEFAULTS.profit, ...(s.profit || {}) };
   s.ai = { ...DEFAULTS.ai, ...(s.ai || {}) };
+  s.partial = { ...DEFAULTS.partial, ...(s.partial || {}) };
   cache = { at: Date.now(), s };
   return s;
 }

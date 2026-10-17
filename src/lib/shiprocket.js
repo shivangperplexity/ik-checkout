@@ -14,6 +14,7 @@
 // Only the fields documented there are used; replies are read defensively and errors are passed on verbatim.
 
 import { cfg } from './shipping.js';
+import { codDue } from './partial-cod.js';
 import { packCfg, packOrder } from './packing.js';
 import { summarize, PRE } from './sr-scan.js';
 
@@ -171,12 +172,14 @@ export async function planShipment(env, order, row, { pickOption }) {
   const pack = packOrder(order.items, packCfg(s.pack));
   const pin = String(order.address?.zip || row.pincode || '').replace(/\D/g, '').slice(0, 6);
   if (!/^\d{6}$/.test(pin)) throw new Error('This order has no valid PIN code');
-  const cod = row.method === 'cod', amount = Number(row.total_paise) / 100 || 499;
+  /* COD only when something is still to be collected: a COD order paid online later (converted) ships prepaid, and a
+     partial-COD order collects only the balance (total - advance). */
+  const due = codDue(row), cod = due > 0, amount = Number(row.total_paise) / 100 || 499, codAmount = cod ? due / 100 : 0;
   const c = cfg(env);
-  const options = (await srRates(env, { pin, cod, amount, pack })).map((o) => ({ ...o, eddDate: eddOf(o.edd) }));
+  const options = (await srRates(env, { pin, cod, amount: cod ? codAmount : amount, pack })).map((o) => ({ ...o, eddDate: eddOf(o.edd) }));
   options.sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
   const pick = pickOption(options, { policy: c.policy, toleranceDays: c.toleranceDays });
-  return { pack, pin, cod, amount, options, pick };
+  return { pack, pin, cod, amount, codAmount, options, pick };
 }
 function eddOf(edd) {
   const s = String(edd || '').trim(); if (!s) return null;
@@ -227,14 +230,17 @@ export async function bookShipment(env, order, row, { pickOption }) {
       shipping_is_billing: true,
       order_items: srItems(order.items),
       payment_method: plan.cod ? 'COD' : 'Prepaid', shipping_charges: 0, giftwrap_charges: 0, transaction_charges: 0, total_discount: 0,
-      sub_total: Math.round(plan.amount), length: plan.pack.length, breadth: plan.pack.breadth, height: plan.pack.height, weight: plan.pack.weight_kg,
+      /* Shiprocket's order total is what the courier collects on a COD parcel: send the balance for partial COD */
+      sub_total: plan.cod ? Math.round(plan.codAmount) : Math.round(plan.amount), length: plan.pack.length, breadth: plan.pack.breadth, height: plan.pack.height, weight: plan.pack.weight_kg,
     };
     if (!body.billing_email) throw new Error('This order has no email. Set a fallback email in Settings, Shipping carriers, so Shiprocket can accept it.');
     if (!body.billing_phone || !body.billing_address || !body.billing_city || !body.billing_state) throw new Error('The order address is incomplete (name, address, city, state and phone are needed).');
     const j = await sr(env, 'POST', 'orders/create/adhoc', body);
     if (!j.shipment_id) throw new Error('Shiprocket did not create the order: ' + (j.message || JSON.stringify(j).slice(0, 200)));
-    await save({ sr_order_id: String(j.order_id), sr_shipment_id: String(j.shipment_id) });
+    await save({ sr_order_id: String(j.order_id), sr_shipment_id: String(j.shipment_id), cod_paise: plan.cod ? Math.round(plan.codAmount) * 100 : 0 });
     rec.sr_order_id = String(j.order_id); rec.sr_shipment_id = String(j.shipment_id);
+    /* read back what Shiprocket will collect, so a wrong COD amount shows up in reconciliation straight away */
+    try { const st = await srOrderAmount(env, rec.sr_order_id); if (st) await save({ sr_total_paise: st.cod ? Math.round(st.total * 100) : 0 }); } catch { /* checked again by the audit */ }
   }
 
   /* 2. AWB with the cheapest courier */
@@ -253,6 +259,17 @@ export async function bookShipment(env, order, row, { pickOption }) {
   await save({ pickup: pickupNote, label_url: label });
   rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
   return { ok: true, shipment: publicRec(rec), pack: plan.pack };
+}
+
+/** What Shiprocket has on its order: { total (₹), cod (bool) } — the total is the amount a COD courier collects. */
+export async function srOrderAmount(env, srOrderId) {
+  if (!srOrderId) return null;
+  const j = await sr(env, 'GET', `orders/show/${encodeURIComponent(srOrderId)}`);
+  const d = j?.data || j || {};
+  const total = Number(d.total ?? d.net_total ?? d.order_total ?? d.sub_total);
+  if (!Number.isFinite(total)) return null;
+  const pm = String(d.payment_method || d.payment_mode || '').toLowerCase();
+  return { total, cod: pm ? pm === 'cod' : Number(d.cod) === 1 };
 }
 
 export function publicRec(r) {

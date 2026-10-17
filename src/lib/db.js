@@ -75,6 +75,12 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_txnid TEXT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS converted_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_paise BIGINT`,
+  /* Partial COD (lib/partial-cod.js): advance paid online; the courier collects total_paise - advance_paise */
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS advance_paise BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS partial_reason TEXT`,
+  /* COD amount we told Shiprocket to collect at booking, and the order total Shiprocket itself shows (reconciliation) */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS cod_paise BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sr_total_paise BIGINT`,
 ];
 
 let ready;

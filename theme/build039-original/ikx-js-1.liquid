@@ -1,0 +1,187 @@
+/* ik-express.js part 1 of 5 (rendered inline by snippets/ik-checkout.liquid) */
+/* IK Express — cart + checkout in one sheet (design Flow 11: Express drawer + swipe to pay).
+   Built on the IK checkout API (same /api/quote, /api/order, PayU Bolt and UPI-intent flows as ik-checkout.js).
+   - A sticky "View cart" pill replaces the Horizon cart drawer; tapping it opens one bottom sheet:
+     Buy 1 Get 1 progress → items (qty steppers) → free pick rail → delivery details → pay tiles → slide to pay.
+   - Every checkout button (cart page, drawer, buy-it-now) also opens the sheet, scrolled to delivery.
+   Fail-safe: if the API is unreachable the sheet still shows the cart and offers Shopify's normal /checkout.
+   Escape hatch for testing: add ?ik_native=1 to any URL. */
+(function () {
+  'use strict';
+  if (window.__ikCheckout) return;
+  window.__ikCheckout = true;
+
+  var script = document.currentScript || document.querySelector('script[data-ikx]');
+  var API = ((script && script.getAttribute('data-api')) || '').replace(/\/$/, '');
+  var TEMPLATE = (script && script.getAttribute('data-template')) || '';
+  var qs = new URLSearchParams(location.search);
+  if (!API) return;
+  /* A/B split against Shopify's own checkout, by session: AB_SHOPIFY_PCT = 50 sends half of all sessions to
+     Shopify checkout (same session always gets the same arm). 0 = everyone gets IK Express. ?ik_native=1 /
+     ?ik_native=0 force an arm for testing. The arm is stored in sessionStorage so Shopify's "reached checkout"
+     + orders can be compared per arm in your dashboard (sent with every /api/track as `arm`). */
+  var AB_SHOPIFY_PCT = 0;
+  var ARM = (function () {
+    try {
+      if (qs.get('ik_native') === '1') { sessionStorage.setItem('ikx_arm', 'shopify'); return 'shopify'; }
+      if (qs.get('ik_native') === '0') { sessionStorage.setItem('ikx_arm', 'ik'); return 'ik'; }
+      var a = sessionStorage.getItem('ikx_arm');
+      if (a) return a;
+      a = Math.random() * 100 < AB_SHOPIFY_PCT ? 'shopify' : 'ik';
+      sessionStorage.setItem('ikx_arm', a); return a;
+    } catch (e) { return 'ik'; }
+  })();
+  if (ARM === 'shopify') return;
+
+  /* After an add-to-cart: false = show the pill (Flow 11), true = open the sheet like the old drawer did. */
+  var AUTO_OPEN_ON_ADD = true; /* Build 036: open the sheet on add, as Shopify's cart drawer does */
+  var TATTOO = 'Semi-Permanent Tattoo';
+  var R = (window.Shopify && Shopify.routes && Shopify.routes.root) || '/';
+  var STATES = ['Andaman and Nicobar Islands','Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chandigarh','Chhattisgarh','Dadra and Nagar Haveli and Daman and Diu','Delhi','Goa','Gujarat','Haryana','Himachal Pradesh','Jammu and Kashmir','Jharkhand','Karnataka','Kerala','Ladakh','Lakshadweep','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Puducherry','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal'];
+  var CHECKOUT_SEL = ['[data-ikb-pay]', 'button[name="checkout"]', 'input[name="checkout"]', '#CartDrawer-Checkout', '.cart__checkout-button', 'a[href="/checkout"]', 'a[href^="/checkout?"]', '.shopify-payment-button__button', 'button[name="buy"]'].join(',');
+  var CART_SEL = ['[on\\:click="#cart-drawer/open"]', 'a[href="/cart"]', 'a[href$="/cart"]', '.header-actions__cart-icon'].join(',');
+  var PICKS = [];
+  try { PICKS = JSON.parse((document.getElementById('ikx-picks') || {}).textContent || '[]'); } catch (e) {}
+
+  /* ---------- helpers ---------- */
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+  function el(tag, attrs, html) { var e = document.createElement(tag); for (var k in attrs || {}) e.setAttribute(k, attrs[k]); if (html != null) e.innerHTML = html; return e; }
+  function money(p) { var r = Math.round(p) / 100; return '₹' + (r % 1 ? r.toFixed(2) : r.toLocaleString('en-IN')); }
+  function cookie(n) { var m = document.cookie.match('(?:^|; )' + n + '=([^;]*)'); return m ? decodeURIComponent(m[1]) : ''; }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function img(u, w) { if (!u) return ''; return u + (u.indexOf('?') > -1 ? '&' : '?') + 'width=' + (w || 160); }
+  function uuid() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  function native() { location.href = R + 'checkout'; }
+  function api(path, body, method) {
+    return fetch(API + path, { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, keepalive: true }).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
+  }
+  function track(name, data, eventId) { try { if (window.fbq) fbq('track', name, data || {}, eventId ? { eventID: eventId } : undefined); } catch (e) {} }
+  var ICON = {
+    close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
+    down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+    dbl: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l6 6-6 6M12 6l6 6-6 6"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>',
+    pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+    gift: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="9" width="16" height="11" rx="1"/><path d="M4 13h16M12 9v11"/><path d="M12 9c-2-4-6-3-5 0M12 9c2-4 6-3 5 0"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    truck: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7"/><circle cx="7" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/></svg>'
+  };
+
+  /* ---------- attribution (kept for the whole session) ---------- */
+  var attribution = (function () {
+    var a = {}; try { a = JSON.parse(sessionStorage.getItem('ik_attr') || '{}'); } catch (e) {}
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid'].forEach(function (k) { if (qs.get(k) && !a[k]) a[k] = qs.get(k); });
+    if (!a.landing) a.landing = location.href.split('#')[0];
+    try { sessionStorage.setItem('ik_attr', JSON.stringify(a)); } catch (e) {}
+    return a;
+  })();
+  var SID = (function () {
+    try { var s = sessionStorage.getItem('ik_sid'); if (!s) { s = uuid().replace(/-/g, ''); sessionStorage.setItem('ik_sid', s); } return s; } catch (e) { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  })();
+  function attrNow() {
+    var a = {}; for (var k in attribution) a[k] = attribution[k];
+    a.sid = SID; a.fbp = cookie('_fbp');
+    a.fbc = cookie('_fbc') || (attribution.fbclid ? 'fb.1.' + Date.now() + '.' + attribution.fbclid : '');
+    return a;
+  }
+
+  /* ---------- live tracking for the admin dashboard (same events as ik-checkout.js) ---------- */
+  var IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  var DEVICE = IS_MOBILE ? 'mobile' : 'desktop';
+  var sentStep = {};
+  function tk(type, extra) {
+    try {
+      var p = { sid: SID, type: type, device: DEVICE, utm: attribution, page: location.pathname, arm: ARM };
+      for (var k in extra || {}) p[k] = extra[k];
+      var f = form();
+      if (f && !p.phone) { var fd = formData(); if (/^[6-9]\d{9}$/.test(fd.phone)) { p.phone = fd.phone; p.name = fd.name; } }
+      fetch(API + '/api/track', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(p), keepalive: true }).catch(function () {});
+    } catch (e) {}
+  }
+  function tkOnce(type, extra) { if (sentStep[type]) return; sentStep[type] = 1; tk(type, extra); }
+
+  /* ---------- cart state ---------- */
+  var CART = null, lastAddAt = 0, cartT = null, ownUntil = 0;
+  function getCart() {
+    return fetch(R + 'cart.js', { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); }).then(function (c) { if (!pending) CART = c; paintPill(); return c; });
+  }
+  function cartChanged() {
+    clearTimeout(cartT);
+    cartT = setTimeout(function () {
+      getCart().then(function (c) {
+        if (c.item_count > 0) { tk('cart', { cart: c.items.map(function (i) { return { t: i.product_title, q: i.quantity, p: i.final_price }; }) }); prefetch(c); }
+        if (isOpen() && !state.busy && !state.done && Date.now() > ownUntil) render(c);
+      }).catch(function () {});
+    }, 300);
+  }
+  var _fetch = window.fetch;
+  window.fetch = function (u) {
+    var url = typeof u === 'string' ? u : (u && u.url) || '';
+    var r = _fetch.apply(this, arguments);
+    try {
+      if (/\/cart\/add/.test(url)) lastAddAt = Date.now();
+      if (/\/cart\/(add|change|update|clear)/.test(url)) r.then(function () { if (/\/cart\/add/.test(url)) lastAddAt = Date.now(); cartChanged(); }, function () {});
+    } catch (e) {}
+    return r;
+  };
+  setInterval(function () { if (CART && CART.item_count && !document.hidden) tk('ping'); }, 25000);
+
+  /* ---------- speed: quote cache, local estimate, prefetch ----------
+     The sheet paints instantly from the cart the page already has and a local price estimate using the API's rules
+     (Buy 1 Get 1 on the cheapest half of tattoo units, 10% prepaid off, no fees). The server quote replaces it a moment
+     later, and the slider only unlocks once the server price is in. Quotes are prefetched on page load and after every
+     cart change, so opening the sheet normally needs no wait at all. */
+  function linesOf(c) { return c.items.map(function (i) { return { variant_id: i.variant_id, quantity: i.quantity }; }); }
+  function sigOf(lines) { return lines.map(function (l) { return l.variant_id + 'x' + l.quantity + (l.upsell ? 'u' : ''); }).sort().join(','); }
+  var QC = {};
+  try { QC = JSON.parse(sessionStorage.getItem('ikx_qc') || '{}') || {}; } catch (e) { QC = {}; }
+  function saveQC() {
+    try { var keep = {}; Object.keys(QC).filter(function (k) { return QC[k].q; }).slice(-8).forEach(function (k) { keep[k] = { q: QC[k].q, t: QC[k].t }; }); sessionStorage.setItem('ikx_qc', JSON.stringify(keep)); } catch (e) {}
+  }
+  function cachedQuote(lines) { var h = QC[sigOf(lines)]; return h && h.q && Date.now() - h.t < 600000 ? h.q : null; }
+  function fetchQuote(lines) {
+    var sig = sigOf(lines), hit = QC[sig];
+    if (hit && hit.q && Date.now() - hit.t < 600000) return Promise.resolve(hit.q);
+    if (hit && hit.p) return hit.p;
+    var p = api('/api/quote', { lines: lines }).then(function (q) {
+      if (!q.ok) throw new Error('quote failed');
+      QC[sig] = { q: q, t: Date.now() }; saveQC(); return q;
+    }).catch(function (e) { delete QC[sig]; throw e; });
+    QC[sig] = { p: p };
+    return p;
+  }
+  function prefetch(c) { if (c && c.item_count) fetchQuote(linesOf(c).concat(state.lines.filter(function (l) { return l.upsell; }))).catch(function () {}); }
+  function estimate(c) {
+    var sub = 0, units = [];
+    c.items.forEach(function (i) { sub += i.original_price * i.quantity; if (i.product_type === TATTOO) for (var k = 0; k < i.quantity; k++) units.push(i.original_price); });
+    units.sort(function (a, b) { return a - b; });
+    var bogoAmt = units.slice(0, Math.floor(units.length / 2)).reduce(function (s, v) { return s + v; }, 0), after = sub - bogoAmt;
+    var pre = Math.round(after * 10 / 10000) * 100;
+    function m(p) { return { subtotal: sub, bogo: bogoAmt, prepaid: p, upsell: 0, shipping: 0, cod: 0, total: after - p, afterBogo: after }; }
+    return { ok: true, estimate: true, cod: m(0), prepaid: m(pre), lines: [], upsells: state.ups || [] };
+  }
+  function recount(c) {
+    c.item_count = c.items.reduce(function (s, i) { return s + i.quantity; }, 0);
+    c.total_price = estimate(c).cod.total;
+  }
+
+  /* Which cart units are free under Buy 1 Get 1 (cheapest floor(n/2) tattoo units), same rule as the API. */
+  function bogo(items) {
+    var units = [];
+    items.forEach(function (it, idx) { if (it.product_type === TATTOO) for (var i = 0; i < it.quantity; i++) units.push({ idx: idx, p: it.original_price }); });
+    units.sort(function (a, b) { return a.p - b.p; });
+    var n = Math.floor(units.length / 2), map = {};
+    for (var i = 0; i < n; i++) map[units[i].idx] = (map[units[i].idx] || 0) + 1;
+    return { map: map, count: units.length, free: n, odd: units.length % 2 === 1, max: units.length ? units[units.length - 1].p : 0 };
+  }
+
+  /* ---------- sticky cart pill ---------- */
+  var pill = null;
+  function paintPill() {
+    if (TEMPLATE === 'cart') return;
+    if (!pill) {
+      pill = el('button', { type: 'button', class: 'ikx-pill', hidden: '' });
+/* end of part 1 */

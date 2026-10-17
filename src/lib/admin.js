@@ -14,6 +14,7 @@ const shopOrderShip = shipOrder;
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
+import { codDue, cfg as partialCfg, decide as partialDecide, riskyPins, reasonText as partialReason, DEFAULTS as PARTIAL_DEFAULTS } from './partial-cod.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const digits = (x) => String(x || '').replace(/\D/g, '');
@@ -94,7 +95,10 @@ export function scoreOrder(o, all) {
   const total = (o.total_paise || 0) / 100;
   const others = all.filter((x) => x.phone === o.phone && x.txnid !== o.txnid);
   const before = others.filter((x) => x.created_at < o.created_at);
-  if (o.method === 'cod') {
+  if (o.method === 'cod' && Number(o.advance_paise) > 0) {
+    add(6, `Partial COD: ₹${Number(o.advance_paise) / 100} paid online, rest on delivery`);
+    if (o.confirmed_at) add(-12, 'Advance paid (counts as confirmed)');
+  } else if (o.method === 'cod') {
     add(18, 'Cash on delivery');
     if (total > 3000) add(20, 'High COD value (over Rs 3,000)'); else if (total > 1500) add(10, 'COD value over Rs 1,500');
     if (!o.email) add(4, 'No email given');
@@ -133,6 +137,7 @@ function orderOut(o, all) {
     id: o.order_id, name: o.order_name, txnid: o.txnid, method: o.method, status: o.status, total: num(o.total_paise) / 100, phone: o.phone, customer: `${o.first_name || ''} ${o.last_name || ''}`.trim(),
     city: o.city, pincode: o.pincode, state: o.state_code, created_at: num(o.created_at), confirmed_at: num(o.confirmed_at) || null, shipped_at: num(o.shipped_at) || null, packed_at: num(o.packed_at) || null, tracking: o.tracking || '',
     risk: r.score, level: r.level,
+    advance: num(o.advance_paise) / 100, cod_due: codDue(o) / 100,
   };
 }
 
@@ -479,18 +484,52 @@ const ACTIONS = {
     await putSetting(env, 'profit', { unit_cost, cac });
     return { ok: true };
   },
+  /** Partial COD settings (lib/partial-cod.js). */
+  async save_partial(env, b) {
+    const c = { ...PARTIAL_DEFAULTS };
+    if (!['off', 'test', 'risky', 'all'].includes(b.mode)) throw new Error('Pick a mode');
+    c.mode = b.mode;
+    c.advance = Math.round(Number(b.advance));
+    if (!(c.advance >= 1 && c.advance <= 2000)) throw new Error('Advance must be between ₹1 and ₹2,000');
+    c.test_phones = String(b.test_phones || '').split(/[\s,;]+/).map((x) => x.replace(/\D/g, '').slice(-10)).filter((x) => /^[6-9]\d{9}$/.test(x)).join(', ');
+    if (c.mode === 'test' && !c.test_phones) throw new Error('Add at least one test mobile number');
+    for (const k of ['vague_address', 'rto_pin', 'history']) c[k] = !!b[k];
+    c.high_value = Math.max(0, Math.round(Number(b.high_value) || 0));
+    c.pins = String(b.pins || '').split(/[\s,;]+/).map((x) => x.replace(/\D/g, '')).filter((x) => x.length >= 1 && x.length <= 6).join(', ');
+    c.rto_rate = Math.max(1, Math.min(100, Math.round(Number(b.rto_rate) || 35)));
+    c.rto_min = Math.max(1, Math.min(50, Math.round(Number(b.rto_min) || 2)));
+    await putSetting(env, 'partial', c);
+    return { ok: true, partial: c };
+  },
+  /** Try the rules on an address before switching them on: { phone, pincode, address1, address2, total (₹) }. */
+  async partial_check(env, b) {
+    const fresh = await withSettingsFresh(env);
+    if (b.draft) fresh.SETTINGS = { ...fresh.SETTINGS, partial: { ...fresh.SETTINGS.partial, ...b.draft } };
+    const total = Math.round((Number(b.total) || 499) * 100);
+    const d = await partialDecide(fresh, { phone: cleanPhone(b.phone) || '', pincode: String(b.pincode || ''), address1: String(b.address1 || ''), address2: String(b.address2 || '') }, total);
+    return { ok: true, ...d, advance: d.advance / 100, balance: d.balance / 100, reasons: d.reasons.map((r) => ({ key: r, text: partialReason(r) + (r.includes(':') ? ' (' + r.split(':').slice(1).join(':').replace(/_/g, ' ') + ')' : '') })) };
+  },
+  /** PIN codes with returns over the last 180 days, worst first, and whether the current threshold flags them. */
+  async partial_pins(env) {
+    const fresh = await withSettingsFresh(env);
+    const c = partialCfg(fresh);
+    const pins = await riskyPins(fresh, c);
+    const stats = (await env.DB.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN COALESCE(advance_paise,0)>0 THEN 1 ELSE 0 END) AS p FROM orders WHERE method='cod' AND created_at>? AND status NOT IN ('pending_payment','failed','completing')").bind(now() - 30 * 86400).first()) || {};
+    const pend = (await env.DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE COALESCE(advance_paise,0)>0 AND status IN ('pending_payment','failed') AND created_at>?").bind(now() - 30 * 86400).first()) || {};
+    return { ok: true, pins, rto_rate: c.rto_rate, rto_min: c.rto_min, last30: { cod: num(stats.n), partial: num(stats.p), dropped: num(pend.n) } };
+  },
   /** Packing screen: what goes in each parcel (design image, size, SKU, quantity) and the envelope / roll it needs. */
   async pack_list(env, b) {
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 150);
     if (!ids.length) throw new Error('Select at least one order');
-    const [items, rows, fresh, booked] = await Promise.all([packingItems(env, ids), env.DB.prepare(`SELECT order_id, method, packed_at, pincode, city FROM orders WHERE order_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all().then((r) => r.results), withSettingsFresh(env), bookedMap(env).catch(() => ({}))]);
+    const [items, rows, fresh, booked] = await Promise.all([packingItems(env, ids), env.DB.prepare(`SELECT order_id, method, packed_at, pincode, city, total_paise, advance_paise, converted_at, status FROM orders WHERE order_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all().then((r) => r.results), withSettingsFresh(env), bookedMap(env).catch(() => ({}))]);
     const cfg = packCfg(fresh.SETTINGS?.shipping?.pack);
     return { ok: true, orders: ids.map((id) => {
       const it = items[id], o = rows.find((r) => String(r.order_id) === id) || {};
       if (!it) return { id, missing: true };
       let parcel = ''; try { parcel = packOrder(it.items, cfg).label; } catch { parcel = ''; }
       const s = booked[id] || null;
-      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: o.method === 'cod', packed_at: num(o.packed_at) || null, parcel, awb: s ? s.awb : '', courier: s ? s.courier : '',
+      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: codDue(o) > 0, advance: num(o.advance_paise) / 100, packed_at: num(o.packed_at) || null, parcel, awb: s ? s.awb : '', courier: s ? s.courier : '',
         items: it.items.map((x) => ({ title: x.title, qty: x.quantity, size: x.variantTitle, sku: x.sku, image: x.image })) };
     }) };
   },
@@ -561,6 +600,7 @@ const ACTIONS = {
     return {
       cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
+      partial: partialCfg({ SETTINGS: s }),
       ai: await (async () => { const { PROVIDERS, aiCfg, DEFAULT_KNOWLEDGE } = await import('./wa-ai.js'); const c = aiCfg({ ...env, SETTINGS: s }); return { enabled: !!s.ai.enabled, provider: c.provider, key: mask(s.ai.key), has_key: !!c.key, model: c.model, rpm: Number(s.ai.rpm) || 20, rpd: Number(s.ai.rpd) || 800, knowledge: s.ai.knowledge || '', default_knowledge: DEFAULT_KNOWLEDGE, providers: Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, model: v.model, keyUrl: v.keyUrl, free: v.free }])) }; })(),
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
@@ -661,7 +701,7 @@ const ACTIONS = {
           ORDER BY COALESCE(tracked_at,0) LIMIT 24`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
       if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
     } catch (e) { console.error('ship first check', e); }
-    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json
+    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json, o.advance_paise, o.converted_at, o.status AS order_status
         FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id
         WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
@@ -670,7 +710,8 @@ const ACTIONS = {
       const stage = r.status === 'cancelled' ? 'cancelled' : (r.stage || (['delivered', 'rto'].includes(legacy) ? legacy : 'pickup_pending'));
       return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '', ndr_choice: r.ndr_choice || '', ndr_date: r.ndr_date || '', total_paise: num(r.total_paise), contents_json: r.contents_json || '',
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
-        cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
+        cod: codDue({ ...r, status: r.order_status }) > 0, cod_due: codDue({ ...r, status: r.order_status }) / 100, advance: num(r.advance_paise) / 100, total: num(r.total_paise) / 100,
+        cod_mismatch: r.cod_paise != null && r.sr_total_paise != null && Math.abs(num(r.cod_paise) - num(r.sr_total_paise)) > 100 ? { ours: num(r.cod_paise) / 100, shiprocket: num(r.sr_total_paise) / 100 } : null, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
         picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null };
     });
     const inRange = all.filter((x) => x.booked_at >= from && x.booked_at < to);
@@ -690,7 +731,8 @@ const ACTIONS = {
     const units = (x) => { try { return Math.max(1, JSON.parse(x.contents_json || '[]').reduce((a, c) => a + (Number(c.quantity) || 0), 0)); } catch { return 1; } };
     const profit = liveR.reduce((a, x) => a + (x.total_paise / 100 - units(x) * num(pf.unit_cost) - num(pf.cac) - x.charge), 0);
     const profitDelivered = liveR.filter((x) => x.stage === 'delivered').reduce((a, x) => a + (x.total_paise / 100 - units(x) * num(pf.unit_cost) - num(pf.cac) - x.charge), 0);
-    const rtoLoss = rto.reduce((a, x) => a + units(x) * 0 + num(pf.cac) + x.charge, 0);
+    /* an RTO loses the CAC and the courier charge; a partial-COD advance stays with us and offsets it */
+    const rtoLoss = rto.reduce((a, x) => a + num(pf.cac) + x.charge - (x.advance || 0), 0);
     let wallet = null, walletErr = '';
     try { wallet = await srWallet(await withSettingsFresh(env), !!b.fresh_wallet); } catch (e) { walletErr = String(e.message || e).slice(0, 120); }
     const pubList = list.slice(0, 500).map(({ contents_json, total_paise, ...x }) => x);

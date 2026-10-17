@@ -15,6 +15,7 @@ import { gql } from './shopify.orig.js';
 import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking, ordersShipState } from './shopify.js';
 import { stopShipment } from './ship-cancel.js';
 import { CANCEL_TAG } from './ship-cancel.js';
+import { codDue } from './partial-cod.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const PICKED = ['transit', 'ofd', 'ndr', 'delivered', 'rto', 'lost'];
@@ -41,12 +42,18 @@ export const KINDS = {
     fixes: ['cancel_shop', 'reopen_db'] },
   shipped_flag_stale: { sev: 'info', title: 'Marked shipped here, but nothing is shipped', why: 'shipped_at is set but Shopify has no active fulfilment and there is no live booking, so the order hides from To ship.',
     fixes: ['reset_shipped'] },
+  cod_amount_mismatch: { sev: 'bad', title: 'Courier will collect the wrong COD amount', why: 'The amount on the Shiprocket booking is not what the customer still owes (partial COD advance, or an order paid online after booking). Cancel the booking and book it again from Orders so the new label carries the right amount.',
+    fixes: ['recheck_cod', 'stop'] },
+  partial_refund_due: { sev: 'warn', title: 'Cancelled partial-COD order: advance to refund', why: 'The customer paid the advance online and the order is cancelled before delivery. Refund it in PayU (or keep it if your policy says so), then dismiss.',
+    fixes: ['dismiss'] },
+  partial_payment_missing: { sev: 'info', title: 'Partial COD: Shopify does not show the advance', why: 'The advance was paid on PayU, but Shopify could not record it, so the whole total shows as pending there. The courier still collects only the balance. Nothing to do unless you reconcile payouts from Shopify.',
+    fixes: ['dismiss'] },
   cancelled_delivered: { sev: 'info', title: 'Cancelled, but the parcel was delivered', why: 'The customer has the parcel although the order is cancelled. Decide whether to collect payment / re-open it in Shopify by hand.',
     fixes: ['dismiss'] },
 };
 export const FIX_LABEL = {
   stop: 'Cancel pickup & unfulfil', unfulfil: 'Unfulfil in Shopify', fulfil: 'Fulfil in Shopify', retrack: 'Update Shopify tracking',
-  sync_cancel: 'Mark cancelled here', cancel_shop: 'Cancel in Shopify', reopen_db: 'Re-open here', reset_shipped: 'Back to To ship', reopen_shop_note: 'Tag for RTO follow-up', dismiss: 'Dismiss',
+  sync_cancel: 'Mark cancelled here', cancel_shop: 'Cancel in Shopify', reopen_db: 'Re-open here', reset_shipped: 'Back to To ship', reopen_shop_note: 'Tag for RTO follow-up', dismiss: 'Dismiss', recheck_cod: 'Re-check Shiprocket amount',
 };
 
 /** Decide the issues for one order from the three views. Pure. */
@@ -63,6 +70,9 @@ export function diagnose(o, ship, shop, { since = 0 } = {}) {
   const fulfilled = shop.fulfilments.length > 0;
   const liveAwbInShop = live && shop.awbs.includes(String(ship.awb));
 
+  const advance = Number(o.advance_paise) || 0;
+  if (advance > 0 && (shopCancelled || dbCancelled) && stage !== 'delivered' && o.order_id) push('partial_refund_due', { advance: advance / 100, txnid: o.txnid || '' });
+  if (advance > 0 && (shop.tags || []).includes('needs-payment-entry') && !shopCancelled) push('partial_payment_missing', { advance: advance / 100, txnid: o.txnid || '' });
   if (shopCancelled) {
     if (live && stage === 'delivered') push('cancelled_delivered');
     else if (live && picked) push('cancelled_after_pickup');
@@ -76,6 +86,8 @@ export function diagnose(o, ship, shop, { since = 0 } = {}) {
   /* open everywhere: do the shipping records agree? */
   if (ship && ship.awb && ship.status === 'cancelled' && fulfilled && shop.awbs.includes(String(ship.awb))) push('sr_cancelled_fulfilled');
   if (live && !fulfilled) push('booked_not_fulfilled');
+  /* what the courier collects (Shiprocket's order total on a COD booking, 0 when prepaid) vs what the customer still owes */
+  if (live && !picked && ship.sr_total_paise != null && Math.abs(Number(ship.sr_total_paise) - codDue(o)) > 100) push('cod_amount_mismatch', { shiprocket_cod: Number(ship.sr_total_paise) / 100, owed: codDue(o) / 100 });
   if (live && fulfilled && !liveAwbInShop) push('awb_mismatch', { shop_awb: shop.awbs.join(', ') });
   /* shipped outside Shiprocket but recorded here (orders.tracking carries the AWB Shopify shows): not a mismatch */
   const recorded = !!(o.tracking && (shop.awbs.some((a) => String(o.tracking).includes(a)) || !shop.awbs.length));
@@ -100,6 +112,17 @@ export async function audit(env, { days = 45, max = 400, ids = null } = {}) {
   if (!oids.length) return { checked: 0, found: 0, issues: await listIssues(env) };
   const ships = Object.fromEntries((await env.DB.prepare(`SELECT * FROM shipments WHERE order_id IN (${oids.map(() => '?').join(',')})`).bind(...oids).all()).results.map((s) => [String(s.order_id), s]));
   const shop = await ordersShipState(env, oids);
+  /* COD amount check needs Shiprocket's own figure: read it for partial-COD / paid-later bookings that lack it (a few per run) */
+  try {
+    const { srOrderAmount } = await import('./shiprocket.js');
+    const need = orders.filter((o) => (Number(o.advance_paise) > 0 || o.converted_at) && ships[String(o.order_id)]?.sr_order_id && ships[String(o.order_id)].status !== 'cancelled' && ships[String(o.order_id)].sr_total_paise == null && !PICKED.includes(ships[String(o.order_id)].stage || '')).slice(0, 8);
+    for (const o of need) {
+      const s = ships[String(o.order_id)], st = await srOrderAmount(env, s.sr_order_id).catch(() => null);
+      if (!st) continue;
+      s.sr_total_paise = st.cod ? Math.round(st.total * 100) : 0;
+      await env.DB.prepare('UPDATE shipments SET sr_total_paise=? WHERE order_id=?').bind(s.sr_total_paise, String(o.order_id)).run();
+    }
+  } catch (e) { console.error('audit cod amounts', e.message); }
   /* orders from before the first Shiprocket booking were shipped another way (NimbusPost): a Shopify fulfilment without a booking here is normal for them */
   const since = Number((await env.DB.prepare('SELECT MIN(created_at) AS t FROM shipments WHERE sr_shipment_id IS NOT NULL').first().catch(() => null))?.t) || 0;
 
@@ -110,7 +133,7 @@ export async function audit(env, { days = 45, max = 400, ids = null } = {}) {
       const detail = {
         shopify: sh ? (sh.cancelled ? 'Cancelled' : sh.tags.some((x) => CANCEL_TAG.test(x)) ? `Open · tagged "${sh.tags.find((x) => CANCEL_TAG.test(x))}"` : 'Open') + ' · ' + (sh.fulfilments.length ? 'Fulfilled' + (sh.awbs.length ? ' (' + sh.awbs.join(', ') + ')' : '') : (sh.status || 'Unfulfilled').toLowerCase().replace(/_/g, ' ')) : 'Not found',
         shiprocket: s && s.awb ? (s.status === 'cancelled' ? 'Booking cancelled' : (s.stage ? s.stage.replace(/_/g, ' ') : 'booked')) + ' · ' + `${s.courier || ''} ${s.awb}`.trim() + (s.cancel_state === 'picked' ? ' · cancelled after pickup' : '') : 'No booking',
-        here: (o.status === 'cancelled' ? 'Cancelled' : o.status === 'placed' ? (o.shipped_at ? 'Shipped' : 'To ship') : o.status || '') + (o.method === 'cod' ? ' · COD' : ' · Prepaid'),
+        here: (o.status === 'cancelled' ? 'Cancelled' : o.status === 'placed' ? (o.shipped_at ? 'Shipped' : 'To ship') : o.status || '') + (Number(o.advance_paise) > 0 ? ` · Partial COD (₹${Number(o.advance_paise) / 100} paid${o.txnid ? ', PayU ' + o.txnid : ''}, collect ₹${codDue(o) / 100})` : o.method === 'cod' ? ' · COD' : ' · Prepaid'),
         ...is,
       };
       found.push({ order_id: id, kind: is.kind, order_name: o.order_name || sh?.name || id, detail });
@@ -193,6 +216,16 @@ export async function fix(env, { id, fix: what }, deps = {}) {
       await updateTracking(env, f.id, { company: ship.courier || 'Shiprocket', number: ship.awb, url: `https://shiprocket.co/tracking/${ship.awb}` });
       await env.DB.prepare('UPDATE orders SET tracking=? WHERE order_id=?').bind(`${ship.courier || 'Shiprocket'} ${ship.awb}`, id).run();
       note = `Shopify tracking set to ${ship.awb}.`;
+      break;
+    }
+    case 'recheck_cod': {
+      if (!ship?.sr_order_id) throw new Error('No Shiprocket order to check');
+      const { srOrderAmount } = await import('./shiprocket.js');
+      const st = await srOrderAmount(env, ship.sr_order_id);
+      if (!st) throw new Error('Shiprocket did not return the order amount');
+      const v = st.cod ? Math.round(st.total * 100) : 0;
+      await env.DB.prepare('UPDATE shipments SET sr_total_paise=? WHERE order_id=?').bind(v, id).run();
+      note = `Shiprocket collects ₹${v / 100}; customer owes ₹${codDue(o || {}) / 100}.`;
       break;
     }
     case 'sync_cancel':
