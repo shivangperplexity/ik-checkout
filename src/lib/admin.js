@@ -420,6 +420,20 @@ const ACTIONS = {
     await putSetting(env, 'ai', a);
     return { ok: true };
   },
+  /** Send one free-text WhatsApp message now and return the provider's own answer (diagnoses "sent but not received"). */
+  async wa_text_test(env, b) {
+    const to = digits(b.to).slice(-10);
+    if (to.length !== 10) throw new Error('Enter a 10-digit number');
+    const { sendText, viaG4w } = await import('./whatsapp.js');
+    const fresh = await withSettingsFresh(env);
+    const { withSettings } = await import('./settings.js');
+    const e2 = await withSettings(fresh);
+    const text = String(b.text || 'Test message from Ink Kulture').slice(0, 1000);
+    const res = await sendText(e2, '91' + to, text);
+    await logMsg(e2, { direction: 'out', phone: to, trigger: 'ai-test', status: res.ok ? 'accepted' : 'failed', wamid: res.id || '', error: res.ok ? '' : `${res.via}: ${res.error}`, preview: text });
+    const lastIn = await env.DB.prepare("SELECT ts FROM messages WHERE phone=? AND direction='in' ORDER BY ts DESC LIMIT 1").bind(to).first().catch(() => null);
+    return { ok: true, sent: res.ok, via: res.via || (viaG4w(e2) ? 'g4w' : 'meta'), id: res.id || '', error: res.error || '', last_in: Number(lastIn?.ts) || null };
+  },
   /** The models the saved key can use, with the one the assistant would pick. */
   async ai_models(env) {
     const { listModels, pickModel, aiCfg } = await import('./wa-ai.js');

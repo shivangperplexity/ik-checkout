@@ -182,8 +182,9 @@ export async function aiReply(env, phone, text) {
     await logMsg(env, { direction: 'out', phone, trigger: 'ai', status: 'failed', error: String(e.message || e), preview: '' });
     return 'failed';
   }
-  await sendText(env, '91' + phone, a.text);
-  await logMsg(env, { direction: 'out', phone, trigger: 'ai', template: a.handoff ? 'handoff' : 'answer', status: a.handoff ? 'handoff' : 'sent', preview: a.text });
+  const res = await sendText(env, '91' + phone, a.text);
+  await logMsg(env, { direction: 'out', phone, trigger: 'ai', template: a.handoff ? 'handoff' : 'answer', status: !res.ok ? 'failed' : a.handoff ? 'handoff' : 'accepted', wamid: res.id || '', error: res.ok ? '' : `${res.via}: ${res.error}`, preview: a.text });
+  if (!res.ok) return 'failed';
   if (a.handoff && env.SETTINGS?.wa?.admin_phone) {
     try { await sendText(env, '91' + String(env.SETTINGS.wa.admin_phone).replace(/\D/g, '').slice(-10), `Customer +91 ${phone} needs a reply (assistant handed off).\nThey wrote: "${t.slice(0, 300)}"\nAssistant said: "${a.text.slice(0, 300)}"`); } catch { /* best effort */ }
   }

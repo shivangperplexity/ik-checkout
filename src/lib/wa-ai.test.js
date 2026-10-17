@@ -27,7 +27,7 @@ test('the prompt carries the store knowledge and the customer\'s live orders; re
     assert.match(req.system, /Buy 1 Get 1 Free/); assert.match(req.system, /Order #1601 .*Delhivery, AWB A1: In transit, expected 2026-10-20/);
     assert.deepEqual(req.messages, [{ role: 'user', content: 'where is my order?' }]);
     assert.equal(w.sent[0].text.body, 'It lasts up to 2 weeks.'); assert.equal(w.sent[0].to, '919999999999');
-    assert.ok(w.logged.some((l) => l.trigger === 'ai' && l.status === 'sent'));
+    assert.ok(w.logged.some((l) => l.trigger === 'ai' && l.status === 'accepted'));
   } finally { w.done(); }
 });
 
@@ -99,4 +99,15 @@ test('saved model not available to this key: lists the key\'s models, switches, 
   } finally { globalThis.fetch = real; }
   assert.equal(pickModel(['llama-3.1-8b-instant', 'qwen/qwen3.8-27b']), 'qwen/qwen3.8-27b');
   assert.equal(pickModel(['llama-3.1-8b-instant']), 'llama-3.1-8b-instant');
+});
+
+test('provider rejects the free text: logged as failed with Meta\'s reason, not "sent"', async () => {
+  const w = world();
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, o) => /graph\.facebook/.test(String(u)) ? new Response(JSON.stringify({ error: { code: 131047, message: 'Re-engagement message', error_data: { details: 'Message failed to send because more than 24 hours have passed since the customer last replied to this number.' } } }), { status: 400 }) : real(u, o);
+  try {
+    assert.equal(await aiReply(w.env, '9999999999', 'hello there'), 'failed');
+    const row = w.logged.find((l) => l.trigger === 'ai');
+    assert.equal(row.status, 'failed');
+  } finally { globalThis.fetch = real; w.done(); }
 });

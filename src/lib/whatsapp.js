@@ -11,18 +11,34 @@ export const viaG4w = (env) => !!(env.G4W_API_KEY && env.G4W_SECURE_KEY) && env.
 /** Any transport configured at all. */
 export const waConnected = (env) => viaG4w(env) || !!(env.WA_PHONE_ID && env.WA_TOKEN);
 
-/** Free text. Only delivered inside the 24h window after the customer messaged us (a button tap counts). */
+/**
+ * Free text. Only delivered inside the 24h window after the customer messaged us (a button tap counts).
+ * Never throws. Returns { ok, id, via, error }: ok means the provider accepted it (delivery receipts come later, by id).
+ */
 export async function sendText(env, phone91, text) {
   if (viaG4w(env)) {
-    try { await g4w.sendText(env, phone91, text); } catch (e) { console.error('g4w sendText', e.message); }
-    return;
+    try {
+      const j = await g4w.sendText(env, phone91, text);
+      const d = j?.Data || j?.data || {};
+      return { ok: true, via: 'g4w', id: String(d.messageId || d.MessageId || d.wamid || d.id || j?.messageId || '') };
+    } catch (e) { console.error('g4w sendText', e.message); return { ok: false, via: 'g4w', error: String(e.message || e) }; }
   }
-  if (!env.WA_PHONE_ID || !env.WA_TOKEN) return;
-  await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
-    body: JSON.stringify({ messaging_product: 'whatsapp', to: phone91, type: 'text', text: { body: text } }),
-  });
+  if (!env.WA_PHONE_ID || !env.WA_TOKEN) return { ok: false, via: 'none', error: 'WhatsApp is not connected (no phone number ID / token, and Go4WhatsUp is not selected)' };
+  try {
+    const r = await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: phone91, type: 'text', text: { body: text } }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) {
+      const e = j.error || {};
+      const err = `Meta ${e.code || r.status}: ${e.error_data?.details || e.message || 'rejected'}`;
+      console.error('meta sendText', err);
+      return { ok: false, via: 'meta', error: err };
+    }
+    return { ok: true, via: 'meta', id: String(j.messages?.[0]?.id || '') };
+  } catch (e) { console.error('meta sendText', e.message); return { ok: false, via: 'meta', error: String(e.message || e) }; }
 }
 
 export async function verifySignature(env, req, raw) {
