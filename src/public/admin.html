@@ -420,7 +420,8 @@ function loadShip(quiet){
   SH.rows={};j.shipments.forEach(function(x){SH.rows[x.order_id]=x});
   var h='<div class="row" style="margin-bottom:10px">'+[['today','Today'],['yesterday','Yesterday'],['7d','7 days'],['30d','30 days'],['all','All']].map(function(r){return '<button class="chip'+(SH.range===r[0]?' on':'')+'" data-r="'+r[0]+'">'+r[1]+'</button>'}).join('')
    +'<input type="search" id="sh_q" placeholder="Order, AWB, name, phone, PIN" value="'+esc(SH.q)+'" style="max-width:260px"><span class="grow"></span><button class="btn ghost sm" id="sh_rf">Refresh status</button></div>';
-  h+='<div class="card small" style="margin-bottom:10px"><b>Today:</b> '+td.booked+' booked · '+(td.packed||0)+' packed · '+td.picked+' picked up · '+td.delivered+' delivered · '+td.pickup_pending+' waiting for pickup'
+  var wal=j.wallet==null?'<span class="mut" title="'+esc(j.wallet_error||'')+'">Shiprocket wallet: unavailable</span>':'<b style="color:'+(j.wallet<300?'var(--bad)':j.wallet<1000?'var(--warn)':'inherit')+'">Shiprocket wallet '+rup(j.wallet)+'</b>'+(j.wallet<300?' <span class="small err">· top up, bookings will fail</span>':'');
+  h+='<div class="card small" style="margin-bottom:10px">'+wal+' <span class="mut">· </span><b>Today:</b> '+td.booked+' booked · '+(td.packed||0)+' packed · '+td.picked+' picked up · '+td.delivered+' delivered · '+td.pickup_pending+' waiting for pickup'
    +' <span class="mut">· Courier spend '+rup(j.stats.spend)+' · RTO '+j.stats.rto_pct+'% ('+rup(j.stats.rto_cost)+' freight)</span></div>';
   var att=[];
   if(at.to_pack&&at.to_pack.length)att.push('<button class="chip" data-pack="all" style="border-color:var(--ink);font-weight:700">Start packing · '+at.to_pack.length+' waiting for pickup, not packed</button>');

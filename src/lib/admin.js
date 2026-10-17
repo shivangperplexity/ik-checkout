@@ -2,7 +2,7 @@ import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderForShipping, packingItems, activeFulfilments, updateTracking, cancelFulfilmentsFor } from './shopify.js';
-import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected } from './shiprocket.js';
+import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
 import { labelPdf } from './labels.js';
@@ -606,7 +606,9 @@ const ACTIONS = {
     if (b.q) { const q = String(b.q).toLowerCase().trim(); list = list.filter((x) => `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase().includes(q)); }
     const live = all.filter((x) => x.stage !== 'cancelled');
     const liveR = inRange.filter((x) => x.stage !== 'cancelled'), rto = liveR.filter((x) => x.stage === 'rto');
-    return { ok: true, range, shipments: list.slice(0, 500), total: list.length, counts, all_in_range: inRange.length,
+    let wallet = null, walletErr = '';
+    try { wallet = await srWallet(await withSettingsFresh(env), !!b.fresh_wallet); } catch (e) { walletErr = String(e.message || e).slice(0, 120); }
+    return { ok: true, range, shipments: list.slice(0, 500), total: list.length, counts, all_in_range: inRange.length, wallet, wallet_error: walletErr,
       attention: {
         pickup_failed: live.filter((x) => x.stage === 'pickup_failed').length,
         pickup_late: live.filter((x) => x.stage === 'pickup_pending' && x.booked_at < t - DAY).length,

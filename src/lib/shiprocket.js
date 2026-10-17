@@ -54,6 +54,18 @@ export async function sr(env, method, path, body) {
 }
 
 /* ---------- pickup locations ---------- */
+/** Shiprocket wallet balance in rupees (cached 5 min; null when it cannot be read). */
+let walletCache = { at: 0, v: null };
+export async function srWallet(env, fresh = false) {
+  if (!fresh && walletCache.v !== null && Date.now() - walletCache.at < 5 * 60 * 1000) return walletCache.v;
+  const j = await sr(env, 'GET', 'account/details/wallet-balance');
+  const d = j?.data || j || {};
+  const n = Number(d.balance_amount ?? d.balance ?? d.wallet_balance ?? d.amount);
+  if (!Number.isFinite(n)) throw new Error('Shiprocket did not return a balance: ' + JSON.stringify(j).slice(0, 160));
+  walletCache = { at: Date.now(), v: n };
+  return n;
+}
+
 export async function srPickups(env) {
   const j = await sr(env, 'GET', 'settings/company/pickup');
   const list = j.data?.shipping_address || [];
