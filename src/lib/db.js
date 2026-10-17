@@ -81,6 +81,10 @@ export const SCHEMA = [
   /* COD amount we told Shiprocket to collect at booking, and the order total Shiprocket itself shows (reconciliation) */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS cod_paise BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sr_total_paise BIGINT`,
+  /* NDR: who chose (customer link / WhatsApp reply / team in the dashboard) and at which failed attempt, so a handled
+     parcel stops asking for action until the courier fails again */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_by TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_attempt INT`,
 ];
 
 let ready;

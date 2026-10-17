@@ -8,7 +8,7 @@ function world() {
   const calls = [], texts = [];
   const db = { prepare(sql) { const q = sql.replace(/\s+/g, ' '); return { all: async () => ({ results: [] }), bind: (...a) => ({
     first: async () => { if (/WHERE s\.order_id=\?/.test(q)) return ships[a[0]] || null; if (/WHERE o\.phone=\?/.test(q)) return Object.values(ships).find((s) => s.phone === a[0]) || null; return null; },
-    run: async () => { if (/SET ndr_choice=\?/.test(q)) Object.assign(ships[a[4]], { ndr_choice: a[0], ndr_choice_at: a[1], ndr_date: a[2] }); if (/INSERT INTO messages/.test(q)) calls.push('log ' + a[3] + ' ' + a[4]); return {}; },
+    run: async () => { if (/SET ndr_choice=\?/.test(q)) Object.assign(ships[a[5]], { ndr_choice: a[0], ndr_choice_at: a[1], ndr_date: a[2], ndr_by: a[3] }); if (/INSERT INTO messages/.test(q)) calls.push('log ' + a[3] + ' ' + a[4]); return {}; },
   }) }; } };
   const real = globalThis.fetch;
   globalThis.fetch = async (u, o) => { const url = String(u); if (/auth\/login/.test(url)) return new Response('{"token":"t"}'); if (/ndr\//.test(url)) { calls.push('sr ' + JSON.parse(o.body).action + ' ' + (JSON.parse(o.body).deferred_date || '')); return new Response('{"message":"ok"}'); } if (/messages/.test(url)) { texts.push(JSON.parse(o.body)); return new Response('{"messages":[{"id":"m"}]}'); } return new Response('{}'); };

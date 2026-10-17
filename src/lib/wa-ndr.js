@@ -40,9 +40,9 @@ export async function customerNdr(env, { orderId, phone, what, date = '', via = 
   const rec = await ndrShipment(env, { orderId, phone });
   if (!rec) return { status: 'no-shipment' };
   const key = what === 'return' ? 'return' : 'reattempt';
-  if (rec.ndr_choice === key && now() - Number(rec.ndr_choice_at || 0) < 12 * 3600) return { status: 'already', rec };
+  if (rec.ndr_choice === key && now() - Number(rec.ndr_choice_at || 0) < 48 * 3600) return { status: 'already', rec };
   await ndrAction(env, { awb: rec.awb, action: key === 'return' ? 'return' : 're-attempt', deferred_date: okDate(date) ? date : '', comments: key === 'return' ? 'Customer asked for return on WhatsApp' : 'Customer asked for re-attempt on WhatsApp' + (okDate(date) ? ' on ' + date : '') });
-  await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, updated_at=? WHERE order_id=?').bind(key, now(), okDate(date) ? date : null, now(), String(rec.order_id)).run().catch(() => {});
+  await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, updated_at=? WHERE order_id=?').bind(key, now(), okDate(date) ? date : null, 'customer', now(), String(rec.order_id)).run().catch(() => {});
   await logMsg(env, { direction: 'in', phone: rec.phone, trigger: 'ndr-' + via, template: key.toUpperCase(), status: 'applied', orderName: rec.order_name, preview: okDate(date) ? 'on ' + date : '' });
   return { status: key, rec };
 }
@@ -61,7 +61,7 @@ export async function handleNdr(req, env0) {
   const name = esc(rec.order_name);
   const trackHref = esc(`https://shiprocket.co/tracking/${rec.awb}`);
   if (req.method !== 'POST') {
-    if (rec.ndr_choice && now() - Number(rec.ndr_choice_at || 0) < 12 * 3600) {
+    if (rec.ndr_choice && now() - Number(rec.ndr_choice_at || 0) < 48 * 3600) {
       return page(`Order ${name}`, rec.ndr_choice === 'return' ? 'Your parcel is being returned to us.' : `Delivery will be re-attempted${rec.ndr_date ? ' on ' + nice(rec.ndr_date) : ' on the next working day'}. Please keep your phone reachable.`, `<a class="btn n" href="${trackHref}">Track parcel</a>`);
     }
     const act = (d, cls, label, extra = '') => `<form method="POST" action="/api/wa/ndr?o=${orderId}&s=${sig}&d=${d}">${extra}<button class="${cls}" type="submit">${label}</button></form>`;

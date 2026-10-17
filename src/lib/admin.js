@@ -576,6 +576,31 @@ const ACTIONS = {
     const w = b.whatsapp === false ? { ok: false, skipped: 'silent' } : await fireTrigger(env, 'order_shipped', { to: o.phone, vars: { name: o.first_name, order: o.order_name, courier: company, tracking: number }, orderName: o.order_name });
     return { ok: true, whatsapp: w };
   },
+  /**
+   * What the WhatsApp retargeting brought in (days: 7 / 30 / 90):
+   *   abandoned  checkout-reminder messages (trigger abandoned_cart) and the orders the same number placed within 72 h after
+   *   convert    COD orders offered the pay-online discount (cod_to_prepaid) and how many paid online
+   */
+  async retarget_stats(env, b) {
+    const days = [7, 30, 90].includes(Number(b?.days)) ? Number(b.days) : 30, since = now() - days * 86400, WIN = 72 * 3600;
+    const sent = (await env.DB.prepare("SELECT phone, MIN(ts) AS ts, COUNT(*) AS n FROM messages WHERE trigger='abandoned_cart' AND direction='out' AND COALESCE(status,'') NOT IN ('failed','skipped') AND ts>? GROUP BY phone").bind(since).all()).results;
+    const phones = sent.map((r) => r.phone);
+    let recovered = [];
+    if (phones.length) {
+      const orders = (await env.DB.prepare(`SELECT order_name, phone, first_name, total_paise, method, status, created_at, advance_paise FROM orders WHERE phone IN (${phones.map(() => '?').join(',')}) AND created_at>? AND status NOT IN ('pending_payment','failed','completing')`).bind(...phones, since).all()).results;
+      const first = Object.fromEntries(sent.map((r) => [r.phone, num(r.ts)]));
+      const seen = new Set();
+      recovered = orders.filter((o) => { const t = first[o.phone]; return t && num(o.created_at) > t && num(o.created_at) - t < WIN; })
+        .sort((a, c) => num(c.created_at) - num(a.created_at))
+        .filter((o) => { const k = o.phone; if (seen.has(k)) return false; seen.add(k); return true; })   // one recovery per person
+        .map((o) => ({ name: o.order_name, customer: o.first_name || '', total: num(o.total_paise) / 100, method: num(o.advance_paise) > 0 ? 'partial' : o.method, cancelled: o.status === 'cancelled', hours: Math.max(0, Math.round((num(o.created_at) - first[o.phone]) / 3600)), at: num(o.created_at) }));
+    }
+    const kept = recovered.filter((o) => !o.cancelled);
+    const conv = (await env.DB.prepare("SELECT COUNT(*) AS offered, SUM(CASE WHEN converted_at IS NOT NULL THEN 1 ELSE 0 END) AS paid, SUM(CASE WHEN converted_at IS NOT NULL THEN COALESCE(paid_paise,0) ELSE 0 END) AS paise FROM orders WHERE convert_offer_at>?").bind(since).first()) || {};
+    return { ok: true, days,
+      abandoned: { reminded: sent.length, recovered: kept.length, cancelled: recovered.length - kept.length, revenue: Math.round(kept.reduce((a, o) => a + o.total, 0)), rate: sent.length ? Math.round((kept.length * 1000) / sent.length) / 10 : 0, orders: recovered.slice(0, 30) },
+      convert: { offered: num(conv.offered), paid: num(conv.paid), revenue: Math.round(num(conv.paise) / 100), rate: num(conv.offered) ? Math.round((num(conv.paid) * 1000) / num(conv.offered)) / 10 : 0 } };
+  },
   async leads(env) {
     const rows = (await env.DB.prepare("SELECT phone,name,pincode,cart_json,utm_json,step,updated_at,nudged_at FROM leads WHERE status='open' AND updated_at>? ORDER BY updated_at DESC LIMIT 200").bind(now() - 7 * 86400).all()).results;
     return { leads: rows.map((l) => ({ ...l, cart: JSON.parse(l.cart_json || '[]').length, updated_at: num(l.updated_at), nudged_at: num(l.nudged_at) || null })) };
@@ -879,8 +904,19 @@ const ACTIONS = {
   async ndr_list(env) {
     const f = await withSettingsFresh(env);
     const list = await ndrList(f);
-    const mine = Object.fromEntries((await env.DB.prepare('SELECT awb, order_name FROM shipments WHERE awb IS NOT NULL').all()).results.map((r) => [r.awb, r.order_name]));
-    return { ok: true, ndr: list.map((x) => ({ ...x, order_name: mine[x.awb] || String(x.order || '') })) };
+    const mine = Object.fromEntries((await env.DB.prepare("SELECT awb, order_name, ndr_choice, ndr_choice_at, ndr_date, ndr_by, ndr_attempt FROM shipments WHERE awb IS NOT NULL AND LENGTH(awb) > 0").all()).results.map((r) => [r.awb, r]));
+    /* Shiprocket keeps a parcel in its NDR list until the courier's next attempt, even after a re-attempt was asked for.
+       Count it as handled when a choice was made after this failed attempt (same attempt number, or made after it was raised). */
+    const handled = (x, m) => {
+      if (!m || !m.ndr_choice || !m.ndr_choice_at) return false;
+      const at = num(m.ndr_choice_at);
+      if (now() - at > 4 * 86400) return false;
+      if (x.attempts && m.ndr_attempt) return x.attempts <= num(m.ndr_attempt);
+      const raised = Math.floor(Date.parse(String(x.date || '').replace(' ', 'T') + (/[zZ+]/.test(x.date) ? '' : '+05:30')) / 1000);
+      return Number.isFinite(raised) ? at >= raised - 60 : true;
+    };
+    return { ok: true, ndr: list.map((x) => { const m = mine[x.awb];
+      return { ...x, order_name: m?.order_name || String(x.order || ''), done: handled(x, m), choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '' }; }) };
   },
   /** action: 'reattempt' (optionally with a new date/phone) or 'return' (start RTO). */
   async ndr_do(env, b) {
@@ -888,6 +924,9 @@ const ACTIONS = {
     const date = String(b.deferred_date || '').trim();
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Date must look like 2026-10-20');
     const r = await ndrAction(await withSettingsFresh(env), { awb: String(b.awb || ''), action, phone: String(b.phone || '').replace(/\D/g, '').slice(-10), deferred_date: date, comments: String(b.comments || '').slice(0, 200) });
+    /* remember it, so the NDR card shows "re-attempt requested" instead of asking again (Shiprocket lists it until the next attempt) */
+    await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, ndr_attempt=?, updated_at=? WHERE awb=?')
+      .bind(action === 'return' ? 'return' : 'reattempt', now(), date || null, 'team', Number(b.attempts) || null, now(), String(b.awb || '')).run().catch(() => {});
     return { ok: true, response: r.message || r.status || 'sent' };
   },
   async save_wa(env, b) {
