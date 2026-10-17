@@ -1,0 +1,311 @@
+/* ik-express.js part 4 of 5 (rendered inline by snippets/ik-checkout.liquid) */
+      return '<button type="button" class="ikx-upib' + (a[0] === state.upiApp ? ' is-on' : '') + '" data-ikx-upi="' + a[0] + '" aria-pressed="' + (a[0] === state.upiApp) + '"><span class="ikx-upib__ic">' + upiIcon(a[0]) + '</span>' + a[1] + '</button>';
+    }).join('') + '</div>' : '');
+  }
+
+  function paintBill() {
+    var box = $('.ikx-bill__rows', root); if (!box) return;
+    if (!state.quote) { box.innerHTML = ''; $('.ikx-bill', root).hidden = true; return; }
+    $('.ikx-bill', root).hidden = false;
+    var p = state.quote[qk(state.method)], rows = [];
+    function row(l, v, cls) { rows.push('<div class="ikx-r' + (cls ? ' ' + cls : '') + '"><span>' + l + '</span><span>' + v + '</span></div>'); }
+    row('Item total', money(p.subtotal));
+    if (p.bogo) row('Buy 1 Get 1 Free', '−' + money(p.bogo), 'is-save');
+    if (p.upsell) row('Add-on offer', '−' + money(p.upsell), 'is-save');
+    if (p.prepaid) row('Prepaid 10% off', '−' + money(p.prepaid), 'is-save');
+    row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
+    if (p.cod) row('COD handling', money(p.cod));
+    row('To pay', money(p.total), 'is-total');
+    if (state.method === 'cod' && pcOn()) { row('Pay now (advance)', money(pcAdv())); row('Pay on delivery', money(p.total - pcAdv())); }
+    var nudge = p.shipping && p.afterBogo > 0 ? '<p class="ikx-nudge">' + ICON.truck + 'Add ' + money(49900 - p.afterBogo) + ' more for FREE delivery</p>' : '';
+    box.innerHTML = rows.join('') + nudge;
+  }
+
+  /* ---------- partial COD: pay the advance (₹99) online now, the rest on delivery ----------
+     /api/quote says partial.mode: 'off' (never), 'all' (every COD order) or 'check' (the API decides per address:
+     a vague address with no house / flat / shop number, a high-return PIN, a number with past returns...). In 'check'
+     mode the sheet asks /api/cod-check once the delivery details are complete, and the COD tile, bill and button
+     follow the answer. The API checks again when the order is placed (lib/partial-cod.js). */
+  function pcFlag() { return (state.quote && state.quote.partial) || { mode: 'off', advance: 9900 }; }
+  function pcAdv() { return state.pcAdvance || pcFlag().advance || 9900; }
+  function pcKeyNow() { var d = form() ? formData() : {}; return [d.phone, d.pincode, d.address1, d.address2, state.quote && state.quote.cod ? state.quote.cod.total : ''].join('|'); }
+  function pcOn() {
+    var f = pcFlag();
+    if (!state.quote || state.quote.estimate || f.mode === 'off' || state.quote.cod.total <= pcAdv()) return false;
+    if (f.mode === 'all') return true;
+    return state.pcKey === pcKeyNow() && !!state.pcNeed;
+  }
+  function pcWaiting() { return pcFlag().mode === 'check' && !!state.quote && !state.quote.estimate && ready() && state.pcKey !== pcKeyNow(); }
+  function pcCheck() {
+    if (!pcWaiting()) return;
+    var key = pcKeyNow(); if (state.pcAsk === key) return;
+    clearTimeout(state.pcT);
+    state.pcT = setTimeout(function () {
+      if (pcKeyNow() !== key || state.pcAsk === key) return;
+      state.pcAsk = key; var d = formData();
+      function done(j) {
+        if (state.pcAsk !== key) return;
+        state.pcAsk = ''; state.pcKey = key; state.pcNeed = !!(j && j.partial); state.pcHint = (j && j.hint) || '';
+        if (j && j.advance) state.pcAdvance = j.advance;
+        if (state.pcNeed) tk('method', { method: 'cod', data: { partial: true } });
+        paintPay(); paintBill(); paintFoot();
+      }
+      api('/api/cod-check', { phone: d.phone, pincode: d.pincode, address1: d.address1, address2: d.address2, total: state.quote.cod.total }).then(done, function () { done(null); });
+    }, 350);
+  }
+  function pcNote() {
+    if (state.method !== 'cod' || !pcOn()) return '';
+    var a = money(pcAdv()), bal = money(state.quote.cod.total - pcAdv());
+    return '<div class="ikx-pc" role="note" style="margin:10px 0 0;padding:10px 12px;border-radius:12px;background:#fff7e6;border:1px solid #f1d39a;font-size:13px;line-height:1.45;color:#3d2c08">' +
+      '<b>Pay ' + a + ' now</b> to confirm your Cash on delivery order, then ' + bal + ' when it arrives. The ' + a + ' is part of your total, not an extra charge.' +
+      (state.pcHint ? '<br><span style="opacity:.8">Tip: ' + esc(state.pcHint) + ' to pay the full amount on delivery.</span>' : '') +
+      (IS_MOBILE ? '<br><span style="opacity:.8">Pick the UPI app for the ' + a + ':</span>' : '') + '</div>';
+  }
+
+  /* ---------- footer: total + (Add delivery details | Slide to pay) ---------- */
+  function savings(p) { return (p.bogo || 0) + (p.prepaid || 0) + (p.upsell || 0); }
+  var SLIDE_TO_PAY = false;
+  function paintFoot() {
+    var foot = $('.ikx-foot', root); if (!foot || !state.built) return;
+    if (!state.quote) {
+      var t = CART ? money(CART.total_price) : '';
+      foot.innerHTML = '<p class="ikx-err" role="alert" hidden></p><a class="ikx-btn" href="' + R + 'checkout">Checkout on Shopify · ' + t + '</a>';
+      return;
+    }
+    var p = state.quote[qk(state.method)], save = savings(p), was = p.subtotal + (p.shipping || 0) + (p.cod || 0);
+    var pcx = state.method === 'cod' && pcOn();
+    var label = pcx ? 'Slide to pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Slide to place order · ' + money(p.total) : 'Slide to pay ' + money(p.total);
+    var btnLabel = pcx ? 'Pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Complete order · ' + money(p.total) : 'Pay now · ' + money(p.total);
+    var fb = CART ? bogo(CART.items) : null, unclaimed = !SKIP_FREE && fb && fb.odd && freePicks(CART, fb).length;
+    var top = (unclaimed ? '<button type="button" class="ikx-freenote" data-ikx-gofree>🎁 1 FREE tattoo unclaimed · <u>Pick one</u></button>' : '') +
+      '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + '</span>' +
+      '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>';
+    if (!ready()) {
+      var bad = invalid(formData()), where = bad && bad[0] === 'phone' ? 'Add your mobile number' : 'Add delivery details';
+      foot.innerHTML = top + '<button type="button" class="ikx-btn" data-ikx-next>' + where + '<span class="ikx-ic">' + ICON.down + '</span></button>';
+      return;
+    }
+    if (!state.final) {
+      foot.innerHTML = top + '<button type="button" class="ikx-btn" disabled><i class="ikx-spin ikx-spin--sm"></i>Confirming your total…</button>';
+      return;
+    }
+    pcCheck();
+    if (state.method === 'cod' && pcWaiting()) {
+      foot.innerHTML = top + '<button type="button" class="ikx-btn" disabled><i class="ikx-spin ikx-spin--sm"></i>Checking delivery options…</button>';
+      return;
+    }
+    if ((state.method !== 'cod' || pcx) && !((state.method === 'upi' || pcx) && IS_MOBILE)) loadBolt(false).catch(function () {});
+    /* Build 036: one button everywhere, worded like Shopify ("Pay now" / "Complete order").
+       Set SLIDE_TO_PAY = true to bring back the phone slider. */
+    if (!IS_MOBILE || !SLIDE_TO_PAY) {
+      foot.innerHTML = top + '<button type="button" class="ikx-btn ikx-paybtn" data-ikx-pay' + (state.busy ? ' disabled' : '') + '>' + ICON.lock + esc(state.busy ? (state.method === 'cod' && !pcx ? 'Placing order…' : 'Opening payment…') : btnLabel) + '</button>';
+      return;
+    }
+    foot.innerHTML = top +
+      '<div class="ikx-slide' + (state.busy ? ' is-busy' : '') + '" role="button" tabindex="0" aria-label="' + esc(label) + '. Press Enter to confirm.">' +
+        '<i class="ikx-slide__fill" aria-hidden="true"></i><span class="ikx-slide__label" aria-hidden="true">' + esc(label) + '</span>' +
+        '<span class="ikx-slide__knob" aria-hidden="true">' + ICON.dbl + '</span></div>';
+    bindSlide($('.ikx-slide', foot));
+  }
+
+  /* Slide to pay (phones). Moves on the compositor (translate3d, one paint per frame), eases back with a soft
+     spring, accepts a quick flick, and gives a light buzz when it locks in. */
+  function bindSlide(track) {
+    var knob = $('.ikx-slide__knob', track), fill = $('.ikx-slide__fill', track), label = $('.ikx-slide__label', track);
+    var x = 0, startX = 0, drag = false, max = 1, kw = 50, tw = 1, frame = 0, armed = false, lastX = 0, lastT = 0, vel = 0;
+    function measure() { kw = knob.offsetWidth || 50; tw = track.clientWidth || 1; max = Math.max(1, tw - kw - 10); }
+    function paint() {
+      frame = 0;
+      knob.style.transform = 'translate3d(' + x + 'px,0,0)';
+      fill.style.transform = 'translate3d(' + (x + kw + 10 - tw) + 'px,0,0)';
+      label.style.opacity = String(Math.max(0, 1 - x / (max * 0.55)));
+    }
+    function set(v, anim) {
+      x = v;
+      var t = anim ? 'transform .34s cubic-bezier(.22,1,.36,1)' : 'none';
+      knob.style.transition = fill.style.transition = t;
+      label.style.transition = anim ? 'opacity .34s ease' : 'none';
+      if (anim) { if (frame) cancelAnimationFrame(frame); paint(); }
+      else if (!frame) frame = requestAnimationFrame(paint);
+    }
+    function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+    function commit() {
+      if (state.busy) return;
+      measure(); set(max, true); track.classList.add('is-done'); buzz(18);
+      label.textContent = state.method === 'cod' ? 'Placing order…' : 'Opening payment…';
+      label.style.transition = 'none'; label.style.opacity = '1';
+      submit();
+    }
+    knob.addEventListener('pointerdown', function (e) {
+      if (state.busy) return;
+      measure(); drag = true; armed = false;
+      startX = e.clientX - x; lastX = e.clientX; lastT = e.timeStamp; vel = 0;
+      try { knob.setPointerCapture(e.pointerId); } catch (er) {}
+      track.classList.add('is-drag');
+      knob.style.transition = fill.style.transition = label.style.transition = 'none';
+    });
+    knob.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var dt = e.timeStamp - lastT;
+      if (dt > 0) vel = 0.6 * vel + 0.4 * ((e.clientX - lastX) / dt);
+      lastX = e.clientX; lastT = e.timeStamp;
+      set(Math.max(0, Math.min(max, e.clientX - startX)));
+      var ok = x >= max * 0.8;
+      if (ok !== armed) { armed = ok; track.classList.toggle('is-release', ok); if (ok) buzz(8); }
+    });
+    function end() {
+      if (!drag) return;
+      drag = false; track.classList.remove('is-drag', 'is-release');
+      if (x >= max * 0.8 || (vel > 0.8 && x > max * 0.35)) commit(); else set(0, true);
+    }
+    knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
+    track.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); commit(); } });
+    measure(); set(0);
+  }
+
+  function showErr(msg) {
+    var e = root && $('.ikx-err', root); if (!e) return;
+    e.textContent = msg || ''; e.hidden = !msg;
+  }
+
+  /* Scroll to the delivery form and focus the first missing field. */
+  function goCheckout(focus) {
+    var f = form(); if (!f) return;
+    var bad = invalid(formData());
+    f.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    if (focus && bad) { var inp = f.elements[bad[0]]; if (inp) setTimeout(function () { inp.focus({ preventScroll: true }); }, 350); }
+  }
+
+  /* ---------- clicks inside the sheet ---------- */
+  function onClick(e) {
+    var t = e.target instanceof Element ? e.target : null; if (!t) return;
+    if (t.closest('[data-ikx-close]')) { e.preventDefault(); closeSheet(); return; }
+    var q = t.closest('[data-ikx-qty]');
+    if (q) { e.preventDefault(); if (!state.busy) changeQty(q.closest('[data-key]').getAttribute('data-key'), parseInt(q.getAttribute('data-ikx-qty'), 10)); return; }
+    var a = t.closest('[data-ikx-add]');
+    if (a) { e.preventDefault(); if (!state.busy) { closeAsk(); addPick(a.getAttribute('data-ikx-add')); } return; }
+    if (t.closest('[data-ikx-askx]')) { e.preventDefault(); closeAsk(); return; }
+    if (t.closest('[data-ikx-skip]')) { e.preventDefault(); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
+    if (t.closest('[data-ikx-gofree]')) { e.preventDefault(); var ob = $('.ikx-offer', root); if (ob) ob.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    var m = t.closest('[data-ikx-method]');
+    if (m) { e.preventDefault(); if (state.busy) return; state.method = m.getAttribute('data-ikx-method'); paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: state.method }); return; }
+    var u = t.closest('[data-ikx-upi]');
+    if (u) { e.preventDefault(); state.upiApp = u.getAttribute('data-ikx-upi'); paintPay(); tk('method', { method: 'upi', data: { app: state.upiApp } }); return; }
+    var up = t.closest('[data-ikx-up]');
+    if (up) { e.preventDefault(); if (!state.busy) toggleUp(up.getAttribute('data-ikx-up')); return; }
+    if (t.closest('[data-ikx-pay]')) { e.preventDefault(); submit(); return; }
+    if (t.closest('[data-ikx-next]')) { e.preventDefault(); var bad = invalid(formData()); goCheckout(true); if (bad && formTouched()) { fieldError(bad[0]); showErr(bad[1]); } return; }
+  }
+  function formTouched() { var d = formData(); return !!(d.phone || d.pincode || d.name || d.address1); }
+
+  /* ---------- abandoned-order capture ---------- */
+  function sendLead(step, immediate) {
+    if (!form()) return;
+    clearTimeout(state.leadTimer);
+    var go = function () {
+      if (!form()) return; /* the form is gone once the order is placed */
+      var d = formData(); if (!/^[6-9]\d{9}$/.test(d.phone)) return;
+      var a = attrNow();
+      api('/api/lead', { phone: d.phone, name: d.name, pincode: d.pincode, lines: state.lines, utm: attribution, fbp: a.fbp, fbc: a.fbc, step: step }).catch(function () {});
+    };
+    if (immediate) go(); else state.leadTimer = setTimeout(go, 1500);
+  }
+  window.addEventListener('pagehide', function () { sendLead('left', true); if (isOpen()) tk('left'); });
+
+  /* ---------- submit ---------- */
+  function submit() {
+    if (state.busy || !state.quote || !state.final) return;
+    var d = formData(); showErr('');
+    var bad = invalid(d);
+    if (bad) { paintFoot(); fieldError(bad[0]); goCheckout(true); return showErr(bad[1]); }
+    if (askFree()) return;
+    state.draft = d; rememberBuyer(d);
+    var pcx = state.method === 'cod' && pcOn();
+    state.busy = true;
+    if (!IS_MOBILE) paintFoot();
+    overlay(state.method === 'cod' && !pcx ? 'Placing your order…' : (state.method === 'upi' || pcx) && IS_MOBILE ? 'Opening your UPI app…' : 'Opening secure payment…');
+    tk('submit', { phone: d.phone, name: d.name, method: state.method });
+    track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
+    var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
+    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp }).then(function (r) {
+      if (!r.ok && r.partial_required) {
+        /* the API wants the advance for this address (the check had not run, or the rules changed): show it */
+        state.busy = false; hideOverlay(); state.idem = uuid();
+        state.pcKey = pcKeyNow(); state.pcNeed = true; state.pcHint = r.hint || ''; if (r.advance) state.pcAdvance = r.advance;
+        paintPay(); paintBill(); paintFoot(); tk('fail', { data: { error: 'partial_required' } });
+        return showErr(r.error);
+      }
+      if (!r.ok) {
+        state.busy = false; hideOverlay(); paintFoot(); tk('fail', { data: { error: r.error || r._status } });
+        if (r._status === 409) { state.idem = uuid(); QC = {}; saveQC(); state.pcKey = ''; return refresh().then(function () { showErr('Your cart changed. Please check the total and confirm again.'); }); }
+        return showErr(r.error || 'Could not place the order. Please try again.');
+      }
+      if (r.method === 'prepaid' || r.method === 'partial') return (r.upi && upiApp) ? goUpi(r, upiApp) : goPayu(r.payu);
+      fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+      track('Purchase', { currency: 'INR', value: r.value }, r.eventId); tk('done');
+      hideOverlay(); showSuccess(r);
+    }).catch(function () { state.busy = false; hideOverlay(); paintFoot(); showErr('Network problem. Please check your connection and try again.'); });
+  }
+
+  /* Build 038: one last chance before paying with an unclaimed free tattoo (once per visit; "Continue without"
+     is remembered for this browser tab only). */
+  var SKIP_FREE = false;
+  try { SKIP_FREE = sessionStorage.getItem('ikx_skipfree') === '1'; } catch (e) {}
+  function closeAsk() { var a = root && $('.ikx-ask', root); if (a) a.remove(); }
+  function askFree() {
+    if (SKIP_FREE || !CART || !state.quote) return false;
+    var b = bogo(CART.items), fp = freePicks(CART, b).slice(0, 4);
+    if (!fp.length) return false;
+    closeAsk();
+    var o = el('div', { class: 'ikx-ask', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your free tattoo' },
+      '<div class="ikx-ask__card"><button type="button" class="ikx-x ikx-ask__x" data-ikx-askx aria-label="Close">' + ICON.close + '</button>' +
+        '<p class="ikx-ask__k">Buy 1 Get 1 · don’t miss it</p>' +
+        '<h3>Wait! You have 1 FREE tattoo</h3>' +
+        '<p class="ikx-m">Tap a design to add it. You still pay ' + money(state.quote[qk(state.method)].total) + '.</p>' +
+        '<div class="ikx-fp ikx-fp--ask">' + fp.map(freeTile).join('') + '</div>' +
+        '<button type="button" class="ikx-ask__skip" data-ikx-skip>Continue without free tattoo</button></div>');
+    $('.ikx-sheet', root).appendChild(o);
+    var first = $('.ikx-fp__i', o); if (first) first.focus({ preventScroll: true });
+    return true;
+  }
+
+  /* PayU Bolt overlay; falls back to the redirect form if Bolt cannot load. */
+  function redirectPayu(p) {
+    var f = el('form', { method: 'POST', action: p.action });
+    for (var k in p.fields) { var i = el('input', { type: 'hidden', name: k }); i.value = p.fields[k]; f.appendChild(i); }
+    document.body.appendChild(f); f.submit();
+  }
+  function loadBolt(test) {
+    if (window.bolt) return Promise.resolve();
+    if (loadBolt.p) return loadBolt.p;
+    return (loadBolt.p = new Promise(function (ok, bad) {
+      var s = el('script', { src: test ? 'https://sboxcheckout-static.citruspay.com/bolt/run/bolt.min.js' : 'https://jssdk.payu.in/bolt/bolt.min.js', id: 'bolt', 'bolt-color': '16a34a' });
+      s.onload = function () { window.bolt ? ok() : bad(new Error('bolt missing')); };
+      s.onerror = function () { loadBolt.p = null; s.remove(); bad(new Error('bolt load failed')); };
+      document.head.appendChild(s);
+    }));
+  }
+  function payFailed(msg) {
+    hideOverlay(); root.style.visibility = ''; state.busy = false; state.idem = uuid();
+    if (!state.built) { refresh().then(function () { showErr(msg); }); return; }
+    paintFoot(); showErr(msg);
+  }
+  function goPayu(p) {
+    loadBolt(/test\.payu\.in/.test(p.action)).then(function () {
+      hideOverlay(); root.style.visibility = 'hidden';
+      var done = false;
+      window.bolt.launch(p.fields, {
+        responseHandler: function (B) {
+          if (done) return; done = true;
+          var r = (B && B.response) || {}, st = String(r.txnStatus || r.status || '').toUpperCase();
+          if (st === 'CANCEL' || (!r.hash && st !== 'SUCCESS')) return payFailed('Payment cancelled. You can try again or choose Cash on delivery.');
+          root.style.visibility = '';
+          screen('<i class="ikx-spin"></i><h3>Confirming your payment…</h3><p>Please don’t close this window.</p>');
+          var fd = new URLSearchParams(); for (var k in r) fd.append(k, r[k]);
+          fetch(API + '/api/payu/return?json=1', { method: 'POST', body: fd }).then(function (x) { return x.json(); }).then(function (j) {
+            if (j.ok) {
+              fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+              track('Purchase', { currency: 'INR', value: j.value }, j.eventId); tk('done');
+              return showSuccess({ orderName: j.orderName, statusUrl: j.statusUrl, method: j.partial ? 'partial' : 'prepaid', value: j.value, advance: j.advance, balance: j.balance });
+            }
+/* end of part 4 */
