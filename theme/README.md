@@ -9,4 +9,5 @@ when `/api/quote` → `partial.mode` is `all`, or `check` and `/api/cod-check` s
 the order goes to `/api/order` with `method: 'partial'`, and the advance is paid through PayU Bolt (desktop)
 or the chosen UPI app (phones).
 
-`src/public/theme-sync/*.txt` are copies served by Vercel so Shopify's themeFilesUpsert can pull them by URL.
+Upload: themeFilesUpsert with body type TEXT (type URL is only honoured for assets, not snippets), then compare
+each file's checksumMd5 with `md5sum src/ikx-js-*.liquid`.
