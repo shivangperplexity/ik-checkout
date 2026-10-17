@@ -33,5 +33,5 @@ test('rankCollection switches to manual and moves products', async () => {
   const r = await rankCollection(gql, 'bestsellers');
   assert.deepEqual(r, { handle: 'bestsellers', products: 3, moved: 3, sold_out: 1 });
   assert.ok(calls.some((c) => /collectionUpdate/.test(c)));
-  assert.match(calls.find((c) => c.startsWith('[')), /"id":"c","newPosition":"0".*"id":"b","newPosition":"1".*"id":"a","newPosition":"2"/);
+  assert.match(calls.find((c) => c.startsWith('[')), /"id":"b","newPosition":"0".*"id":"c","newPosition":"1".*"id":"a","newPosition":"2"/);
 });
