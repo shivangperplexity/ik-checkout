@@ -25,7 +25,7 @@ export const TRIGGERS = {
   ship_picked: { label: 'Shipment picked up', to: 'Customer', when: 'Courier picks the parcel up', vars: ['name', 'order', 'courier', 'edd', 'track'], def: 'ship_picked_up', on: true },
   ship_transit: { label: 'Shipment in transit', to: 'Customer', when: 'Moving through the courier network (6h+ after pickup)', vars: ['name', 'order', 'location', 'edd', 'track'], def: 'ship_in_transit', on: true },
   ship_ofd: { label: 'Out for delivery', to: 'Customer', when: 'Courier marks it out for delivery (once a day)', vars: ['name', 'order', 'track'], def: 'ship_out_for_delivery', on: true },
-  ship_failed: { label: 'Delivery attempt failed (re-attempt)', to: 'Customer', when: 'Courier could not deliver; skipped if the customer refused / cancelled with OTP', vars: ['name', 'order', 'track'], def: 'ship_delivery_failed', on: true },
+  ship_failed: { label: 'Delivery attempt failed (re-attempt)', to: 'Customer', when: 'Courier could not deliver; skipped if the customer refused / cancelled with OTP. The link lets the customer pick re-attempt (any day) or return; replying "re-attempt" / "return" works too', vars: ['name', 'order', 'track'], def: 'ship_delivery_failed', on: true },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };

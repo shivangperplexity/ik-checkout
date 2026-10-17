@@ -357,6 +357,7 @@ const ACTIONS = {
     });
     if (b.filter === 'high') list = list.filter((o) => o.level === 'high');
     if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
+    if (b.filter === 'unshipped') list = list.filter((o) => !o.shipped && o.status !== 'cancelled').map((o) => ({ ...o, ready: o.method !== 'cod' || !!o.confirmed_at }));
     if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && o.status !== 'cancelled');
     let profit = null;
     if (b.filter === 'shipped') {
@@ -365,17 +366,21 @@ const ACTIONS = {
       const pf = (env.SETTINGS || await getSettings(env)).profit || { unit_cost: 40, cac: 80 };
       const unitCost = num(pf.unit_cost), cac = num(pf.cac);
       const sum = { n: 0, revenue: 0, units: 0, product: 0, cac: 0, shipping: 0, net: 0, known: 0, unknown: 0 };
+      /* no Shiprocket charge on record (shipped another way): use the average of the known charges so the order still counts */
+      const knownCharges = list.map((o) => booked[String(o.id)]).filter((s) => s && s.charge_paise != null && num(s.charge_paise) > 0).map((s) => num(s.charge_paise) / 100);
+      const estShip = knownCharges.length ? Math.round(knownCharges.reduce((a, c) => a + c, 0) / knownCharges.length) : num(pf.ship_estimate) || 65;
       list.forEach((o) => {
         const row = all.find((x) => String(x.order_id) === String(o.id)) || {};
         let units = 0; try { units = JSON.parse(row.contents_json || '[]').reduce((s, c) => s + (Number(c.quantity) || 0), 0); } catch { units = 0; }
         if (!units) units = 1;
-        const ship = booked[String(o.id)] && booked[String(o.id)].charge_paise != null ? num(booked[String(o.id)].charge_paise) / 100 : null;
-        const product = units * unitCost, net = ship == null ? null : Math.round((o.total - product - cac - ship) * 100) / 100;
-        o.profit = { units, product, cac, shipping: ship, net };
-        sum.n++; sum.revenue += o.total; sum.units += units; sum.product += product; sum.cac += cac;
-        if (ship == null) sum.unknown++; else { sum.known++; sum.shipping += ship; sum.net += net; }
+        const known = booked[String(o.id)] && booked[String(o.id)].charge_paise != null && num(booked[String(o.id)].charge_paise) > 0;
+        const ship = known ? num(booked[String(o.id)].charge_paise) / 100 : estShip;
+        const product = units * unitCost, net = Math.round((o.total - product - cac - ship) * 100) / 100;
+        o.profit = { units, product, cac, shipping: ship, net, est: !known };
+        sum.n++; sum.revenue += o.total; sum.units += units; sum.product += product; sum.cac += cac; sum.shipping += ship; sum.net += net;
+        if (known) sum.known++; else sum.unknown++;
       });
-      profit = { ...sum, unit_cost: unitCost, cac_per_order: cac, avg: sum.known ? Math.round(sum.net / sum.known) : 0 };
+      profit = { ...sum, unit_cost: unitCost, cac_per_order: cac, ship_estimate: estShip, avg: sum.n ? Math.round(sum.net / sum.n) : 0 };
       Object.keys(profit).forEach((k) => { if (typeof profit[k] === 'number') profit[k] = Math.round(profit[k] * 100) / 100; });
     }
     if (b.filter === 'packed') list = list.filter((o) => o.packed_at && o.status !== 'cancelled');
@@ -588,14 +593,14 @@ const ACTIONS = {
           ORDER BY COALESCE(tracked_at,0) LIMIT 24`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
       if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
     } catch (e) { console.error('ship first check', e); }
-    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at
+    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json
         FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id
         WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
       /* not checked yet: only trust an older reading if the parcel was clearly delivered / returned */
       const legacy = stageOf(r.track_status || '');
       const stage = r.status === 'cancelled' ? 'cancelled' : (r.stage || (['delivered', 'rto'].includes(legacy) ? legacy : 'pickup_pending'));
-      return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '',
+      return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '', ndr_choice: r.ndr_choice || '', ndr_date: r.ndr_date || '', total_paise: num(r.total_paise), contents_json: r.contents_json || '',
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
         cod: r.method === 'cod', total: num(r.total_paise) / 100, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
         picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null };
@@ -605,13 +610,23 @@ const ACTIONS = {
     inRange.forEach((x) => { counts[x.stage] = (counts[x.stage] || 0) + 1; });
     const toPack = (x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at;   // "To pack": booked, courier not here yet, not packed
     counts.to_pack = inRange.filter(toPack).length;
-    let list = b.stage === 'to_pack' ? inRange.filter(toPack).sort((a, c) => a.booked_at - c.booked_at) : b.stage && b.stage !== 'all' ? inRange.filter((x) => x.stage === b.stage) : inRange;
+    const todayIso = new Date((today0 + 19800) * 1000).toISOString().slice(0, 10);
+    const dueToday = (x) => ['transit', 'ofd', 'ndr'].includes(x.stage) && x.edd === todayIso;   // courier's own estimate says today
+    counts.due_today = all.filter(dueToday).length;
+    let list = b.stage === 'to_pack' ? inRange.filter(toPack).sort((a, c) => a.booked_at - c.booked_at) : b.stage === 'due_today' ? all.filter(dueToday) : b.stage && b.stage !== 'all' ? inRange.filter((x) => x.stage === b.stage) : inRange;
     if (b.q) { const q = String(b.q).toLowerCase().trim(); list = list.filter((x) => `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase().includes(q)); }
     const live = all.filter((x) => x.stage !== 'cancelled');
     const liveR = inRange.filter((x) => x.stage !== 'cancelled'), rto = liveR.filter((x) => x.stage === 'rto');
+    /* expected profit for the parcels in range (same assumptions as Orders > Shipped): total - items x product cost - CAC - courier charge */
+    const pf = (await getSettings(env)).profit || { unit_cost: 40, cac: 80 };
+    const units = (x) => { try { return Math.max(1, JSON.parse(x.contents_json || '[]').reduce((a, c) => a + (Number(c.quantity) || 0), 0)); } catch { return 1; } };
+    const profit = liveR.reduce((a, x) => a + (x.total_paise / 100 - units(x) * num(pf.unit_cost) - num(pf.cac) - x.charge), 0);
+    const profitDelivered = liveR.filter((x) => x.stage === 'delivered').reduce((a, x) => a + (x.total_paise / 100 - units(x) * num(pf.unit_cost) - num(pf.cac) - x.charge), 0);
+    const rtoLoss = rto.reduce((a, x) => a + units(x) * 0 + num(pf.cac) + x.charge, 0);
     let wallet = null, walletErr = '';
     try { wallet = await srWallet(await withSettingsFresh(env), !!b.fresh_wallet); } catch (e) { walletErr = String(e.message || e).slice(0, 120); }
-    return { ok: true, range, shipments: list.slice(0, 500), total: list.length, counts, all_in_range: inRange.length, wallet, wallet_error: walletErr,
+    const pubList = list.slice(0, 500).map(({ contents_json, total_paise, ...x }) => x);
+    return { ok: true, range, shipments: pubList, total: list.length, counts, all_in_range: inRange.length, wallet, wallet_error: walletErr,
       attention: {
         pickup_failed: live.filter((x) => x.stage === 'pickup_failed').length,
         pickup_late: live.filter((x) => x.stage === 'pickup_pending' && x.booked_at < t - DAY).length,
@@ -619,13 +634,15 @@ const ACTIONS = {
         to_pack: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at).sort((a, b) => a.booked_at - b.booked_at).map((x) => x.order_id),
         ndr: live.filter((x) => x.stage === 'ndr').length,
         unverified: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.verified_at).length,
+        due_today: counts.due_today,
         cancelled_after_pickup: all.filter((x) => x.cancel_state === 'picked' && !['delivered', 'rto'].includes(x.stage)).length,
       },
       today: { booked: all.filter((x) => x.booked_at >= today0).length, picked: all.filter((x) => x.picked_at && x.picked_at >= today0).length,
         delivered: all.filter((x) => x.delivered_at && x.delivered_at >= today0).length, pickup_pending: live.filter((x) => x.stage === 'pickup_pending').length,
         packed: all.filter((x) => x.packed_at && x.packed_at >= today0).length },
       stats: { booked: liveR.length, rto_pct: liveR.length ? Math.round(rto.length * 1000 / liveR.length) / 10 : 0,
-        rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(liveR.reduce((a, x) => a + x.charge, 0)) } };
+        rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(liveR.reduce((a, x) => a + x.charge, 0)),
+        profit: Math.round(profit), profit_delivered: Math.round(profitDelivered), rto_loss: Math.round(rtoLoss), delivered: liveR.filter((x) => x.stage === 'delivered').length } };
   },
   /**
    * Verify a packed parcel by the barcode on its label. code: the scanned text (AWB, or the Shiprocket order id

@@ -124,6 +124,8 @@ export async function processInbound(env, msgs) {
       continue;
     }
     if (!action) continue;
+    /* a parcel waiting after a failed delivery: the customer decides re-attempt / return right here */
+    if (action === 'REATTEMPT' || action === 'RETURN') { const { ndrReply } = await import('./wa-ndr.js'); if (!(await ndrReply(env, m.from, action))) await sendText(env, '91' + m.from, 'There is no parcel waiting for a re-attempt on this number right now. Reply with your order number if you need help.'); continue; }
     const row = await resolveOrder(env, m.from);
     if (!row || row.method !== 'cod') continue;
     let result;

@@ -27,6 +27,7 @@ export default {
       /* WhatsApp via Go4WhatsUp: inbound replies, one-tap confirm, COD -> prepaid. */
       if (path === '/api/wa/g4w') return await handleG4w(req, env, ctx);
       if (path === '/api/wa/act') return await handleAct(req, env);
+      if (path === '/api/wa/ndr') { const { handleNdr } = await import('../lib/wa-ndr.js'); return await handleNdr(req, env); }
       if (path === '/api/wa/addr') { const { handleAddr } = await import('../lib/wa-address.js'); return await handleAddr(req, env); }
       if (path === '/api/wa/pay') return await handlePay(req, env);
       if (path === '/api/wa/paid' && req.method === 'POST') return await handlePaid(req, env, ctx);

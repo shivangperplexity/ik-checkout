@@ -152,7 +152,9 @@ export async function shipUpdates(env) {
         await env.DB.prepare('UPDATE shipments SET status=?, rto=?, updated_at=? WHERE awb=?').bind(tr.status || c.stage, rto, t, String(awb)).run();
         if (rto && !sent.rto) { try { await addTags(env, `gid://shopify/Order/${r.order_id}`, ['rto']); sent = { ...sent, rto: now() }; } catch { /* retried next run */ } }
       }
-      const vars = { name: r.first_name || 'there', order: r.order_name, courier: String(courier || tr.courier_name || 'our courier').replace(/\s+(Surface|Air)$/i, ''), edd: fmtEdd(tr.edd), location: c.city || 'a courier hub', track: url || r.status_url || '' };
+      let ndrLinkV = '';
+      if (todo.includes('failed')) { try { const { ndrLink } = await import('./wa-ndr.js'); ndrLinkV = await ndrLink(env, r.order_id); } catch { /* plain tracking link then */ } }
+      const vars = { name: r.first_name || 'there', order: r.order_name, courier: String(courier || tr.courier_name || 'our courier').replace(/\s+(Surface|Air)$/i, ''), edd: fmtEdd(tr.edd), location: c.city || 'a courier hub', track: ndrLinkV || url || r.status_url || '' };
       for (const what of todo) {
         if (what === 'failed-refused') {
           await logMsg(env, { direction: 'out', phone: r.phone, trigger: 'ship_failed', status: 'skipped', orderName: r.order_name, error: 'courier says the customer refused / cancelled with OTP' });
