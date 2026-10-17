@@ -95,6 +95,7 @@
   var renderSeq = 0, CART_SHOWN = null;
   function setQuote(q, final) {
     state.quote = q; state.final = !!final; state.quoteSig = sigOf(state.lines);
+    if (q.px) setPx(q.px);
     if (final) { state.ups = q.upsells || []; state.logos = q.upi_logos || {}; }
   }
   function render(c) {

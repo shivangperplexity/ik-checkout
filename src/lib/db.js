@@ -85,6 +85,16 @@ export const SCHEMA = [
      parcel stops asking for action until the courier fails again */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_by TEXT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_attempt INT`,
+  /* Meta Conversions API: what Meta answered for this order's Purchase (lib/meta.js), so the dashboard can compare
+     Meta's numbers with real orders. capi_pixel = dataset it went to; capi_test = sent with a test_event_code. */
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_at BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_ok BOOLEAN`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_pixel TEXT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_test BOOLEAN`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_error TEXT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_tries INT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_ip TEXT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_ua TEXT`,
 ];
 
 let ready;

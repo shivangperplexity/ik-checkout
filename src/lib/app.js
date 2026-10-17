@@ -3,7 +3,7 @@ import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees } from './pricing.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
-import { sendPurchase } from './meta.js';
+import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings } from './settings.js';
 import { handleLogin, handleRpc, handleLabel, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
@@ -47,7 +47,7 @@ async function handleQuote(req, env) {
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
-  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), ...q });
+  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), px: metaPx(env), ...q });
 }
 
 /** Partial COD: does this address / number pay the advance first? The checkout asks once the delivery details are in. */
@@ -160,6 +160,7 @@ async function handleOrder(req, env, ctx) {
   const contents = lines.map((l) => ({ id: l.variantId.split('/').pop(), quantity: l.qty, item_price: Number(rupees(l.unit)) }));
   const row = {
     sid: String(a.sid || '').slice(0, 40), idem, txnid, eventId, draftId: draft.id, method, total: draft.total, buyer, a, contents,
+    ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim().slice(0, 64) || null, ua: String(req.headers.get('User-Agent') || '').slice(0, 400) || null,
     sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
   };
 
@@ -210,7 +211,12 @@ async function saveOrder(env, r, order, status) {
     .run();
   await env.DB.prepare("UPDATE leads SET status='ordered', updated_at=? WHERE phone=?").bind(now(), r.buyer.phone).run();
   if (r.sid) await env.DB.prepare('UPDATE orders SET sid=? WHERE idem=?').bind(r.sid, r.idem).run();
+  /* the shopper's own IP / browser, for the Meta server event (the PayU return may come from PayU's servers) */
+  if (r.ua || r.ip) await env.DB.prepare('UPDATE orders SET client_ip=?, client_ua=? WHERE idem=?').bind(r.ip || null, r.ua || null, r.idem).run();
 }
+
+/** Pixel ID for the browser Purchase in IK checkout (same dataset as the server event, so Meta de-duplicates). */
+const metaPx = (env) => { const c = metaCfg(env); return c.browser ? c.pixelId : ''; };
 
 async function replayResponse(env, p) {
   if (Number(p.advance_paise) > 0) return p.status === 'placed' ? { ok: true, method: 'partial', orderName: p.order_name, statusUrl: p.status_url, eventId: p.event_id, value: p.total_paise / 100, advance: Number(p.advance_paise), balance: p.total_paise - p.advance_paise } : { ok: false, error: 'This payment attempt is already in progress. Please reload and try again.' };
@@ -219,14 +225,10 @@ async function replayResponse(env, p) {
 }
 
 async function purchaseEvent(env, row, orderName, ip, ua) {
-  return sendPurchase(env, {
-    eventId: row.eventId || row.event_id, orderName, valuePaise: row.total ?? row.total_paise,
-    phone: row.buyer?.phone ?? row.phone, email: row.buyer?.email ?? row.email, firstName: row.buyer?.firstName ?? row.first_name, lastName: row.buyer?.lastName ?? row.last_name,
-    city: row.buyer?.city ?? row.city, stateCode: row.buyer ? stateCode(row.buyer.state) : row.state_code, pincode: row.buyer?.pincode ?? row.pincode,
-    fbp: row.a?.fbp ?? row.fbp, fbc: row.a?.fbc ?? row.fbc, ip, ua, sourceUrl: row.sourceUrl ?? row.source_url,
-    contents: row.contents ?? JSON.parse(row.contents_json || '[]'),
-    numItems: (row.contents ?? JSON.parse(row.contents_json || '[]')).reduce((s, c) => s + c.quantity, 0),
-  });
+  const res = await sendPurchase(env, purchasePayload(row, orderName, ip, ua));
+  await recordCapi(env, row.eventId || row.event_id, res);
+  if (!res.ok && !res.skipped) console.error('capi rejected', orderName, res.status, res.error);
+  return res;
 }
 
 async function afterCod(env, req, row, order) {

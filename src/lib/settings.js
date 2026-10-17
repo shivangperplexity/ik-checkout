@@ -1,4 +1,5 @@
 import { DEFAULTS as PARTIAL } from './partial-cod.js';
+import { META_DEFAULTS } from './meta.js';
 // Dashboard-editable settings (stored in the settings table) layered over env vars.
 //
 // Variable names matter on the Go4WhatsUp path: they are sent as named key/value pairs and must match the
@@ -51,6 +52,8 @@ const DEFAULTS = {
   ai: { enabled: false, provider: 'groq', key: '', model: '', knowledge: '', rpm: 20, rpd: 800 },
   /* Partial COD: ₹99 online now, the rest on delivery (lib/partial-cod.js). mode off = full COD as before. */
   partial: { ...PARTIAL },
+  /* Meta pixel for the Purchase events (lib/meta.js) */
+  meta: { ...META_DEFAULTS },
 };
 
 let cache = { at: 0, s: null };
@@ -65,6 +68,7 @@ export async function getSettings(env, fresh) {
   s.profit = { ...DEFAULTS.profit, ...(s.profit || {}) };
   s.ai = { ...DEFAULTS.ai, ...(s.ai || {}) };
   s.partial = { ...DEFAULTS.partial, ...(s.partial || {}) };
+  s.meta = { ...DEFAULTS.meta, ...(s.meta || {}) };
   cache = { at: Date.now(), s };
   return s;
 }

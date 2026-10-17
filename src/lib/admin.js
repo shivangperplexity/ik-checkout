@@ -14,6 +14,7 @@ const shopOrderShip = shipOrder;
 import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, cartLink } from './whatsapp.js';
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
+import { metaCfg, pixelInfo, capiStats, resendDue, resendPurchases, META_DEFAULTS } from './meta.js';
 import { codDue, cfg as partialCfg, decide as partialDecide, riskyPins, reasonText as partialReason, DEFAULTS as PARTIAL_DEFAULTS } from './partial-cod.js';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -488,6 +489,37 @@ const ACTIONS = {
   async rank_now(env) {
     const { rankAll } = await import('./ranking.js');
     return { ok: true, status: await rankAll(env, { force: true }) };
+  },
+  /** Meta tracking: real orders vs Purchases Meta accepted, the pixel they go to, and what Meta says about it. */
+  async meta_status(env, b) {
+    const fresh = await withSettingsFresh(env);
+    const c = metaCfg(fresh);
+    const days = Math.max(1, Math.min(60, Number(b.days) || 14));
+    const [stats, info, envInfo, due] = await Promise.all([
+      capiStats(fresh, days),
+      pixelInfo(fresh, c.pixelId),
+      env.META_PIXEL_ID && env.META_PIXEL_ID !== c.pixelId ? pixelInfo(fresh, env.META_PIXEL_ID) : null,
+      resendDue(fresh, { anyTries: true }),
+    ]);
+    return { ok: true, pixel: c.pixelId, env_pixel: env.META_PIXEL_ID || '', test_code: c.testCode, env_test_ignored: !!env.META_TEST_EVENT_CODE, browser: c.browser, token: !!c.token,
+      info, env_info: envInfo, resend_due: due.length, ...stats };
+  },
+  async save_meta(env, b) {
+    const s = await getSettings(env, true);
+    const m = { ...META_DEFAULTS, ...(s.meta || {}) };
+    if (b.pixel_id !== undefined) {
+      const id = String(b.pixel_id || '').replace(/\D/g, '');
+      if (id && !/^\d{10,20}$/.test(id)) throw new Error('A Meta pixel / dataset ID is 15–16 digits');
+      m.pixel_id = id;
+    }
+    if (b.test_code !== undefined) m.test_code = String(b.test_code || '').trim().slice(0, 40);
+    if (b.browser !== undefined) m.browser = !!b.browser;
+    await putSetting(env, 'meta', m);
+    return { ok: true, meta: m };
+  },
+  /** Send purchases from the last 7 days that never reached the current pixel (rejected, or sent to another pixel). */
+  async meta_resend(env) {
+    return { ok: true, ...(await resendPurchases(await withSettingsFresh(env), { limit: 400, anyTries: true })) };
   },
   /** Partial COD settings (lib/partial-cod.js). */
   async save_partial(env, b) {
@@ -1308,6 +1340,7 @@ export async function runAutomations(env) {
   /* WhatsApp assistant: answer phones queued by the rate limit (spaced, a few per run) */
   try { const { drainQueue, aiOn } = await import('./wa-ai.js'); if (aiOn(env)) out.aiQueue = await drainQueue(env, { max: 6, gapMs: 2500 }); } catch (e) { console.error('ai-queue', e); }
   /* Product order in Bestsellers / All Tattoos / Home page: sold out last, a few bigger designs up top (daily) */
+  try { const r = await resendPurchases(env, { limit: 40 }); if (r.tried) out.capi = r; } catch (e) { console.error('capi retry', e); }
   try { const { rankAll } = await import('./ranking.js'); const r = await rankAll(env); if (!r.skipped) out.rank = { ok: r.ok, error: r.error }; } catch (e) { console.error('rank', e); }
   /* Reconciliation audit (Shopify x Shiprocket x here) every ~30 minutes; it only records issues, the owner fixes them from the Shipments tab */
   try {

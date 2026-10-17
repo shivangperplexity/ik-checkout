@@ -56,7 +56,35 @@
   function api(path, body, method) {
     return fetch(API + path, { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, keepalive: true }).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
   }
-  function track(name, data, eventId) { try { if (window.fbq) fbq('track', name, data || {}, eventId ? { eventID: eventId } : undefined); } catch (e) {} }
+  /* Meta pixel for IK checkout events. Shopify's Facebook app runs its pixel in a sandbox, so window.fbq is not on the
+     page: load it here for the dataset the server sends to (quote.px), same event IDs, so Meta keeps one of each. */
+  var PX = (function () { try { return sessionStorage.getItem('ik_px') || ''; } catch (e) { return ''; } })(), pxOn = false, pxWait = [];
+  function setPx(id) {
+    id = String(id || ''); if (id && id !== PX) { PX = id; pxOn = false; try { sessionStorage.setItem('ik_px', id); } catch (e) {} }
+    ensurePx(); var w = pxWait; pxWait = []; w.forEach(function (a) { track(a[0], a[1], a[2]); });
+  }
+  function ensurePx() {
+    if (pxOn || !PX) return; pxOn = true;
+    try {
+      if (!window.fbq) {
+        var n = window.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+        if (!window._fbq) window._fbq = n; n.push = n; n.loaded = true; n.version = '2.0'; n.queue = [];
+        var t = document.createElement('script'); t.async = true; t.src = 'https://connect.facebook.net/en_US/fbevents.js';
+        (document.head || document.body).appendChild(t);
+      }
+      fbq('set', 'autoConfig', false, PX);
+      fbq('init', PX);
+    } catch (e) {}
+  }
+  function track(name, data, eventId) {
+    try {
+      ensurePx();
+      /* first visit: the pixel ID arrives with the first server quote; hold the event until then */
+      if (!window.fbq) { if (!PX && pxWait.length < 10) pxWait.push([name, data, eventId]); return; }
+      var o = eventId ? { eventID: eventId } : undefined;
+      if (PX) fbq('trackSingle', PX, name, data || {}, o); else fbq('track', name, data || {}, o);
+    } catch (e) {}
+  }
   var ICON = {
     close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     chev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
@@ -74,6 +102,7 @@
   var attribution = (function () {
     var a = {}; try { a = JSON.parse(sessionStorage.getItem('ik_attr') || '{}'); } catch (e) {}
     ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid'].forEach(function (k) { if (qs.get(k) && !a[k]) a[k] = qs.get(k); });
+    if (a.fbclid && !a.fbclid_at) a.fbclid_at = Date.now();
     if (!a.landing) a.landing = location.href.split('#')[0];
     try { sessionStorage.setItem('ik_attr', JSON.stringify(a)); } catch (e) {}
     return a;
@@ -84,7 +113,7 @@
   function attrNow() {
     var a = {}; for (var k in attribution) a[k] = attribution[k];
     a.sid = SID; a.fbp = cookie('_fbp');
-    a.fbc = cookie('_fbc') || (attribution.fbclid ? 'fb.1.' + Date.now() + '.' + attribution.fbclid : '');
+    a.fbc = cookie('_fbc') || (attribution.fbclid ? 'fb.1.' + (attribution.fbclid_at || Date.now()) + '.' + attribution.fbclid : '');
     return a;
   }
 
