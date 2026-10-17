@@ -406,6 +406,27 @@ const ACTIONS = {
     const need = ['write_fulfillments', 'write_merchant_managed_fulfillment_orders', 'write_orders', 'read_orders', 'write_draft_orders', 'read_products'];
     return { ok: true, app: d.currentAppInstallation?.app?.title || '', shop: d.shop?.myshopifyDomain || '', scopes, missing: need.filter((x) => !scopes.includes(x)) };
   },
+  /* ---- WhatsApp assistant ---- */
+  async save_ai(env, b) {
+    const s = await getSettings(env, true);
+    const a = { ...s.ai };
+    if (b.enabled !== undefined) a.enabled = !!b.enabled;
+    if (b.key !== undefined && !String(b.key).startsWith('••')) a.key = String(b.key).trim();
+    if (b.model !== undefined) a.model = String(b.model).trim().slice(0, 60) || 'claude-haiku-5-5';
+    if (b.knowledge !== undefined) a.knowledge = String(b.knowledge).slice(0, 12000);
+    if (a.enabled && !(a.key || env.ANTHROPIC_API_KEY)) throw new Error('Paste an Anthropic API key first (or set ANTHROPIC_API_KEY in Vercel).');
+    await putSetting(env, 'ai', a);
+    return { ok: true };
+  },
+  /** Try the assistant without sending anything: { text, phone? } -> its reply, with the order context it saw. */
+  async ai_test(env, b) {
+    const { aiAnswer, customerOrders } = await import('./wa-ai.js');
+    const fresh = await withSettingsFresh(env);
+    if (!(fresh.SETTINGS.ai.key || env.ANTHROPIC_API_KEY)) throw new Error('No API key saved yet');
+    const phone = digits(b.phone).slice(-10);
+    const a = await aiAnswer(fresh, { phone, text: String(b.text || 'How long does it last?') });
+    return { ok: true, reply: a.text, handoff: a.handoff, usage: a.usage, orders: phone ? await customerOrders(fresh, phone).catch(() => '') : '' };
+  },
   async save_profit(env, b) {
     const unit_cost = Number(b.unit_cost), cac = Number(b.cac);
     if (!(unit_cost >= 0 && unit_cost < 100000) || !(cac >= 0 && cac < 100000)) throw new Error('Enter amounts in rupees');
@@ -494,6 +515,7 @@ const ACTIONS = {
     return {
       cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
+      ai: { enabled: !!s.ai.enabled, key: mask(s.ai.key), has_key: !!(s.ai.key || env.ANTHROPIC_API_KEY), model: s.ai.model, knowledge: s.ai.knowledge || '', default_knowledge: (await import('./wa-ai.js')).DEFAULT_KNOWLEDGE },
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */

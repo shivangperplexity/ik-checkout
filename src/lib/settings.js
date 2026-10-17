@@ -43,6 +43,8 @@ const DEFAULTS = {
     policy: 'cheapest', tolerance_days: 2 },
   /* Expected-profit column on Orders > Shipped: product cost per item and customer acquisition cost per order (₹) */
   profit: { unit_cost: 40, cac: 80 },
+  /* WhatsApp assistant (lib/wa-ai.js): answers plain-text customer messages. key falls back to ANTHROPIC_API_KEY. */
+  ai: { enabled: false, key: '', model: 'claude-haiku-5-5', knowledge: '' },
 };
 
 let cache = { at: 0, s: null };
@@ -55,6 +57,7 @@ export async function getSettings(env, fresh) {
   s.wa = { ...DEFAULTS.wa, ...s.wa };
   s.shipping = { ...DEFAULTS.shipping, ...(s.shipping || {}) };
   s.profit = { ...DEFAULTS.profit, ...(s.profit || {}) };
+  s.ai = { ...DEFAULTS.ai, ...(s.ai || {}) };
   cache = { at: Date.now(), s };
   return s;
 }
