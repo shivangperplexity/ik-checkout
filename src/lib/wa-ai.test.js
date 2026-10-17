@@ -111,3 +111,23 @@ test('provider rejects the free text: logged as failed with Meta\'s reason, not 
     assert.equal(row.status, 'failed');
   } finally { globalThis.fetch = real; w.done(); }
 });
+
+test('reply leaves from the number the customer wrote to (Meta phone id from the webhook, or Go4WhatsUp)', async () => {
+  const w = world();
+  const hits = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, o) => {
+    const url = String(u);
+    if (/graph\.facebook/.test(url)) { hits.push(url.split('/')[4]); return new Response('{"messages":[{"id":"wamid.1"}]}'); }
+    if (/go4whatsup/.test(url)) { hits.push('g4w'); return new Response('{"ErrorCode":200,"Data":{"messageId":"g1"}}'); }
+    return real(u, o);
+  };
+  try {
+    await processInbound(w.env, [{ from: '9999999999', text: 'kitne din chalega?', via: 'meta', phoneId: 'PHONE_B' }]);
+    assert.deepEqual(hits, ['PHONE_B'], 'not the default WA_PHONE_ID "p"');
+    hits.length = 0;
+    w.env.G4W_API_KEY = 'a'; w.env.G4W_SECURE_KEY = 'b';
+    await processInbound(w.env, [{ from: '9999999999', text: 'is it waterproof?', via: 'g4w' }]);
+    assert.deepEqual(hits, ['g4w'], 'came in through Go4WhatsUp, goes back through Go4WhatsUp even though Meta is the default');
+  } finally { globalThis.fetch = real; w.done(); }
+});

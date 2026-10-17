@@ -101,7 +101,7 @@ export async function handleG4w(req0, env0, ctx) {
       await logMsg(env, { direction: 'in', trigger: 'g4w-raw', status: 'unparsed', preview: raw.slice(0, 300) });
       return;
     }
-    await processInbound(env, msgs);
+    await processInbound(env, msgs.map((m) => ({ ...m, via: 'g4w' })));
   })().catch((e) => console.error('g4w', e)));
 
   return new Response('ok');
@@ -109,10 +109,12 @@ export async function handleG4w(req0, env0, ctx) {
 
 
 /** Shared by the Go4WhatsUp webhook and the Meta webhook: act on customer replies ({ from: 10 digits, text }). */
-export async function processInbound(env, msgs) {
+export async function processInbound(env0, msgs) {
   for (const m of msgs) {
+    /* everything sent back in this conversation leaves from the number the customer wrote to */
+    const env = m.via ? Object.assign(Object.create(null), env0, { REPLY_ROUTE: { via: m.via, phoneId: m.phoneId || '' } }) : env0;
     const action = replyAction(m.text);
-    await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action || '', status: 'received', preview: m.text });
+    await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action || '', status: 'received', wamid: m.via ? `in:${m.via}${m.phoneId ? ':' + m.phoneId : ''}` : '', preview: m.text });
     if (action === 'STOP') {
       await env.DB.prepare('INSERT INTO wa_optout (phone, at) VALUES (?,?) ON CONFLICT(phone) DO UPDATE SET at=excluded.at').bind(m.from, now()).run();
       await sendText(env, '91' + m.from, 'You will not get offers from Ink Kulture on WhatsApp any more. Order updates still come here. Reply START to undo.');

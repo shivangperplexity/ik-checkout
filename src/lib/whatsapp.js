@@ -16,16 +16,22 @@ export const waConnected = (env) => viaG4w(env) || !!(env.WA_PHONE_ID && env.WA_
  * Never throws. Returns { ok, id, via, error }: ok means the provider accepted it (delivery receipts come later, by id).
  */
 export async function sendText(env, phone91, text) {
-  if (viaG4w(env)) {
+  /* A reply to an inbound message goes back the way it came (processInbound sets REPLY_ROUTE): Meta only opens
+     the 24h window between the customer and the number they wrote to, so replying from another number fails
+     with 131047 "Re-engagement message". */
+  const route = env.REPLY_ROUTE;
+  const useG4w = route?.via === 'g4w' ? !!(env.G4W_API_KEY && env.G4W_SECURE_KEY) : route?.via === 'meta' ? false : viaG4w(env);
+  const phoneId = (route?.via === 'meta' && route.phoneId) || env.WA_PHONE_ID;
+  if (useG4w) {
     try {
       const j = await g4w.sendText(env, phone91, text);
       const d = j?.Data || j?.data || {};
       return { ok: true, via: 'g4w', id: String(d.messageId || d.MessageId || d.wamid || d.id || j?.messageId || '') };
     } catch (e) { console.error('g4w sendText', e.message); return { ok: false, via: 'g4w', error: String(e.message || e) }; }
   }
-  if (!env.WA_PHONE_ID || !env.WA_TOKEN) return { ok: false, via: 'none', error: 'WhatsApp is not connected (no phone number ID / token, and Go4WhatsUp is not selected)' };
+  if (!phoneId || !env.WA_TOKEN) return { ok: false, via: 'none', error: route?.via === 'g4w' ? 'The message came in through Go4WhatsUp but the Go4WhatsUp keys are not set' : 'WhatsApp is not connected (no phone number ID / token, and Go4WhatsUp is not selected)' };
   try {
-    const r = await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
+    const r = await fetch(`${GRAPH}/${phoneId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
       body: JSON.stringify({ messaging_product: 'whatsapp', to: phone91, type: 'text', text: { body: text } }),
