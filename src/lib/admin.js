@@ -454,7 +454,7 @@ const ACTIONS = {
       if (!f.list.some((x) => x.numbers.includes(number))) throw e;
     }
     await env.DB.prepare('UPDATE orders SET shipped_at=?, tracking=? WHERE order_id=?').bind(now(), `${company} ${number}`, String(b.id)).run();
-    const w = await fireTrigger(env, 'order_shipped', { to: o.phone, vars: { name: o.first_name, order: o.order_name, courier: company, tracking: number }, orderName: o.order_name });
+    const w = b.whatsapp === false ? { ok: false, skipped: 'silent' } : await fireTrigger(env, 'order_shipped', { to: o.phone, vars: { name: o.first_name, order: o.order_name, courier: company, tracking: number }, orderName: o.order_name });
     return { ok: true, whatsapp: w };
   },
   async leads(env) {
