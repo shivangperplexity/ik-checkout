@@ -411,18 +411,20 @@ const ACTIONS = {
     const s = await getSettings(env, true);
     const a = { ...s.ai };
     if (b.enabled !== undefined) a.enabled = !!b.enabled;
+    const { PROVIDERS, aiCfg } = await import('./wa-ai.js');
+    if (b.provider !== undefined && PROVIDERS[b.provider]) { if (b.provider !== a.provider) { a.key = ''; a.model = ''; } a.provider = b.provider; }
     if (b.key !== undefined && !String(b.key).startsWith('••')) a.key = String(b.key).trim();
-    if (b.model !== undefined) a.model = String(b.model).trim().slice(0, 60) || 'claude-haiku-5-5';
+    if (b.model !== undefined) a.model = String(b.model).trim().slice(0, 100);
     if (b.knowledge !== undefined) a.knowledge = String(b.knowledge).slice(0, 12000);
-    if (a.enabled && !(a.key || env.ANTHROPIC_API_KEY)) throw new Error('Paste an Anthropic API key first (or set ANTHROPIC_API_KEY in Vercel).');
+    if (a.enabled && !aiCfg({ ...env, SETTINGS: { ...s, ai: a } }).key) throw new Error('Paste the ' + PROVIDERS[a.provider || 'groq'].label.split(' (')[0] + ' API key first.');
     await putSetting(env, 'ai', a);
     return { ok: true };
   },
   /** Try the assistant without sending anything: { text, phone? } -> its reply, with the order context it saw. */
   async ai_test(env, b) {
-    const { aiAnswer, customerOrders } = await import('./wa-ai.js');
+    const { aiAnswer, customerOrders, aiCfg } = await import('./wa-ai.js');
     const fresh = await withSettingsFresh(env);
-    if (!(fresh.SETTINGS.ai.key || env.ANTHROPIC_API_KEY)) throw new Error('No API key saved yet');
+    if (!aiCfg(fresh).key) throw new Error('No API key saved yet');
     const phone = digits(b.phone).slice(-10);
     const a = await aiAnswer(fresh, { phone, text: String(b.text || 'How long does it last?') });
     return { ok: true, reply: a.text, handoff: a.handoff, usage: a.usage, orders: phone ? await customerOrders(fresh, phone).catch(() => '') : '' };
@@ -515,7 +517,7 @@ const ACTIONS = {
     return {
       cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
-      ai: { enabled: !!s.ai.enabled, key: mask(s.ai.key), has_key: !!(s.ai.key || env.ANTHROPIC_API_KEY), model: s.ai.model, knowledge: s.ai.knowledge || '', default_knowledge: (await import('./wa-ai.js')).DEFAULT_KNOWLEDGE },
+      ai: await (async () => { const { PROVIDERS, aiCfg, DEFAULT_KNOWLEDGE } = await import('./wa-ai.js'); const c = aiCfg({ ...env, SETTINGS: s }); return { enabled: !!s.ai.enabled, provider: c.provider, key: mask(s.ai.key), has_key: !!c.key, model: c.model, knowledge: s.ai.knowledge || '', default_knowledge: DEFAULT_KNOWLEDGE, providers: Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, model: v.model, keyUrl: v.keyUrl, free: v.free }])) }; })(),
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */

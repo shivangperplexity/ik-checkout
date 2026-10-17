@@ -2,7 +2,7 @@
 //
 // Every inbound message already lands in processInbound (lib/wa-g4w.js). Button taps and known words (yes / cancel /
 // re-attempt / return / address replies) are handled by their own flows; anything else used to be dropped. Now it
-// goes to Claude with:
+// goes to a language model (Groq's free tier by default; any provider in PROVIDERS) with:
 //   * the store knowledge written in Settings (what the tattoos are, how to apply, how long they last, delivery,
 //     COD, Buy 1 Get 1, returns...),
 //   * that customer's own orders from this database (status, confirmed?, shipped?, courier, AWB, where the parcel is,
@@ -20,7 +20,16 @@ import { STAGES, LABEL as STAGE_LABEL } from './ship-status.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const AI_DAILY_CAP = 25;
-const API = 'https://api.anthropic.com/v1/messages';
+
+/* Where the model runs. Groq, Cerebras, OpenRouter and Gemini have free tiers and speak the OpenAI chat format;
+   Anthropic is the paid option. The model name is editable in the dashboard because free model lists change. */
+export const PROVIDERS = {
+  groq: { label: 'Groq (free tier, recommended)', url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile', keyUrl: 'https://console.groq.com/keys', free: true },
+  cerebras: { label: 'Cerebras (free tier)', url: 'https://api.cerebras.ai/v1/chat/completions', model: 'llama-3.3-70b', keyUrl: 'https://cloud.cerebras.ai', free: true },
+  openrouter: { label: 'OpenRouter (free models)', url: 'https://openrouter.ai/api/v1/chat/completions', model: 'meta-llama/llama-3.3-70b-instruct:free', keyUrl: 'https://openrouter.ai/keys', free: true },
+  gemini: { label: 'Google Gemini (free tier; prompts may be used for training)', url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.5-flash', keyUrl: 'https://aistudio.google.com/apikey', free: true },
+  anthropic: { label: 'Anthropic Claude (paid)', url: 'https://api.anthropic.com/v1/messages', model: 'claude-haiku-5-5', keyUrl: 'https://console.anthropic.com', free: false },
+};
 
 export const DEFAULT_KNOWLEDGE = `Ink Kulture sells semi-permanent tattoos (temporary tattoo transfers) in India, at inkkulture.in.
 - The tattoo is a transfer sheet: clean and dry the skin, place the tattoo face down, press a wet cloth on the backing paper for about 30 seconds, then peel the paper off slowly. Let it dry for a few minutes. Full instructions come with every order.
@@ -77,7 +86,12 @@ async function recentThread(env, phone, limit = 8) {
   return rows.reverse().filter((r) => r.direction === 'in' ? /^(reply|ai)$/.test(r.trigger) : r.trigger === 'ai').map((r) => ({ role: r.direction === 'in' ? 'user' : 'assistant', content: String(r.preview).slice(0, 600) }));
 }
 
-export const aiCfg = (env) => ({ ...(env.SETTINGS?.ai || {}), key: env.SETTINGS?.ai?.key || env.ANTHROPIC_API_KEY || '' });
+export const aiCfg = (env) => {
+  const a = env.SETTINGS?.ai || {};
+  const provider = PROVIDERS[a.provider] ? a.provider : 'groq';
+  const envKey = { groq: env.GROQ_API_KEY, cerebras: env.CEREBRAS_API_KEY, openrouter: env.OPENROUTER_API_KEY, gemini: env.GEMINI_API_KEY, anthropic: env.ANTHROPIC_API_KEY }[provider];
+  return { ...a, provider, key: a.key || envKey || '', model: a.model && a.provider === provider ? a.model : PROVIDERS[provider].model };
+};
 export const aiOn = (env) => { const c = aiCfg(env); return !!(c.enabled && c.key); };
 
 /** Ask Claude. Returns { text, handoff }. Throws on API trouble. */
@@ -89,11 +103,25 @@ export async function aiAnswer(env, { phone, text, thread = [] }) {
   const merged = [];
   for (const m of msgs) { const last = merged[merged.length - 1]; if (last && last.role === m.role) last.content += '\n' + m.content; else merged.push({ ...m }); }
   if (merged[0].role !== 'user') merged.shift();
-  const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': c.key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: c.model || 'claude-haiku-5-5', max_tokens: 350, temperature: 0.3, system: SYSTEM(c.knowledge || DEFAULT_KNOWLEDGE, orders), messages: merged }) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error('Claude API ' + r.status + ': ' + (j.error?.message || JSON.stringify(j).slice(0, 200)));
-  let out = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+  const P = PROVIDERS[c.provider], system = SYSTEM(c.knowledge || DEFAULT_KNOWLEDGE, orders);
+  let r, j, out;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    if (c.provider === 'anthropic') {
+      r = await fetch(P.url, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', 'x-api-key': c.key, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: c.model, max_tokens: 350, temperature: 0.3, system, messages: merged }) });
+      j = await r.json().catch(() => ({}));
+      out = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+    } else {
+      r = await fetch(P.url, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.key, ...(c.provider === 'openrouter' ? { 'HTTP-Referer': 'https://www.inkkulture.in', 'X-Title': 'Ink Kulture WhatsApp' } : {}) },
+        body: JSON.stringify({ model: c.model, max_tokens: 350, temperature: 0.3, messages: [{ role: 'system', content: system }, ...merged] }) });
+      j = await r.json().catch(() => ({}));
+      out = j.choices?.[0]?.message?.content || '';
+      if (j.usage) j.usage = { input_tokens: j.usage.prompt_tokens, output_tokens: j.usage.completion_tokens };
+    }
+  } finally { clearTimeout(timer); }
+  if (!r.ok) throw new Error(`${P.label.split(' (')[0]} ${r.status}${r.status === 429 ? ' (free limit reached for now)' : ''}: ` + (j.error?.message || j.message || JSON.stringify(j).slice(0, 200)));
+  out = String(out || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   const handoff = /\[HANDOFF\]/.test(out);
   out = out.replace(/\s*\[HANDOFF\]\s*/g, ' ').replace(/\s+$/, '').trim();
   if (!out) out = 'Thanks for your message. A team member will reply here shortly.';

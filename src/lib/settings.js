@@ -43,8 +43,8 @@ const DEFAULTS = {
     policy: 'cheapest', tolerance_days: 2 },
   /* Expected-profit column on Orders > Shipped: product cost per item and customer acquisition cost per order (₹) */
   profit: { unit_cost: 40, cac: 80 },
-  /* WhatsApp assistant (lib/wa-ai.js): answers plain-text customer messages. key falls back to ANTHROPIC_API_KEY. */
-  ai: { enabled: false, key: '', model: 'claude-haiku-5-5', knowledge: '' },
+  /* WhatsApp assistant (lib/wa-ai.js): answers plain-text customer messages. Provider groq (free) by default; key falls back to GROQ_API_KEY etc. */
+  ai: { enabled: false, provider: 'groq', key: '', model: '', knowledge: '' },
 };
 
 let cache = { at: 0, s: null };
