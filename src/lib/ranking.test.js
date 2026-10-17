@@ -25,7 +25,7 @@ test('rankCollection switches to manual and moves products', async () => {
   const calls = [];
   const nodes = [{ id: 'a', tags: [], variants: { nodes: [{ availableForSale: false }] } }, { id: 'b', tags: ['size-large'], variants: { nodes: [{ availableForSale: true }] } }, { id: 'c', tags: [], variants: { nodes: [{ availableForSale: true }] } }];
   const gql = async (q, v) => {
-    calls.push(q.slice(0, 40));
+    calls.push(q.slice(0, 80));
     if (/collectionByHandle/.test(q)) return { collectionByHandle: { id: 'C', sortOrder: 'BEST_SELLING', products: { nodes, pageInfo: { hasNextPage: false } } } };
     if (/collectionUpdate/.test(q)) return { collectionUpdate: { userErrors: [] } };
     if (/collectionReorderProducts/.test(q)) { calls.push(JSON.stringify(v.m)); return { collectionReorderProducts: { userErrors: [] } }; }
