@@ -131,8 +131,9 @@ async function handleOrder(req, env, ctx) {
   if (method === 'cod') {
     const d = await decide(env, buyer, price.total);
     if (wantPartial && d.mode === 'off') return json({ ok: false, error: 'Please choose your payment method again.' }, 409);
-    if (wantPartial || d.partial) {
-      if (!wantPartial) return json({ ok: false, partial_required: true, advance: d.advance, balance: d.balance, hint: d.hint, error: `Pay ₹${d.advance / 100} now to confirm Cash on Delivery, the rest on delivery.` });
+    /* A checkout that cannot take the advance (older theme, no b.pc) keeps placing full COD orders. */
+    if (!wantPartial && d.partial && b.pc) return json({ ok: false, partial_required: true, advance: d.advance, balance: d.balance, hint: d.hint, error: `Pay ₹${d.advance / 100} now to confirm Cash on Delivery, the rest on delivery.` });
+    if (wantPartial) {
       if (price.total <= d.advance) return json({ ok: false, error: 'Please pay online for this order.' }, 409);
       partial = { advance: d.advance, reasons: d.reasons.length ? d.reasons : ['chosen'] };
     }
@@ -423,6 +424,8 @@ export async function handle(req, env0, ctx) {
     if (path === '/api/admin/rpc' && req.method === 'POST') return await handleRpc(req, env);
     if (path === '/api/admin/label' && req.method === 'POST') return await handleLabel(req, env);
     if (path === '/api/health') return json({ ok: true, db: !!env.DB });
+    /* Partial COD mode as the checkout sees it (no customer data): handy to check the switch from any browser. */
+    if (path === '/api/partial' && req.method === 'GET') { const { cfg } = await import('./partial-cod.js'); const c = cfg(env); return json({ ok: true, mode: c.mode, advance: c.advance }); }
     if (path === '/api/cron') {
       if (!env.CRON_SECRET || req.headers.get('Authorization') !== `Bearer ${env.CRON_SECRET}`) return json({ error: 'unauthorized' }, 401);
       return json({ ok: true, ...(await runCron(env)) });

@@ -408,7 +408,7 @@ const ACTIONS = {
   async shopify_scopes(env) {
     const d = await gql(env, '{ currentAppInstallation { app { title } accessScopes { handle } } shop { myshopifyDomain } }');
     const scopes = (d.currentAppInstallation?.accessScopes || []).map((x) => x.handle).sort();
-    const need = ['write_fulfillments', 'write_merchant_managed_fulfillment_orders', 'write_orders', 'read_orders', 'write_draft_orders', 'read_products'];
+    const need = ['write_fulfillments', 'write_merchant_managed_fulfillment_orders', 'write_orders', 'read_orders', 'write_draft_orders', 'read_products', 'write_products'];
     return { ok: true, app: d.currentAppInstallation?.app?.title || '', shop: d.shop?.myshopifyDomain || '', scopes, missing: need.filter((x) => !scopes.includes(x)) };
   },
   /* ---- WhatsApp assistant ---- */
@@ -483,6 +483,11 @@ const ACTIONS = {
     if (!(unit_cost >= 0 && unit_cost < 100000) || !(cac >= 0 && cac < 100000)) throw new Error('Enter amounts in rupees');
     await putSetting(env, 'profit', { unit_cost, cac });
     return { ok: true };
+  },
+  /** Re-rank the main collections now (lib/ranking.js); also runs daily on the cron. */
+  async rank_now(env) {
+    const { rankAll } = await import('./ranking.js');
+    return { ok: true, status: await rankAll(env, { force: true }) };
   },
   /** Partial COD settings (lib/partial-cod.js). */
   async save_partial(env, b) {
@@ -601,6 +606,7 @@ const ACTIONS = {
       cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
       partial: partialCfg({ SETTINGS: s }),
+      rank: await (async () => { try { return JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rank_status'").first())?.v || 'null'); } catch { return null; } })(),
       ai: await (async () => { const { PROVIDERS, aiCfg, DEFAULT_KNOWLEDGE } = await import('./wa-ai.js'); const c = aiCfg({ ...env, SETTINGS: s }); return { enabled: !!s.ai.enabled, provider: c.provider, key: mask(s.ai.key), has_key: !!c.key, model: c.model, rpm: Number(s.ai.rpm) || 20, rpd: Number(s.ai.rpd) || 800, knowledge: s.ai.knowledge || '', default_knowledge: DEFAULT_KNOWLEDGE, providers: Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, model: v.model, keyUrl: v.keyUrl, free: v.free }])) }; })(),
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
@@ -1262,6 +1268,8 @@ export async function runAutomations(env) {
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; } catch (e) { console.error('cancel-sweep', e); }
   /* WhatsApp assistant: answer phones queued by the rate limit (spaced, a few per run) */
   try { const { drainQueue, aiOn } = await import('./wa-ai.js'); if (aiOn(env)) out.aiQueue = await drainQueue(env, { max: 6, gapMs: 2500 }); } catch (e) { console.error('ai-queue', e); }
+  /* Product order in Bestsellers / All Tattoos / Home page: sold out last, a few bigger designs up top (daily) */
+  try { const { rankAll } = await import('./ranking.js'); const r = await rankAll(env); if (!r.skipped) out.rank = { ok: r.ok, error: r.error }; } catch (e) { console.error('rank', e); }
   /* Reconciliation audit (Shopify x Shiprocket x here) every ~30 minutes; it only records issues, the owner fixes them from the Shipments tab */
   try {
     const last = Number((await env.DB.prepare("SELECT v FROM settings WHERE k='ship_audit_at'").first())?.v) || 0;
