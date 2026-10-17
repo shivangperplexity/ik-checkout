@@ -9,20 +9,23 @@
         '<span class="ikx-item__p">' + price + '</span></li>';
     }).join('');
 
-    /* Build 038: with an odd count, 4 one-tap FREE picks go right into the offer box at the top. */
-    var fp4 = freePicks(c, b).slice(0, 4), ob = $('.ikx-offer', root), oh = ob && $('.ikx-offer__h', ob);
-    if (ob) ob.classList.toggle('is-free', !!fp4.length);
-    if (oh && fp4.length) {
-      oh.innerHTML = '<span class="ikx-offer__gift" aria-hidden="true">🎁</span>Add 1 more design, it’s <b class="ikx-green">FREE</b><small>Tap to add · your total stays the same</small>';
-      oh.insertAdjacentHTML('afterend', '<div class="ikx-fp">' + fp4.map(freeTile).join('') + '</div>');
+    /* Build 039: the offer is one bar above the items ("Add 1 more tattoo, get it FREE"), nothing to pick inside it.
+       The free designs to add are in the rail below the items. */
+    if (b.count && box) {
+      box.classList.remove('is-free');
+      box.setAttribute('style', 'padding:0;border:0;background:none;box-shadow:none;margin-bottom:10px');
+      box.innerHTML = '<div role="status" style="position:relative;overflow:hidden;border-radius:999px;background:#f1ece2;height:36px">' +
+        '<i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:' + (b.odd ? 50 : 100) + '%;background:' + (b.odd ? '#f6d77e' : '#cfe9d4') + ';transition:width .4s ease"></i>' +
+        '<span style="position:relative;display:flex;align-items:center;justify-content:center;height:100%;padding:0 14px;font-size:13px;font-weight:700;color:#1d1a14;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+        (b.odd ? '🎁 Add 1 more tattoo, get it FREE' : '✓ ' + b.free + ' FREE unlocked · add 2 more for 1 more free') + '</span></div>';
     }
 
     var inCart = {}; c.items.forEach(function (i) { inCart[i.product_id] = 1; });
-    /* Odd count: the first 4 free picks are already in the offer box, so this rail shows the next ones. */
-    var picks = b.odd ? freePicks(c, b).slice(4, 12) : PICKS.filter(function (p) { return !inCart[p.id]; }).slice(0, 8);
+    /* Odd count: this rail shows the designs that are free right now. */
+    var picks = b.odd ? freePicks(c, b).slice(0, 8) : PICKS.filter(function (p) { return !inCart[p.id]; }).slice(0, 8);
     var pb = $('.ikx-picks', root);
     if (!picks.length) { pb.innerHTML = ''; return; }
-    pb.innerHTML = '<p class="ikx-h3">' + (b.odd ? 'More FREE picks' : 'You might have missed') + '<small>' + (b.odd ? 'Swipe →' : 'Add 2 · 1 free') + '</small></p>' +
+    pb.innerHTML = '<p class="ikx-h3">' + (b.odd ? 'Pick your FREE tattoo' : 'You might have missed') + '<small>' + (b.odd ? 'Swipe →' : 'Add 2 · 1 free') + '</small></p>' +
       '<div class="ikx-rail">' + picks.map(function (p) {
         return '<div class="ikx-pick"><a class="ikx-pick__img" href="' + esc(p.u) + '">' + (p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '') + (b.odd ? '<span>FREE</span>' : '') + '</a>' +
           '<span class="ikx-pick__t">' + esc(p.t) + '</span>' +

@@ -57,7 +57,7 @@
     if (state.method !== 'cod' || !pcOn()) return '';
     var a = money(pcAdv()), bal = money(state.quote.cod.total - pcAdv());
     return '<div class="ikx-pc" role="note" style="margin:10px 0 0;padding:10px 12px;border-radius:12px;background:#fff7e6;border:1px solid #f1d39a;font-size:13px;line-height:1.45;color:#3d2c08">' +
-      '<b>Pay ' + a + ' now</b> to confirm your Cash on delivery order, then ' + bal + ' when it arrives. The ' + a + ' is part of your total, not an extra charge.' +
+      '<b>Pay ' + a + ' now, ' + bal + ' on delivery.</b> The ' + a + ' is part of your total, not extra.' +
       (state.pcHint ? '<br><span style="opacity:.8">Tip: ' + esc(state.pcHint) + ' to pay the full amount on delivery.</span>' : '') +
       (IS_MOBILE ? '<br><span style="opacity:.8">Pick the UPI app for the ' + a + ':</span>' : '') + '</div>';
   }
@@ -76,7 +76,7 @@
     var pcx = state.method === 'cod' && pcOn();
     var label = pcx ? 'Slide to pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Slide to place order · ' + money(p.total) : 'Slide to pay ' + money(p.total);
     var btnLabel = pcx ? 'Pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Complete order · ' + money(p.total) : 'Pay now · ' + money(p.total);
-    var fb = CART ? bogo(CART.items) : null, unclaimed = !SKIP_FREE && fb && fb.odd && freePicks(CART, fb).length;
+    var unclaimed = false; /* Build 039: the offer lives in the bar above the items only */
     var top = (unclaimed ? '<button type="button" class="ikx-freenote" data-ikx-gofree>🎁 1 FREE tattoo unclaimed · <u>Pick one</u></button>' : '') +
       '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + '</span>' +
       '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>';
@@ -218,7 +218,7 @@
     var d = formData(); showErr('');
     var bad = invalid(d);
     if (bad) { paintFoot(); fieldError(bad[0]); goCheckout(true); return showErr(bad[1]); }
-    if (askFree()) return;
+    /* Build 039: no "you have 1 FREE tattoo" pop-up before paying (simpler checkout) */
     state.draft = d; rememberBuyer(d);
     var pcx = state.method === 'cod' && pcOn();
     state.busy = true;
@@ -227,7 +227,7 @@
     tk('submit', { phone: d.phone, name: d.name, method: state.method });
     track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
     var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
-    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp }).then(function (r) {
+    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1 }).then(function (r) {
       if (!r.ok && r.partial_required) {
         /* the API wants the advance for this address (the check had not run, or the rules changed): show it */
         state.busy = false; hideOverlay(); state.idem = uuid();

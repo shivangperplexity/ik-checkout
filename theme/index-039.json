@@ -1,0 +1,696 @@
+{
+ "sections": {
+  "ikl_hero": {
+   "type": "ikl-hero",
+   "custom_css": [
+    ".ikl-hero__inner {position: static !important;}",
+    ".ikl-hero__overlay .ikl-btn {position: absolute !important; margin: 0 !important; white-space: nowrap; height: auto !important; min-height: 0 !important; left: 5%; bottom: 5%; padding: 14px 34px !important; font-size: 15px;}",
+    "@media (max-width: 749px) {.ikl-hero__overlay .ikl-btn {left: 4%; bottom: 6%; padding: 10px 22px !important; font-size: 13px; }}"
+   ],
+   "settings": {
+    "image_desktop": "shopify://shop_images/White_and_Red_Modern_Bold_Shoes_Advertisement_Instagram_Post_30.38_x_17.78_cm_2400_x_750_px.png",
+    "image_mobile": "shopify://shop_images/White_and_Red_Modern_Bold_Shoes_Advertisement_Instagram_Post_1.png",
+    "image_alt": "Ink Kulture semi-permanent tattoos",
+    "link": "shopify://collections/bestsellers",
+    "autoplay_seconds": 4,
+    "desktop_height": 600,
+    "mobile_height": 700,
+    "eyebrow": "",
+    "heading": "",
+    "body": "",
+    "cta_label": "Shop now",
+    "align": "start",
+    "show_scrim": true,
+    "bg_color": "#0a0a0c",
+    "text_color": "#ede7dc"
+   }
+  },
+  "ikl_trust": {
+   "type": "ikl-trust-strip",
+   "blocks": {
+    "t1": {
+     "type": "badge",
+     "settings": {
+      "label": "Lasts up to 2 weeks",
+      "icon": "clock"
+     }
+    },
+    "t2": {
+     "type": "badge",
+     "settings": {
+      "label": "Safe & skin friendly",
+      "icon": "shield"
+     }
+    },
+    "t3": {
+     "type": "badge",
+     "settings": {
+      "label": "Quick & easy application",
+      "icon": "bolt"
+     }
+    },
+    "t4": {
+     "type": "badge",
+     "settings": {
+      "label": "Fast dispatch",
+      "icon": "truck"
+     }
+    },
+    "t5": {
+     "type": "badge",
+     "settings": {
+      "label": "Waterproof finish",
+      "icon": "drop"
+     }
+    }
+   },
+   "block_order": [
+    "t1",
+    "t2",
+    "t3",
+    "t4",
+    "t5"
+   ],
+   "settings": {
+    "tagline": "High-quality semi-permanent tattoos, made for Indian skin tones",
+    "bg_color": "#ede7dc",
+    "text_color": "#0a0a0c",
+    "icon_color": "#315a9f"
+   }
+  },
+  "ikl_ladder": {
+   "type": "ikl-offer-ladder",
+   "custom_css": [
+    ".ikl-ladder__rail {display: block !important; padding-top: 12px !important; overflow: visible !important;}",
+    ".ikl-ladder__tile {width: 100%; max-width: 640px; margin: 0 auto; min-height: 0 !important; align-items: center; text-align: center; padding: 22px 18px 18px !important;}",
+    ".ikl-ladder__badge {left: 50% !important; transform: translateX(-50%); white-space: nowrap;}",
+    ".ikl-ladder__cta {display: inline-block; margin-top: 10px !important; padding: 11px 26px !important; border-radius: 999px; background: #0a0a0c; color: #fff !important;}"
+   ],
+   "blocks": {
+    "pack": {
+     "type": "tile",
+     "settings": {
+      "badge": "Buy 1 Get 1 FREE",
+      "title": "Mix any designs · any size",
+      "price": "Buy 2, pay for 1",
+      "was": "",
+      "note": "2 = 1 free · 4 = 2 free · 6 = 3 free. The lower-priced designs come free at checkout.",
+      "cta": "Build your pack",
+      "collection": "all-tattoos",
+      "link": "",
+      "highlight": true
+     }
+    }
+   },
+   "block_order": [
+    "pack"
+   ],
+   "settings": {
+    "eyebrow": "Buy 1 Get 1 FREE on every design",
+    "heading": "Build your pack",
+    "footnote": "Free shipping above ₹499 · Cash on delivery available.",
+    "bg_color": "#ede7dc",
+    "tile_color": "#ffffff",
+    "line_color": "#e6e1d6",
+    "text_color": "#0a0a0c",
+    "accent_color": "#b3261e"
+   }
+  },
+  "ikl_bestsellers": {
+   "type": "ikl-product-rail",
+   "settings": {
+    "eyebrow": "Buy 1 Get 1 Free · any 2 for ₹399",
+    "heading": "Shop bestsellers",
+    "upright_heading": false,
+    "center_heading": false,
+    "source": "collection",
+    "collection": "bestsellers",
+    "product_limit": 12,
+    "layout": "rail",
+    "columns": 5,
+    "card_cta": "icon",
+    "buy_label": "Buy now",
+    "show_badge": true,
+    "show_meta": false,
+    "show_view_all": true,
+    "view_all_label": "View all bestsellers",
+    "hover_lift": true,
+    "hover_scale": 103,
+    "image_zoom": 100,
+    "color_scheme": "light",
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "skip_tag": ""
+   }
+  },
+  "ikl_upgrade": {
+   "type": "ikl-product-rail",
+   "settings": {
+    "eyebrow": "Upgrade the paid one · your small design comes free",
+    "heading": "Forearm size · 8 × 13 cm",
+    "upright_heading": false,
+    "center_heading": false,
+    "source": "collection",
+    "collection": "4-inch-tattoos",
+    "product_limit": 10,
+    "layout": "rail",
+    "columns": 5,
+    "card_cta": "icon",
+    "buy_label": "Buy now",
+    "show_badge": true,
+    "show_meta": false,
+    "show_view_all": true,
+    "view_all_label": "View all forearm designs",
+    "hover_lift": true,
+    "hover_scale": 103,
+    "image_zoom": 100,
+    "color_scheme": "light",
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "skip_tag": ""
+   }
+  },
+  "ikl_shop_placement": {
+   "type": "ikl-circle-rail",
+   "blocks": {
+    "p1": {
+     "type": "circle",
+     "settings": {
+      "collection": "arm-band-tattoos",
+      "label": "Arm Band",
+      "link": ""
+     }
+    },
+    "p2": {
+     "type": "circle",
+     "settings": {
+      "collection": "full-sleeve-tattoos",
+      "label": "Full Sleeve",
+      "link": ""
+     }
+    },
+    "p3": {
+     "type": "circle",
+     "settings": {
+      "collection": "full-chest-tattoos",
+      "label": "Full Chest",
+      "link": ""
+     }
+    },
+    "p4": {
+     "type": "circle",
+     "settings": {
+      "collection": "forearm-tattoos-1",
+      "label": "Forearm",
+      "link": ""
+     }
+    },
+    "p5": {
+     "type": "circle",
+     "settings": {
+      "collection": "wrist-tattoos",
+      "label": "Wrist",
+      "link": ""
+     }
+    },
+    "p6": {
+     "type": "circle",
+     "settings": {
+      "collection": "neck-tattoos",
+      "label": "Neck",
+      "link": ""
+     }
+    }
+   },
+   "block_order": [
+    "p1",
+    "p2",
+    "p3",
+    "p4",
+    "p5",
+    "p6"
+   ],
+   "settings": {
+    "heading": "Shop by placement",
+    "center_heading": false,
+    "size_mobile": 84,
+    "size_desktop": 120,
+    "pad_top": 22,
+    "pad_bottom": 4,
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "ring_color": "#e6e3de"
+   }
+  },
+  "ikl_shop_style": {
+   "type": "ikl-circle-rail",
+   "blocks": {
+    "y1": {
+     "type": "circle",
+     "settings": {
+      "collection": "cyber-tattoos",
+      "label": "Cyber",
+      "link": ""
+     }
+    },
+    "y2": {
+     "type": "circle",
+     "settings": {
+      "collection": "minimal-fineline",
+      "label": "Minimal",
+      "link": ""
+     }
+    },
+    "y3": {
+     "type": "circle",
+     "settings": {
+      "collection": "blackwork-bold",
+      "label": "Bold",
+      "link": ""
+     }
+    }
+   },
+   "block_order": [
+    "y1",
+    "y2",
+    "y3"
+   ],
+   "settings": {
+    "heading": "Shop by style",
+    "center_heading": false,
+    "size_mobile": 84,
+    "size_desktop": 120,
+    "pad_top": 4,
+    "pad_bottom": 18,
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "ring_color": "#e6e3de"
+   }
+  },
+  "ikl_indic": {
+   "type": "ikl-product-rail",
+   "settings": {
+    "eyebrow": "New · pairs with any script design",
+    "heading": "Spiritual & Indic",
+    "upright_heading": false,
+    "center_heading": false,
+    "source": "collection",
+    "collection": "navratri-collection",
+    "product_limit": 10,
+    "layout": "rail",
+    "columns": 5,
+    "card_cta": "icon",
+    "buy_label": "Buy now",
+    "show_badge": true,
+    "show_meta": false,
+    "show_view_all": true,
+    "view_all_label": "View all",
+    "hover_lift": true,
+    "hover_scale": 103,
+    "image_zoom": 100,
+    "color_scheme": "light",
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "skip_tag": "couple-bundle"
+   }
+  },
+  "ikl_categories_circles": {
+   "type": "ikl-circle-rail",
+   "blocks": {
+    "c1": {
+     "type": "circle",
+     "settings": {
+      "collection": "blackwork-bold",
+      "label": "Blackwork",
+      "link": ""
+     }
+    },
+    "c2": {
+     "type": "circle",
+     "settings": {
+      "collection": "minimal-fineline",
+      "label": "Minimal",
+      "link": ""
+     }
+    },
+    "c3": {
+     "type": "circle",
+     "settings": {
+      "collection": "animal-tattoos",
+      "label": "Animals",
+      "link": ""
+     }
+    },
+    "c4": {
+     "type": "circle",
+     "settings": {
+      "collection": "flower-tattoos",
+      "label": "Flowers",
+      "link": ""
+     }
+    },
+    "c5": {
+     "type": "circle",
+     "settings": {
+      "collection": "script-cursive",
+      "label": "Script",
+      "link": ""
+     }
+    },
+    "c6": {
+     "type": "circle",
+     "settings": {
+      "collection": "dark-edgy",
+      "label": "Dark & Edgy",
+      "link": ""
+     }
+    }
+   },
+   "block_order": [
+    "c1",
+    "c2",
+    "c3",
+    "c4",
+    "c5",
+    "c6"
+   ],
+   "settings": {
+    "heading": "Shop by category",
+    "center_heading": false,
+    "size_mobile": 84,
+    "size_desktop": 120,
+    "pad_top": 8,
+    "pad_bottom": 18,
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "ring_color": "#e6e3de"
+   }
+  },
+  "ikl_stories": {
+   "type": "ikl-story-rail",
+   "custom_css": [
+    ".iks__heading {text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 6px;}",
+    "@media (max-width: 749px) {.iks__heading {font-size: 22px;}}"
+   ],
+   "blocks": {
+    "r1": {
+     "type": "story",
+     "settings": {
+      "label": "chaoticashh",
+      "collab_username": "chaoticashh",
+      "instagram_url": "https://www.instagram.com/reel/DePGYcXPIqx/",
+      "video": "shopify://files/videos/link 1.mp4"
+     }
+    },
+    "r2": {
+     "type": "story",
+     "settings": {
+      "label": "vedika.kachhwah1",
+      "collab_username": "vedika.kachhwah1",
+      "instagram_url": "https://www.instagram.com/reel/DeOyHkYCcjP/",
+      "video": "shopify://files/videos/link 2.mp4"
+     }
+    },
+    "r3": {
+     "type": "story",
+     "settings": {
+      "label": "umashettyy",
+      "collab_username": "umashettyy",
+      "instagram_url": "https://www.instagram.com/reel/DeM59pnNHZJ/",
+      "video": "shopify://files/videos/IMG-6005.MP4"
+     }
+    },
+    "r4": {
+     "type": "story",
+     "settings": {
+      "label": "inkkulture.in",
+      "collab_username": "",
+      "instagram_url": "https://www.instagram.com/reel/DeLqXEpOB64/",
+      "video": "shopify://files/videos/IMG-6006.MP4"
+     }
+    },
+    "r5": {
+     "type": "story",
+     "settings": {
+      "label": "sagarverma2001",
+      "collab_username": "sagarverma2001",
+      "instagram_url": "https://www.instagram.com/reel/DeHHNUayaX9/",
+      "video": "shopify://files/videos/IMG-6007.MP4"
+     }
+    },
+    "r6": {
+     "type": "story",
+     "settings": {
+      "label": "taraa_chaurasiya",
+      "collab_username": "taraa_chaurasiya",
+      "instagram_url": "https://www.instagram.com/reel/DeBjwjfufIv/",
+      "video": "shopify://files/videos/IMG-6008.MP4"
+     }
+    }
+   },
+   "block_order": [
+    "r1",
+    "r2",
+    "r3",
+    "r4",
+    "r5",
+    "r6"
+   ],
+   "settings": {
+    "heading": "Loved by our community",
+    "size_mobile": 72,
+    "size_desktop": 88,
+    "pad_top": 28,
+    "pad_bottom": 28,
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "brand_handle": "inkkulture.in",
+    "brand_avatar": "shopify://shop_images/Ink_Kulture_01_Black_on_White_4096_81d385df-3c87-4ccb-b522-5446ecdae12f.png",
+    "layout": "cards",
+    "subheading": "Real people, real Ink Kulture · tap to watch",
+    "card_mobile": 150,
+    "card_desktop": 200
+   }
+  },
+  "ikl_statement": {
+   "type": "ikl-product-rail",
+   "settings": {
+    "eyebrow": "Statement pieces · 11 × 18 cm and up · add any small design free",
+    "heading": "Large & statement tattoos",
+    "upright_heading": false,
+    "center_heading": false,
+    "source": "collection",
+    "collection": "large-statement-tattoos",
+    "product_limit": 10,
+    "layout": "rail",
+    "columns": 5,
+    "card_cta": "icon",
+    "buy_label": "Buy now",
+    "show_badge": true,
+    "show_meta": false,
+    "show_view_all": true,
+    "view_all_label": "View all large designs",
+    "hover_lift": true,
+    "hover_scale": 103,
+    "image_zoom": 100,
+    "color_scheme": "ivory",
+    "bg_color": "#ede7dc",
+    "text_color": "#0a0a0c",
+    "skip_tag": ""
+   }
+  },
+  "ikl_reviews": {
+   "type": "ikl-reviews",
+   "blocks": {
+    "r1": {
+     "type": "review",
+     "settings": {
+      "rating": 5,
+      "title": "Realistic",
+      "body": "The tattoos are so damnnn realistic",
+      "author": "Priti Yadav",
+      "verified": true,
+      "date": ""
+     }
+    },
+    "r2": {
+     "type": "review",
+     "settings": {
+      "rating": 5,
+      "title": "Easy To Apply",
+      "body": "It was so easy to apply these tattoos",
+      "author": "Eklavya Poddar",
+      "verified": true,
+      "date": ""
+     }
+    },
+    "review_JqAztW": {
+     "type": "review",
+     "settings": {
+      "rating": 5,
+      "title": "Great quality",
+      "body": "Looked real and lasted well past a week.",
+      "author": "Aniket Kamble",
+      "verified": true,
+      "date": ""
+     }
+    }
+   },
+   "block_order": [
+    "r1",
+    "r2",
+    "review_JqAztW"
+   ],
+   "settings": {
+    "heading": "Let customers speak for us",
+    "summary": "Real reviews from verified Ink Kulture buyers",
+    "cta_label": "Read more reviews",
+    "cta_link": "",
+    "color_scheme": "light",
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "star_color": "#f5a623"
+   }
+  },
+  "ikl_curated": {
+   "type": "ikl-collection-tiles",
+   "blocks": {
+    "u1": {
+     "type": "tile",
+     "settings": {
+      "collection": "minimal-fineline",
+      "label": "Modern minimalist",
+      "link": ""
+     }
+    },
+    "u2": {
+     "type": "tile",
+     "settings": {
+      "collection": "dark-edgy",
+      "label": "Street style",
+      "link": ""
+     }
+    },
+    "u3": {
+     "type": "tile",
+     "settings": {
+      "collection": "script-cursive",
+      "label": "Soft & scripted",
+      "link": ""
+     }
+    },
+    "u4": {
+     "type": "tile",
+     "settings": {
+      "collection": "blackwork-bold",
+      "label": "Bold statement",
+      "link": ""
+     }
+    }
+   },
+   "block_order": [
+    "u1",
+    "u2",
+    "u3",
+    "u4"
+   ],
+   "settings": {
+    "eyebrow": "Styled for you",
+    "heading": "Curated for you",
+    "upright_heading": true,
+    "center_heading": true,
+    "shape": "tall",
+    "view_all_link": "",
+    "view_all_label": "View all",
+    "color_scheme": "ivory",
+    "bg_color": "#ede7dc",
+    "text_color": "#0a0a0c"
+   }
+  },
+  "ikl_faq": {
+   "type": "ikl-faq",
+   "blocks": {
+    "q0": {
+     "type": "question",
+     "settings": {
+      "question": "How does Buy 1 Get 1 Free work?",
+      "answer": "<p>Add any two tattoos, any size, and the lower-priced one becomes free automatically at checkout. 4 tattoos = 2 free, 6 = 3 free. No code needed.</p>",
+      "open": false
+     }
+    },
+    "q1": {
+     "type": "question",
+     "settings": {
+      "question": "How long does delivery take?",
+      "answer": "<p>Standard delivery takes 3–7 business days across India. Express options show at checkout for eligible PIN codes.</p>",
+      "open": false
+     }
+    },
+    "q2": {
+     "type": "question",
+     "settings": {
+      "question": "How do I apply my tattoo?",
+      "answer": "<p>Clean and dry the skin, press the tattoo face down, wet the backing paper for 30 seconds, then peel. Full instructions ship with every order.</p>",
+      "open": false
+     }
+    },
+    "q3": {
+     "type": "question",
+     "settings": {
+      "question": "How long does it last?",
+      "answer": "<p>Up to two weeks depending on placement, application and daily activity.</p>",
+      "open": false
+     }
+    },
+    "q4": {
+     "type": "question",
+     "settings": {
+      "question": "Is the ink safe for skin?",
+      "answer": "<p>Our ink is formulated to be skin-friendly. Patch-test first if you have sensitive skin, and check the ingredient list included with your order.</p>",
+      "open": false
+     }
+    },
+    "q5": {
+     "type": "question",
+     "settings": {
+      "question": "Can I remove it early?",
+      "answer": "<p>Yes — gentle daily exfoliation fades the design faster.</p>",
+      "open": false
+     }
+    }
+   },
+   "block_order": [
+    "q0",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+    "q5"
+   ],
+   "settings": {
+    "eyebrow": "Good to know",
+    "heading": "FAQs",
+    "color_scheme": "light",
+    "bg_color": "#ffffff",
+    "text_color": "#0a0a0c",
+    "body_color": "#5a5a63"
+   }
+  }
+ },
+ "order": [
+  "ikl_hero",
+  "ikl_trust",
+  "ikl_bestsellers",
+  "ikl_upgrade",
+  "ikl_shop_placement",
+  "ikl_shop_style",
+  "ikl_ladder",
+  "ikl_indic",
+  "ikl_categories_circles",
+  "ikl_stories",
+  "ikl_statement",
+  "ikl_reviews",
+  "ikl_curated",
+  "ikl_faq"
+ ]
+}
