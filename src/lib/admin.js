@@ -416,6 +416,8 @@ const ACTIONS = {
     if (b.key !== undefined && !String(b.key).startsWith('••')) a.key = String(b.key).trim();
     if (b.model !== undefined) a.model = String(b.model).trim().slice(0, 100);
     if (b.knowledge !== undefined) a.knowledge = String(b.knowledge).slice(0, 12000);
+    if (b.rpm !== undefined) a.rpm = Math.max(1, Math.min(100, Number(b.rpm) || 20));
+    if (b.rpd !== undefined) a.rpd = Math.max(10, Math.min(20000, Number(b.rpd) || 800));
     if (a.enabled && !aiCfg({ ...env, SETTINGS: { ...s, ai: a } }).key) throw new Error('Paste the ' + PROVIDERS[a.provider || 'groq'].label.split(' (')[0] + ' API key first.');
     await putSetting(env, 'ai', a);
     return { ok: true };
@@ -433,6 +435,27 @@ const ACTIONS = {
     await logMsg(e2, { direction: 'out', phone: to, trigger: 'ai-test', status: res.ok ? 'accepted' : 'failed', wamid: res.id || '', error: res.ok ? '' : `${res.via}: ${res.error}`, preview: text });
     const lastIn = await env.DB.prepare("SELECT ts FROM messages WHERE phone=? AND direction='in' ORDER BY ts DESC LIMIT 1").bind(to).first().catch(() => null);
     return { ok: true, sent: res.ok, via: res.via || (viaG4w(e2) ? 'g4w' : 'meta'), id: res.id || '', error: res.error || '', last_in: Number(lastIn?.ts) || null };
+  },
+  /** Customers whose last plain-text message has no answer yet, with today's usage and limits. */
+  async ai_backlog(env) {
+    const { backlog, budget } = await import('./wa-ai.js');
+    const fresh = await withSettingsFresh(env);
+    return { ok: true, rows: await backlog(fresh), budget: await budget(fresh) };
+  },
+  /** Queue these phones for an answer (only those still inside WhatsApp's window are accepted). */
+  async ai_enqueue(env, b) {
+    const { enqueue, backlog } = await import('./wa-ai.js');
+    const fresh = await withSettingsFresh(env);
+    const ok = new Set((await backlog(fresh)).filter((r) => r.in_window).map((r) => r.phone));
+    const phones = (Array.isArray(b.phones) ? b.phones : []).map((p) => digits(p).slice(-10)).filter((p) => ok.has(p)).slice(0, 100);
+    for (const p of phones) await enqueue(fresh, p, null, 'backlog');
+    return { ok: true, queued: phones.length };
+  },
+  /** Answer a few queued phones now (the dashboard calls this repeatedly, showing progress). */
+  async ai_drain(env) {
+    const { withSettings } = await import('./settings.js');
+    const { drainQueue } = await import('./wa-ai.js');
+    return { ok: true, ...(await drainQueue(await withSettings(await withSettingsFresh(env)), { max: 4, gapMs: 3000 })) };
   },
   /** The models the saved key can use, with the one the assistant would pick. */
   async ai_models(env) {
@@ -538,7 +561,7 @@ const ACTIONS = {
     return {
       cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
-      ai: await (async () => { const { PROVIDERS, aiCfg, DEFAULT_KNOWLEDGE } = await import('./wa-ai.js'); const c = aiCfg({ ...env, SETTINGS: s }); return { enabled: !!s.ai.enabled, provider: c.provider, key: mask(s.ai.key), has_key: !!c.key, model: c.model, knowledge: s.ai.knowledge || '', default_knowledge: DEFAULT_KNOWLEDGE, providers: Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, model: v.model, keyUrl: v.keyUrl, free: v.free }])) }; })(),
+      ai: await (async () => { const { PROVIDERS, aiCfg, DEFAULT_KNOWLEDGE } = await import('./wa-ai.js'); const c = aiCfg({ ...env, SETTINGS: s }); return { enabled: !!s.ai.enabled, provider: c.provider, key: mask(s.ai.key), has_key: !!c.key, model: c.model, rpm: Number(s.ai.rpm) || 20, rpd: Number(s.ai.rpd) || 800, knowledge: s.ai.knowledge || '', default_knowledge: DEFAULT_KNOWLEDGE, providers: Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, model: v.model, keyUrl: v.keyUrl, free: v.free }])) }; })(),
       wa: { phone_id: w.phone_id, waba_id: w.waba_id, admin_phone: w.admin_phone, lang: w.lang, token: mask(w.token), app_secret: mask(w.app_secret), verify_token: w.verify_token, has_token: !!(w.token || env.WA_TOKEN), connected: !!((w.phone_id || env.WA_PHONE_ID) && (w.token || env.WA_TOKEN)) || viaG4w(env) },
       webhook: 'https://ik-checkout.vercel.app/api/wa/webhook',
       /* Go4WhatsUp (BSP) takes over sending as soon as G4W_API_KEY + G4W_SECURE_KEY are set in Vercel. */
@@ -1195,6 +1218,8 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; } catch (e) { console.error('cancel-sweep', e); }
+  /* WhatsApp assistant: answer phones queued by the rate limit (spaced, a few per run) */
+  try { const { drainQueue, aiOn } = await import('./wa-ai.js'); if (aiOn(env)) out.aiQueue = await drainQueue(env, { max: 6, gapMs: 2500 }); } catch (e) { console.error('ai-queue', e); }
   /* Reconciliation audit (Shopify x Shiprocket x here) every ~30 minutes; it only records issues, the owner fixes them from the Shipments tab */
   try {
     const last = Number((await env.DB.prepare("SELECT v FROM settings WHERE k='ship_audit_at'").first())?.v) || 0;

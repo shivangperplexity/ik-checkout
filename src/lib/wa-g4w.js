@@ -114,7 +114,7 @@ export async function processInbound(env0, msgs) {
     /* everything sent back in this conversation leaves from the number the customer wrote to */
     const env = m.via ? Object.assign(Object.create(null), env0, { REPLY_ROUTE: { via: m.via, phoneId: m.phoneId || '' } }) : env0;
     const action = replyAction(m.text);
-    await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action || '', status: 'received', wamid: m.via ? `in:${m.via}${m.phoneId ? ':' + m.phoneId : ''}` : '', preview: m.text });
+    const inId = await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action || '', status: 'received', wamid: m.via ? `in:${m.via}${m.phoneId ? ':' + m.phoneId : ''}` : '', preview: m.text });
     if (action === 'STOP') {
       await env.DB.prepare('INSERT INTO wa_optout (phone, at) VALUES (?,?) ON CONFLICT(phone) DO UPDATE SET at=excluded.at').bind(m.from, now()).run();
       await sendText(env, '91' + m.from, 'You will not get offers from Ink Kulture on WhatsApp any more. Order updates still come here. Reply START to undo.');
@@ -127,7 +127,7 @@ export async function processInbound(env0, msgs) {
     }
     if (!action) {
       /* plain text: the assistant answers from the store knowledge + this customer's orders (lib/wa-ai.js), when switched on */
-      try { const { aiReply } = await import('./wa-ai.js'); await aiReply(env, m.from, m.text); } catch (e) { console.error('wa-ai', e.message); }
+      try { const { aiReply } = await import('./wa-ai.js'); await aiReply(env, m.from, m.text, { msgId: Number(inId) || 0 }); } catch (e) { console.error('wa-ai', e.message); }
       continue;
     }
     /* a parcel waiting after a failed delivery: the customer decides re-attempt / return right here */

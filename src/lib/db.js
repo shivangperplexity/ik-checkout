@@ -66,6 +66,9 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ship_old_awbs (awb TEXT PRIMARY KEY, order_id TEXT, order_name TEXT, courier TEXT, cancelled_at BIGINT)`,
   /* parcels imported from Shopify fulfilments that were never booked with Shiprocket (old NimbusPost AWBs): not ours to track */
   `DELETE FROM shipments WHERE sr_shipment_id IS NULL AND sr_order_id IS NULL AND COALESCE(status,'')<>'booking'`,
+  /* WhatsApp assistant: phones waiting for an answer (rate limit hit, or picked from the backlog) */
+  `CREATE TABLE IF NOT EXISTS ai_queue (phone TEXT PRIMARY KEY, via TEXT, phone_id TEXT, queued_at BIGINT, tries INT DEFAULT 0, note TEXT)`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_phone_id ON messages (phone, id)`,
   `CREATE TABLE IF NOT EXISTS ship_issues (order_id TEXT, kind TEXT, order_name TEXT, detail TEXT, first_seen BIGINT, last_seen BIGINT, resolved_at BIGINT, dismissed_at BIGINT, PRIMARY KEY (order_id, kind))`,
   /* COD -> prepaid conversion */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_offer_at BIGINT`,
