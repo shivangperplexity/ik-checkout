@@ -78,3 +78,25 @@ test('free default: Groq over the OpenAI chat format, system prompt first, defau
   assert.equal(aiCfg({ GROQ_API_KEY: 'g', SETTINGS: { ai: {} } }).key, 'g', 'key from Vercel env');
   assert.equal(aiCfg({ SETTINGS: { ai: { provider: 'nope' } } }).provider, 'groq');
 });
+
+test('saved model not available to this key: lists the key\'s models, switches, remembers it, answers', async () => {
+  const { aiAnswer, pickModel } = await import('./wa-ai.js');
+  const calls = [], saved = {};
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, o) => {
+    const url = String(u);
+    if (/\/models$/.test(url)) { calls.push('list'); return new Response(JSON.stringify({ data: [{ id: 'whisper-large-v3' }, { id: 'llama-3.1-8b-instant' }, { id: 'openai/gpt-oss-120b' }, { id: 'openai/gpt-oss-safeguard-20b' }] })); }
+    const b = JSON.parse(o.body); calls.push('chat ' + b.model);
+    if (b.model === 'llama-3.3-70b-versatile') return new Response(JSON.stringify({ error: { message: 'The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.' } }), { status: 404 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Up to 2 weeks.' } }] }));
+  };
+  const db = { prepare: (sql) => ({ all: async () => ({ results: [] }), bind: (...a) => ({ all: async () => ({ results: [] }), first: async () => null, run: async () => { if (/INSERT INTO settings/.test(sql)) saved[a[0]] = JSON.parse(a[1]); return {}; } }) }) };
+  try {
+    const a = await aiAnswer({ DB: db, SETTINGS: { ai: { enabled: true, provider: 'groq', key: 'k', model: 'llama-3.3-70b-versatile' } } }, { text: 'how long does it last' });
+    assert.equal(a.text, 'Up to 2 weeks.'); assert.equal(a.switched, 'openai/gpt-oss-120b');
+    assert.deepEqual(calls, ['chat llama-3.3-70b-versatile', 'list', 'chat openai/gpt-oss-120b']);
+    assert.equal(saved.ai.model, 'openai/gpt-oss-120b', 'remembered for next time');
+  } finally { globalThis.fetch = real; }
+  assert.equal(pickModel(['llama-3.1-8b-instant', 'qwen/qwen3.8-27b']), 'qwen/qwen3.8-27b');
+  assert.equal(pickModel(['llama-3.1-8b-instant']), 'llama-3.1-8b-instant');
+});

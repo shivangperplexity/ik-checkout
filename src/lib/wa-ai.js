@@ -95,15 +95,30 @@ export const aiCfg = (env) => {
 export const aiOn = (env) => { const c = aiCfg(env); return !!(c.enabled && c.key); };
 
 /** Ask Claude. Returns { text, handoff }. Throws on API trouble. */
-export async function aiAnswer(env, { phone, text, thread = [] }) {
-  const c = aiCfg(env);
-  const orders = phone ? await customerOrders(env, phone).catch(() => '') : '';
-  const msgs = [...thread.filter((m) => m.content), { role: 'user', content: String(text).slice(0, 1500) }];
-  /* the API wants alternating roles: merge neighbours of the same role */
-  const merged = [];
-  for (const m of msgs) { const last = merged[merged.length - 1]; if (last && last.role === m.role) last.content += '\n' + m.content; else merged.push({ ...m }); }
-  if (merged[0].role !== 'user') merged.shift();
-  const P = PROVIDERS[c.provider], system = SYSTEM(c.knowledge || DEFAULT_KNOWLEDGE, orders);
+/** Models this key can use, from the provider's own list (chat models only). */
+export async function listModels(env) {
+  const c = aiCfg(env), P = PROVIDERS[c.provider];
+  if (!c.key) throw new Error('No API key saved yet');
+  const url = P.url.replace(/\/(chat\/completions|messages)$/, '/models');
+  const r = await fetch(url, { headers: c.provider === 'anthropic' ? { 'x-api-key': c.key, 'anthropic-version': '2023-06-01' } : { Authorization: 'Bearer ' + c.key } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`${P.label.split(' (')[0]} ${r.status}: ` + (j.error?.message || j.message || 'could not list models'));
+  const rows = Array.isArray(j.data) ? j.data : Array.isArray(j.models) ? j.models : [];
+  return rows.filter((m) => m && m.active !== false).map((m) => String(m.id || m.name || '').replace(/^models\//, ''))
+    .filter((id) => id && !/whisper|tts|orpheus|guard|safeguard|embed|vision-only|transcri|speech|audio|image|moderation|rerank/i.test(id))
+    .filter((id) => c.provider !== 'openrouter' || /:free$/.test(id));
+}
+
+/** Best model from a list for this job: a capable general chat model, larger first. */
+export function pickModel(ids, provider = 'groq') {
+  const rank = [/llama-3\.3-70b/i, /gpt-oss-120b/i, /llama-4.*maverick/i, /qwen.*(3[0-9]b|32b|27b|72b)/i, /llama-4.*scout/i, /gemini-[0-9.]+-flash(?!-lite)/i, /haiku/i, /mistral-(small|medium)/i, /gpt-oss-20b/i, /70b/i, /llama/i];
+  for (const re of rank) { const hit = ids.find((id) => re.test(id)); if (hit) return hit; }
+  return ids[0] || PROVIDERS[provider]?.model || '';
+}
+
+const MODEL_GONE = /model.*(does not exist|not found|not exist|decommission|deprecat|no access|do not have access|unsupported|invalid model)|model_not_found|unknown model/i;
+
+async function callModel(c, P, system, merged) {
   let r, j, out;
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 20000);
   try {
@@ -114,18 +129,44 @@ export async function aiAnswer(env, { phone, text, thread = [] }) {
       out = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     } else {
       r = await fetch(P.url, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.key, ...(c.provider === 'openrouter' ? { 'HTTP-Referer': 'https://www.inkkulture.in', 'X-Title': 'Ink Kulture WhatsApp' } : {}) },
-        body: JSON.stringify({ model: c.model, max_tokens: 350, temperature: 0.3, messages: [{ role: 'system', content: system }, ...merged] }) });
+        body: JSON.stringify({ model: c.model, max_tokens: 600, temperature: 0.3, messages: [{ role: 'system', content: system }, ...merged] }) });
       j = await r.json().catch(() => ({}));
       out = j.choices?.[0]?.message?.content || '';
       if (j.usage) j.usage = { input_tokens: j.usage.prompt_tokens, output_tokens: j.usage.completion_tokens };
     }
   } finally { clearTimeout(timer); }
+  return { r, j, out };
+}
+
+export async function aiAnswer(env, { phone, text, thread = [] }) {
+  const c = aiCfg(env);
+  const orders = phone ? await customerOrders(env, phone).catch(() => '') : '';
+  const msgs = [...thread.filter((m) => m.content), { role: 'user', content: String(text).slice(0, 1500) }];
+  /* the API wants alternating roles: merge neighbours of the same role */
+  const merged = [];
+  for (const m of msgs) { const last = merged[merged.length - 1]; if (last && last.role === m.role) last.content += '\n' + m.content; else merged.push({ ...m }); }
+  if (merged[0].role !== 'user') merged.shift();
+  const P = PROVIDERS[c.provider], system = SYSTEM(c.knowledge || DEFAULT_KNOWLEDGE, orders);
+  let { r, j, out } = await callModel(c, P, system, merged);
+  /* the model was retired or this key cannot use it: pick one from the key's own model list, remember it, try again */
+  let switched = '';
+  if (!r.ok && (r.status === 404 || r.status === 400 || r.status === 403) && MODEL_GONE.test(j.error?.message || j.message || '')) {
+    try {
+      const ids = await listModels(env);
+      const next = pickModel(ids.filter((id) => id !== c.model), c.provider);
+      if (next) {
+        switched = next;
+        ({ r, j, out } = await callModel({ ...c, model: next }, P, system, merged));
+        if (r.ok && env.DB) { const { putSetting, getSettings } = await import('./settings.js'); const s = await getSettings(env, true); await putSetting(env, 'ai', { ...s.ai, model: next }); }
+      }
+    } catch (e) { console.error('ai model switch', e.message); }
+  }
   if (!r.ok) throw new Error(`${P.label.split(' (')[0]} ${r.status}${r.status === 429 ? ' (free limit reached for now)' : ''}: ` + (j.error?.message || j.message || JSON.stringify(j).slice(0, 200)));
-  out = String(out || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  out = String(out || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/^[\s\S]*<\/think>/, '').trim();
   const handoff = /\[HANDOFF\]/.test(out);
   out = out.replace(/\s*\[HANDOFF\]\s*/g, ' ').replace(/\s+$/, '').trim();
   if (!out) out = 'Thanks for your message. A team member will reply here shortly.';
-  return { text: out, handoff, usage: j.usage || null };
+  return { text: out, handoff, usage: j.usage || null, model: switched || c.model, switched };
 }
 
 /** Handle one inbound plain-text message. Returns 'replied' | 'handoff' | 'off' | 'capped' | 'failed'. */

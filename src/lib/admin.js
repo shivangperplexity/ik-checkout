@@ -420,6 +420,13 @@ const ACTIONS = {
     await putSetting(env, 'ai', a);
     return { ok: true };
   },
+  /** The models the saved key can use, with the one the assistant would pick. */
+  async ai_models(env) {
+    const { listModels, pickModel, aiCfg } = await import('./wa-ai.js');
+    const fresh = await withSettingsFresh(env);
+    const ids = await listModels(fresh);
+    return { ok: true, models: ids, current: aiCfg(fresh).model, suggested: pickModel(ids, aiCfg(fresh).provider) };
+  },
   /** Try the assistant without sending anything: { text, phone? } -> its reply, with the order context it saw. */
   async ai_test(env, b) {
     const { aiAnswer, customerOrders, aiCfg } = await import('./wa-ai.js');
@@ -427,7 +434,7 @@ const ACTIONS = {
     if (!aiCfg(fresh).key) throw new Error('No API key saved yet');
     const phone = digits(b.phone).slice(-10);
     const a = await aiAnswer(fresh, { phone, text: String(b.text || 'How long does it last?') });
-    return { ok: true, reply: a.text, handoff: a.handoff, usage: a.usage, orders: phone ? await customerOrders(fresh, phone).catch(() => '') : '' };
+    return { ok: true, reply: a.text, handoff: a.handoff, usage: a.usage, model: a.model, switched: a.switched, orders: phone ? await customerOrders(fresh, phone).catch(() => '') : '' };
   },
   async save_profit(env, b) {
     const unit_cost = Number(b.unit_cost), cac = Number(b.cac);
