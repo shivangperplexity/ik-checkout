@@ -16,7 +16,7 @@
     row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
     if (p.cod) row('COD handling', money(p.cod));
     row('To pay', money(p.total), 'is-total');
-    if (state.method === 'cod' && pcOn()) { row('Pay now (advance)', money(pcAdv())); row('Pay on delivery', money(p.total - pcAdv())); }
+    if (state.method === 'cod' && pcOn()) { row('Pay now', money(pcAdv())); row('Rest after delivery', money(p.total - pcAdv())); }
     var nudge = p.shipping && p.afterBogo > 0 ? '<p class="ikx-nudge">' + ICON.truck + 'Add ' + money(49900 - p.afterBogo) + ' more for FREE delivery</p>' : '';
     box.innerHTML = rows.join('') + nudge;
   }
@@ -35,31 +35,34 @@
     if (f.mode === 'all') return true;
     return state.pcKey === pcKeyNow() && !!state.pcNeed;
   }
-  function pcWaiting() { return pcFlag().mode === 'check' && !!state.quote && !state.quote.estimate && ready() && state.pcKey !== pcKeyNow(); }
+  /* The check runs in the background as soon as mobile, PIN and address are typed; nothing waits for it. If it has not
+     answered when the shopper places a COD order, the API decides then (partial_required) and the sheet switches. */
+  function pcInputs() { var d = form() ? formData() : null; return !!(d && /^[6-9]\d{9}$/.test(d.phone) && /^\d{6}$/.test(d.pincode) && d.address1.length >= 5); }
+  function pcWaiting() { return pcFlag().mode === 'check' && !!state.quote && !state.quote.estimate && pcInputs() && state.pcKey !== pcKeyNow(); }
   function pcCheck() {
     if (!pcWaiting()) return;
     var key = pcKeyNow(); if (state.pcAsk === key) return;
     clearTimeout(state.pcT);
     state.pcT = setTimeout(function () {
-      if (pcKeyNow() !== key || state.pcAsk === key) return;
+      if (pcKeyNow() !== key || state.pcAsk === key || !pcInputs()) return;
       state.pcAsk = key; var d = formData();
       function done(j) {
-        if (state.pcAsk !== key) return;
-        state.pcAsk = ''; state.pcKey = key; state.pcNeed = !!(j && j.partial); state.pcHint = (j && j.hint) || '';
+        if (state.pcAsk === key) state.pcAsk = '';
+        if (pcKeyNow() !== key || state.busy) return;
+        state.pcKey = key; state.pcNeed = !!(j && j.partial); state.pcHint = (j && j.hint) || '';
         if (j && j.advance) state.pcAdvance = j.advance;
         if (state.pcNeed) tk('method', { method: 'cod', data: { partial: true } });
         paintPay(); paintBill(); paintFoot();
       }
       api('/api/cod-check', { phone: d.phone, pincode: d.pincode, address1: d.address1, address2: d.address2, total: state.quote.cod.total }).then(done, function () { done(null); });
-    }, 350);
+    }, 250);
   }
   function pcNote() {
     if (state.method !== 'cod' || !pcOn()) return '';
-    var a = money(pcAdv()), bal = money(state.quote.cod.total - pcAdv());
-    return '<div class="ikx-pc" role="note" style="margin:10px 0 0;padding:10px 12px;border-radius:12px;background:#fff7e6;border:1px solid #f1d39a;font-size:13px;line-height:1.45;color:#3d2c08">' +
-      '<b>Pay ' + a + ' now, ' + bal + ' on delivery.</b> The ' + a + ' is part of your total, not extra.' +
-      (state.pcHint ? '<br><span style="opacity:.8">Tip: ' + esc(state.pcHint) + ' to pay the full amount on delivery.</span>' : '') +
-      (IS_MOBILE ? '<br><span style="opacity:.8">Pick the UPI app for the ' + a + ':</span>' : '') + '</div>';
+    var a = money(pcAdv()), bits = [];
+    if (state.pcHint) bits.push('Tip: ' + esc(state.pcHint) + ' to pay the full amount after delivery.');
+    if (IS_MOBILE) bits.push('Pay the ' + a + ' with:');
+    return bits.length ? '<p class="ikx-m ikx-pc" style="margin:10px 2px 0;font-size:13px;line-height:1.45">' + bits.join('<br>') + '</p>' : '';
   }
 
   /* ---------- footer: total + (Add delivery details | Slide to pay) ---------- */
@@ -72,6 +75,7 @@
       foot.innerHTML = '<p class="ikx-err" role="alert" hidden></p><a class="ikx-btn" href="' + R + 'checkout">Checkout on Shopify · ' + t + '</a>';
       return;
     }
+    pcCheck(); /* background: starts once mobile, PIN and address are in */
     var p = state.quote[qk(state.method)], save = savings(p), was = p.subtotal + (p.shipping || 0) + (p.cod || 0);
     var pcx = state.method === 'cod' && pcOn();
     var label = pcx ? 'Slide to pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Slide to place order · ' + money(p.total) : 'Slide to pay ' + money(p.total);
@@ -87,11 +91,6 @@
     }
     if (!state.final) {
       foot.innerHTML = top + '<button type="button" class="ikx-btn" disabled><i class="ikx-spin ikx-spin--sm"></i>Confirming your total…</button>';
-      return;
-    }
-    pcCheck();
-    if (state.method === 'cod' && pcWaiting()) {
-      foot.innerHTML = top + '<button type="button" class="ikx-btn" disabled><i class="ikx-spin ikx-spin--sm"></i>Checking delivery options…</button>';
       return;
     }
     if ((state.method !== 'cod' || pcx) && !((state.method === 'upi' || pcx) && IS_MOBILE)) loadBolt(false).catch(function () {});

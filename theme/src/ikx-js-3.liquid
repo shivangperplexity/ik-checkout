@@ -19,6 +19,9 @@
         '<span style="position:relative;display:flex;align-items:center;justify-content:center;height:100%;padding:0 14px;font-size:13px;font-weight:700;color:#1d1a14;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
         (b.odd ? '🎁 Add 1 more tattoo, get it FREE' : '✓ ' + b.free + ' FREE unlocked · add 2 more for 1 more free') + '</span></div>';
     }
+    /* Build 039: the State select's empty option repeated the word "State" under the floating label (overlapping text) */
+    var stSel = form() && form().elements.state;
+    if (stSel && stSel.options[0] && stSel.options[0].value === '' && stSel.options[0].text) stSel.options[0].text = '';
 
     var inCart = {}; c.items.forEach(function (i) { inCart[i.product_id] = 1; });
     /* Odd count: this rail shows the designs that are free right now. */
@@ -230,11 +233,11 @@
     var cod = state.quote.cod, pre = state.quote.prepaid, pc = pcOn();
     box.innerHTML = '<div class="ikx-tiles">' + methods().map(function (m) {
       var q = state.quote[qk(m)], on = state.method === m;
-      var name = m === 'upi' ? 'UPI' : m === 'card' ? 'Card / Netbanking' : 'Cash on delivery';
-      var sub = m === 'upi' && !IS_MOBILE ? 'Scan QR with any UPI app' : m === 'upi' ? '<span class="ikx-logos">' + UPI_APPS.slice(0, 3).map(function (a) { return LOGO_URL[a[0]] ? '<img src="' + esc(LOGO_URL[a[0]]) + '" alt="' + a[1] + '">' : a[1]; }).join('') + '</span>' : m === 'card' ? 'Debit, credit, wallets' : pc ? 'Pay ' + money(pcAdv()) + ' now · ' + money(cod.total - pcAdv()) + ' at your door' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
+      var name = m === 'upi' ? 'UPI' : m === 'card' ? 'Card / Netbanking' : pc ? 'Pay ' + money(pcAdv()) + ' now' : 'Cash on delivery';
+      var sub = m === 'upi' && !IS_MOBILE ? 'Scan QR with any UPI app' : m === 'upi' ? '<span class="ikx-logos">' + UPI_APPS.slice(0, 3).map(function (a) { return LOGO_URL[a[0]] ? '<img src="' + esc(LOGO_URL[a[0]]) + '" alt="' + a[1] + '">' : a[1]; }).join('') + '</span>' : m === 'card' ? 'Debit, credit, wallets' : pc ? 'Rest ' + money(cod.total - pcAdv()) + ' after delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
       var save = m !== 'cod' && pre.prepaid ? '<span class="ikx-tile__save">Save ' + money(pre.prepaid) + '</span>' : '';
       return '<button type="button" role="radio" aria-checked="' + on + '" class="ikx-tile' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (state.busy ? ' disabled' : '') + '>' +
-        '<b>' + name + '</b><span class="ikx-tile__amt' + (m !== 'cod' ? ' ikx-green' : '') + '">' + money(q.total) + '</span><span class="ikx-m">' + sub + '</span>' + save + '</button>';
+        '<b>' + name + '</b><span class="ikx-tile__amt' + (m !== 'cod' ? ' ikx-green' : '') + '">' + money(m === 'cod' && pc ? pcAdv() : q.total) + '</span><span class="ikx-m">' + sub + '</span>' + save + '</button>';
     }).join('') + '</div>' + pcNote() +
     ((state.method === 'upi' || (state.method === 'cod' && pc)) && IS_MOBILE ? '<div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_APPS.map(function (a) {
 /* end of part 3 */

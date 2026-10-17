@@ -147,11 +147,15 @@ export async function decide(env, buyer = {}, totalPaise = 0) {
     const a = addressCheck(buyer.address1, buyer.address2);
     if (a.vague) { reasons.push('vague_address:' + a.why); hint = a.hint; }
   }
-  if (c.rto_pin && /^\d{6}$/.test(String(buyer.pincode || ''))) {
-    const r = pinRisk(c, buyer.pincode, env.DB ? await pinStats(env).catch(() => ({})) : {});
-    if (r) reasons.push('rto_pin:' + r);
-  }
-  if (c.history && env.DB) { const h = await phoneHistory(env, phone).catch(() => ''); if (h) reasons.push(h); }
+  /* both lookups at once (the checkout waits on this); each gives up after 2.5 s rather than hold the shopper */
+  const quick = (p, fallback) => Promise.race([p.catch(() => fallback), new Promise((res) => setTimeout(() => res(fallback), 2500))]);
+  const wantPin = c.rto_pin && /^\d{6}$/.test(String(buyer.pincode || ''));
+  const [stats, hist] = await Promise.all([
+    wantPin && env.DB ? quick(pinStats(env), {}) : {},
+    c.history && env.DB ? quick(phoneHistory(env, phone), '') : '',
+  ]);
+  if (wantPin) { const r = pinRisk(c, buyer.pincode, stats); if (r) reasons.push('rto_pin:' + r); }
+  if (hist) reasons.push(hist);
   if (Number(c.high_value) > 0 && totalPaise >= Number(c.high_value) * 100) reasons.push('high_value');
   /* Only the address can be fixed by the shopper; with any other reason the hint would not lift the advance. */
   return out(reasons, reasons.length === 1 && reasons[0].startsWith('vague_address') ? hint : '');

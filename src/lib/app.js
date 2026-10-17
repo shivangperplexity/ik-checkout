@@ -132,7 +132,7 @@ async function handleOrder(req, env, ctx) {
     const d = await decide(env, buyer, price.total);
     if (wantPartial && d.mode === 'off') return json({ ok: false, error: 'Please choose your payment method again.' }, 409);
     /* A checkout that cannot take the advance (older theme, no b.pc) keeps placing full COD orders. */
-    if (!wantPartial && d.partial && b.pc) return json({ ok: false, partial_required: true, advance: d.advance, balance: d.balance, hint: d.hint, error: `Pay ₹${d.advance / 100} now to confirm Cash on Delivery, the rest on delivery.` });
+    if (!wantPartial && d.partial && b.pc) return json({ ok: false, partial_required: true, advance: d.advance, balance: d.balance, hint: d.hint, error: `For this address: pay ₹${d.advance / 100} now, rest after delivery.` });
     if (wantPartial) {
       if (price.total <= d.advance) return json({ ok: false, error: 'Please pay online for this order.' }, 409);
       partial = { advance: d.advance, reasons: d.reasons.length ? d.reasons : ['chosen'] };
