@@ -361,10 +361,13 @@ const ACTIONS = {
       x.shipped = !!(x.shipped_at || x.booked);   // shipped_at is only set once Shopify is fulfilled; a booked AWB is shipped too
       return x;
     });
+    /* chip counts on the Orders tab: confirmed (or prepaid) but not shipped, and COD still waiting for confirmation */
+    const live = list.filter((o) => !o.shipped && o.status !== 'cancelled');
+    const counts = { toship: live.filter((o) => o.method !== 'cod' || o.confirmed_at).length, unconfirmed: live.filter((o) => o.method === 'cod' && !o.confirmed_at).length };
     if (b.filter === 'high') list = list.filter((o) => o.level === 'high');
     if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
     if (b.filter === 'unshipped') list = list.filter((o) => !o.shipped && o.status !== 'cancelled').map((o) => ({ ...o, ready: o.method !== 'cod' || !!o.confirmed_at }));
-    if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && o.status !== 'cancelled');
+    if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && !o.shipped && o.status !== 'cancelled');
     let profit = null;
     if (b.filter === 'shipped') {
       list = list.filter((o) => o.shipped);
@@ -391,7 +394,7 @@ const ACTIONS = {
     }
     if (b.filter === 'packed') list = list.filter((o) => o.packed_at && o.status !== 'cancelled');
     if (b.q) { const q = String(b.q).toLowerCase(); list = list.filter((o) => `${o.name} ${o.phone} ${o.customer} ${o.pincode}`.toLowerCase().includes(q)); }
-    return { orders: list.slice(0, 200), profit };
+    return { orders: list.slice(0, 200), profit, counts };
   },
   async order(env, b) {
     const all = await recentOrders(env, 365);
