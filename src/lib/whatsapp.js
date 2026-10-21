@@ -199,7 +199,7 @@ export function waImage(url) {
 }
 
 /** Build and send one template on the Cloud API. keys/values are the checkout's variables in {{1}}..{{n}} order. */
-export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang, urlParam = '', onText = null }) {
+export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang, urlParam = '', onText = null, qrKind = 'cod' }) {
   let tpl = null;
   try { tpl = await metaTemplate(env, name); } catch (e) { console.error('metaTemplate', name, e.message); }
   if (env.WA_WABA_ID && tpl === null) throw new Error(`template "${name}" not found or not approved in WhatsApp Manager`);
@@ -232,7 +232,9 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
   /* Quick replies carry the order id, so a tap maps to exactly one order. */
   const qr = tpl ? buttons.map((b, i) => ({ b, i })).filter((x) => x.b.type === 'QUICK_REPLY') : (orderId ? [{ b: { text: 'Yes' }, i: 0 }, { b: { text: 'No' }, i: 1 }] : []);
   if (orderId && orderId !== '0') for (const { b, i } of qr) {
-    const act = /\b(no|cancel)\b/i.test(b.text || '') ? 'CANCEL' : 'CONFIRM';
+    const no = /\b(no|cancel)\b/i.test(b.text || '');
+    /* COD confirmation buttons -> CONFIRM / CANCEL; the refused-delivery question (lib/ndr-ask.js) -> NDR_YES / NDR_NO */
+    const act = qrKind === 'ndr' ? (no ? 'NDR_NO' : 'NDR_YES') : (no ? 'CANCEL' : 'CONFIRM');
     components.push({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: act + ':' + orderId }] });
   }
 
@@ -339,7 +341,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
       wamid = r.wamid;
     } else {
       const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', orderId: t.buttons ? orderId : '', lang: cfg.lang,
-        urlParam: t.urlParam ? v[t.urlParam] || '' : '', onText: (x) => { shown = x; } });
+        urlParam: t.urlParam ? v[t.urlParam] || '' : '', onText: (x) => { shown = x; }, qrKind: t.buttons === 'ndr' ? 'ndr' : 'cod' });
       const list = candidates(templateName);
       for (let i = 0; i < list.length; i++) {
         templateName = list[i];
@@ -348,7 +350,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
         }
       }
     }
-    if (t.buttons && orderId && orderId !== '0') await rememberPending(env, phone, orderId, orderName || v.order);
+    if (t.buttons === true && orderId && orderId !== '0') await rememberPending(env, phone, orderId, orderName || v.order);
     await logMsg(env, { ...base(), status: 'sent', wamid });
     return { ok: true, template: templateName };
   } catch (e) {

@@ -20,7 +20,7 @@ import { orderDetail, addTags } from './shopify.js';
 import { srTrack, ndrList } from './shiprocket.js';
 import { fireTrigger, logMsg } from './whatsapp.js';
 import { triggerConfig } from './settings.js';
-import { shouldNotify } from './ndr-rules.js';
+import { shouldNotify, classifyNdr } from './ndr-rules.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const POLL = 25 * 60;              // seconds between checks of one shipment
@@ -167,6 +167,13 @@ export async function shipUpdates(env) {
         } else if (what === 'failed-refused') {
           await logMsg(env, { direction: 'out', phone: r.phone, trigger: 'ship_failed', status: 'skipped', orderName: r.order_name, error: 'courier says the customer refused / cancelled with OTP' });
         } else {
+          /* refused / cancelled at the door, and the rule says ask: "Do you still want it?" with Yes / Cancel buttons */
+          if (what === 'failed' && notify && classifyNdr(failReason) === 'refused' && triggerConfig(env, 'ndr_refused').enabled) {
+            const { askRefused } = await import('./ndr-ask.js');
+            const a = await askRefused(env, r).catch((e) => ({ ok: false, error: e.message }));
+            if (a.ok) { sentN++; sent = mark(sent, what, c); continue; }
+            /* not approved yet / not delivered: the usual delivery-failed message (its link asks the same question) */
+          }
           const key = { picked: 'ship_picked', transit: 'ship_transit', ofd: 'ship_ofd', failed: 'ship_failed' }[what];
           if (!triggerConfig(env, key).enabled) { sent = mark(sent, what, c); continue; }
           const res = await fireTrigger(env, key, { to: r.phone, vars, orderName: r.order_name });

@@ -957,7 +957,7 @@ const ACTIONS = {
   async ndr_list(env) {
     const f = await withSettingsFresh(env);
     const list = await ndrList(f);
-    const mine = Object.fromEntries((await env.DB.prepare("SELECT awb, order_name, ndr_choice, ndr_choice_at, ndr_date, ndr_by, ndr_attempt FROM shipments WHERE awb IS NOT NULL AND LENGTH(awb) > 0").all()).results.map((r) => [r.awb, r]));
+    const mine = Object.fromEntries((await env.DB.prepare("SELECT awb, order_name, ndr_choice, ndr_choice_at, ndr_date, ndr_by, ndr_attempt, ndr_asked_at FROM shipments WHERE awb IS NOT NULL AND LENGTH(awb) > 0").all()).results.map((r) => [r.awb, r]));
     /* Shiprocket keeps a parcel in its NDR list until the courier's next attempt, even after a re-attempt was asked for.
        Count it as handled when a choice was made after this failed attempt (same attempt number, or made after it was raised). */
     const handled = (x, m) => {
@@ -980,7 +980,7 @@ const ACTIONS = {
       const cat = classifyNdr(x.reason);
       return { ...x, order_name: m?.order_name || String(x.order || ''), done: handled(x, m), choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '',
         category: cat, category_label: CATEGORIES[cat].label, paid: !!pay[x.awb],
-        plan: plan ? { act: plan.act, why: plan.why, due: plan.due || null, then: plan.then || '' } : null, auto_action: st?.action || '', auto_error: st?.error || '' }; }) };
+        plan: plan ? { act: plan.act, why: plan.why, due: plan.due || null, then: plan.then || '' } : null, asked_at: num(m?.ndr_asked_at) || null, auto_action: st?.action || '', auto_error: st?.error || '' }; }) };
   },
   /** Pay-online offer (lib/wa-convert.js): settings, template status, results. */
   async convert_settings(env) {
@@ -1030,7 +1030,16 @@ const ACTIONS = {
     log.forEach((r) => { const x = by[r.awb]; r.outcome = x?.delivered_at || x?.stage === 'delivered' ? 'delivered' : x?.stage === 'rto' ? 'rto' : x?.stage || ''; if (!r.action && x?.ndr_by === 'customer') stats.customer++; });
     stats.delivered = log.filter((r) => r.outcome === 'delivered').length;
     stats.rto = log.filter((r) => r.outcome === 'rto').length;
-    return { ok: true, cfg: ndrCfg(f), categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])), log, stats, ship_failed_on: triggerConfig(f, 'ship_failed').enabled };
+    let refusedTpl = { status: 'UNKNOWN' };
+    try { const { withSettings } = await import('./settings.js'); const { metaTemplate } = await import('./whatsapp.js'); const t = await metaTemplate(await withSettings(f), 'ndr_refused_check'); refusedTpl = t ? { status: t.status } : { status: 'MISSING' }; } catch (e) { refusedTpl = { status: 'UNKNOWN', error: String(e.message || e).slice(0, 120) }; }
+    return { ok: true, cfg: ndrCfg(f), categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])), log, stats, ship_failed_on: triggerConfig(f, 'ship_failed').enabled, refused_on: triggerConfig(f, 'ndr_refused').enabled, refused_tpl: refusedTpl };
+  },
+  /** Submit ndr_refused_check ("Do you still want it?" with Yes / Cancel buttons) to Meta. */
+  async ndr_template(env) {
+    const { REFUSED_TEMPLATE } = await import('./ndr-ask.js');
+    const r = await ACTIONS.wa_create_templates(env, { templates: [REFUSED_TEMPLATE] });
+    const { clearMetaCache } = await import('./whatsapp.js'); clearMetaCache();
+    return { ok: true, ...r };
   },
   async save_ndr(env, b) {
     const { ndrCfg } = await import('./ndr-rules.js');

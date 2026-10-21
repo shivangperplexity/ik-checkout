@@ -138,7 +138,7 @@ export async function autoNdr(env, { dry = false } = {}) {
   if (!list.length) return { open: 0 };
   const awbs = list.map((x) => x.awb);
   const ships = Object.fromEntries((await env.DB.prepare(`SELECT s.awb, s.order_id, s.order_name, s.ndr_choice, s.ndr_choice_at, s.ndr_by, s.stage,
-      o.method, o.phone, o.first_name, o.advance_paise, o.converted_at, o.status AS order_status
+      s.ndr_asked_at, o.method, o.phone, o.first_name, o.advance_paise, o.converted_at, o.status AS order_status
       FROM shipments s JOIN orders o ON o.order_id = s.order_id WHERE s.awb IN (${awbs.map(() => '?').join(',')})`).bind(...awbs).all()).results.map((r) => [String(r.awb), r]));
   const out = { open: list.length, mine: 0, reattempt: 0, return: 0, manual: 0, waiting: 0, failed: 0, actions: [] };
   const t = now();
@@ -156,6 +156,11 @@ export async function autoNdr(env, { dry = false } = {}) {
       if (!dry && nd.reason) await env.DB.prepare("UPDATE shipments SET ndr_reason=? WHERE awb=? AND COALESCE(ndr_reason,'')=''").bind(String(nd.reason).slice(0, 300), nd.awb).run().catch(() => {});
     }
     const paid = s.method !== 'cod' || Number(s.advance_paise) > 0 || !!s.converted_at;
+    /* refused at the door and the rule says ask: make sure the "still want it?" question went out for this attempt
+       (the tracking poll usually sends it first; this covers NDRs it did not see) */
+    if (!dry && classifyNdr(nd.reason) === 'refused' && cfg.rules.refused.first === 'ask' && !st.action && Number(s.ndr_asked_at || 0) < Number(st.first_seen) - 3600 && !(Number(s.ndr_choice_at) >= Number(st.first_seen) - 3600)) {
+      try { const { askRefused } = await import('./ndr-ask.js'); const a = await askRefused(env, { order_id: s.order_id, order_name: s.order_name, phone: s.phone, first_name: s.first_name }); if (a.ok) out.asked = (out.asked || 0) + 1; } catch (e) { console.error('ndr ask', e.message); }
+    }
     const p = planNdr(cfg, nd, st, s, paid, t);
     if (p.act === 'wait') { out.waiting++; continue; }
     if (p.act === 'none') continue;

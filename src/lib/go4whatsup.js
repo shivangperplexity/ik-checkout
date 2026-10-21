@@ -160,9 +160,9 @@ export function replyAction(text) {
   const t = String(text || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/^(stop|unsubscribe|opt out|optout|stop messages)$/.test(t)) return 'STOP';
   if (/^(start|subscribe)$/.test(t)) return 'START';
-  if (/^(re ?attempt|reattempt delivery|re ?attempt delivery|deliver again|try again|retry|redeliver|re ?deliver|send again|deliver tomorrow|deliver it again|dobara|phir se)$/.test(t)) return 'REATTEMPT';
+  if (/^(re ?attempt|reattempt delivery|re ?attempt delivery|deliver again|try again|retry|redeliver|re ?deliver|send again|deliver tomorrow|deliver it again|dobara|phir se|yes deliver it|yes deliver|deliver it|i want it|yes i want it|yes i want|want it|chahiye|haan chahiye|yes send it|send it)$/.test(t)) return 'REATTEMPT';
   if (/^(return|return it|return the parcel|return parcel|send it back|send back|rto|wapas)$/.test(t)) return 'RETURN';
-  if (/^(no|no cancel|cancel|cancel order|cancel it|cancel my order|please cancel|dont want|don t want|nahi|nahin|na)$/.test(t)) return 'CANCEL';
+  if (/^(no|no cancel|no cancel order|no cancel it|cancel|cancel order|cancel it|cancel my order|please cancel|dont want|don t want|i dont want|i don t want|dont want it|don t want it|nahi|nahin|na|nahi chahiye)$/.test(t)) return 'CANCEL';
   if (/^(yes|yes confirm|confirm|confirm order|confirmed|yes confirm order|confirm my order|yes please|ok|okay|yep|yeah|haan|han|ha|ji|haa)$/.test(t)) return 'CONFIRM';
   return null;
 }

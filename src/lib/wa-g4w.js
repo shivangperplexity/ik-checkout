@@ -130,6 +130,12 @@ export async function processInbound(env0, msgs) {
       try { const { aiReply } = await import('./wa-ai.js'); await aiReply(env, m.from, m.text, { msgId: Number(inId) || 0 }); } catch (e) { console.error('wa-ai', e.message); }
       continue;
     }
+    /* we asked "still want it?" after a refused delivery: yes / no / cancel answer that question (lib/ndr-ask.js) */
+    if (['CONFIRM', 'CANCEL', 'REATTEMPT', 'RETURN'].includes(action)) {
+      const { pendingAsk, answerRefused } = await import('./ndr-ask.js');
+      const ask = await pendingAsk(env, m.from).catch(() => null);
+      if (ask) { await answerRefused(env, m.from, ask.order_id, action === 'CONFIRM' || action === 'REATTEMPT', 'reply'); continue; }
+    }
     /* a parcel waiting after a failed delivery: the customer decides re-attempt / return right here */
     if (action === 'REATTEMPT' || action === 'RETURN') { const { ndrReply } = await import('./wa-ndr.js'); if (!(await ndrReply(env, m.from, action))) await sendText(env, '91' + m.from, 'There is no parcel waiting for a re-attempt on this number right now. Reply with your order number if you need help.'); continue; }
     const row = await resolveOrder(env, m.from);

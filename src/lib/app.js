@@ -369,12 +369,14 @@ async function handleWa(req, env, ctx) {
       const others = [];
       for (const e of payload.entry || []) for (const c of e.changes || []) for (const m of c.value?.messages || []) {
         const p = m.button?.payload || m.interactive?.button_reply?.id || '';
-        if (/^(CONFIRM|CANCEL|ADDR_OK|ADDR_EDIT):/.test(p)) continue;
+        if (/^(CONFIRM|CANCEL|ADDR_OK|ADDR_EDIT|NDR_YES|NDR_NO):/.test(p)) continue;
         const text = m.button?.text || m.interactive?.button_reply?.title || m.text?.body || '';
         const from = String(m.from || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
         if (text && /^\d{10}$/.test(from)) others.push({ from, text: String(text).slice(0, 300), via: 'meta', phoneId: String(c.value?.metadata?.phone_number_id || '') });
       }
       if (others.length) { const { processInbound } = await import('./wa-g4w.js'); await processInbound(env, others); }
+      /* [Yes, deliver it] / [No, cancel order] on the refused-delivery question (lib/ndr-ask.js) */
+      { const na = await import('./ndr-ask.js'); for (const b of na.parseNdrButtons(payload)) await na.answerRefused(env, b.from, b.orderId, b.yes, 'button'); }
       /* "Address is correct" / "Edit address" taps on the post-confirm address check. */
       const addr = await import('./wa-address.js');
       for (const rep of addr.parseAddrReplies(payload)) await addr.handleAddressReply(env, rep);
