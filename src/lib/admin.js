@@ -139,6 +139,9 @@ function orderOut(o, all) {
     city: o.city, pincode: o.pincode, state: o.state_code, created_at: num(o.created_at), confirmed_at: num(o.confirmed_at) || null, shipped_at: num(o.shipped_at) || null, packed_at: num(o.packed_at) || null, tracking: o.tracking || '',
     risk: r.score, level: r.level,
     advance: num(o.advance_paise) / 100, cod_due: codDue(o) / 100,
+    /* pay-online offer: paid (converted, with what they paid), or open until convert_expires_at */
+    converted: !!o.converted_at, paid_online: o.converted_at ? num(o.paid_paise) / 100 : 0,
+    offer_until: !o.converted_at && num(o.convert_expires_at) > now() ? num(o.convert_expires_at) : null, offer_sent: num(o.convert_offer_at) || null,
   };
 }
 
@@ -978,6 +981,42 @@ const ACTIONS = {
       return { ...x, order_name: m?.order_name || String(x.order || ''), done: handled(x, m), choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '',
         category: cat, category_label: CATEGORIES[cat].label, paid: !!pay[x.awb],
         plan: plan ? { act: plan.act, why: plan.why, due: plan.due || null, then: plan.then || '' } : null, auto_action: st?.action || '', auto_error: st?.error || '' }; }) };
+  },
+  /** Pay-online offer (lib/wa-convert.js): settings, template status, results. */
+  async convert_settings(env) {
+    const { convertCfg, convertStats } = await import('./wa-convert.js');
+    const f = await withSettingsFresh(env);
+    const { withSettings } = await import('./settings.js');
+    const e2 = await withSettings(f);
+    const { metaTemplate } = await import('./whatsapp.js');
+    const tpl = async (n) => { try { const t = await metaTemplate(e2, n); return t ? { name: n, status: t.status, category: t.category || '' } : { name: n, status: 'MISSING' }; } catch (e) { return { name: n, status: 'UNKNOWN', error: String(e.message || e).slice(0, 120) }; } };
+    return { ok: true, cfg: convertCfg(f), stats: await convertStats(env), templates: [await tpl('cod_prepaid_offer'), await tpl('cod_to_prepaid')], trigger_on: triggerConfig(f, 'cod_to_prepaid').enabled, store: env.STORE_URL || '' };
+  },
+  async save_convert(env, b) {
+    const { CONVERT_DEFAULTS } = await import('./wa-convert.js');
+    const c = { ...CONVERT_DEFAULTS, mode: b.mode === 'on' ? 'on' : 'off', pct: Math.min(50, Math.max(1, Math.round(Number(b.pct) || 20))),
+      delay_min: Math.max(0, Math.min(1440, Math.round(Number(b.delay_min) || 0))), hours: Math.max(1, Math.min(72, Math.round(Number(b.hours) || 12))) };
+    await putSetting(env, 'convert', c);
+    return { ok: true, cfg: c };
+  },
+  /** Submit the cod_prepaid_offer template to Meta for approval. */
+  async convert_template(env) {
+    const { OFFER_TEMPLATE } = await import('./wa-convert.js');
+    const r = await ACTIONS.wa_create_templates(env, { templates: [OFFER_TEMPLATE] });
+    const { clearMetaCache } = await import('./whatsapp.js'); clearMetaCache();
+    return { ok: true, ...r };
+  },
+  /** Send the offer for one order now (dashboard button), ignoring the delay; the window starts now. */
+  async convert_send(env, b) {
+    const { sendOffer, offerState, convertCfg } = await import('./wa-convert.js');
+    const { withSettings } = await import('./settings.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const st = await offerState(e2, String(b.id));
+    if (st.state !== 'open') throw new Error({ paid: 'Already paid online', booked: 'Already booked with the courier: it stays COD', cancelled: 'Order cancelled', not_cod: 'Not a COD order', expired: 'The offer window has ended', missing: 'Order not found' }[st.state] || st.state);
+    const r = await sendOffer(e2, st.row, { ...convertCfg(e2), mode: 'on' });
+    if (r?.skipped) throw new Error('Shopify says this order is paid, fulfilled or cancelled');
+    if (r && r.ok === false) throw new Error(r.error || 'WhatsApp did not send it');
+    return { ok: true };
   },
   /** Automatic NDR rules: settings, what they would do right now, and the last automatic actions. */
   async ndr_rules(env) {

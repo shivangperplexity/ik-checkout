@@ -444,6 +444,12 @@ export async function handle(req, env0, ctx) {
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
       else if (path.startsWith('/api/pincode/')) res = await handlePincode(path.split('/').pop());
       else if (path === '/api/shipping' && req.method === 'GET') res = await shippingEstimate(req, env);
+      /* the pay-online page on the store (inkkulture.in/pages/pay): order details, start a payment, poll it */
+      else if (path === '/api/convert' && req.method === 'POST') {
+        const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+        if (!(await rateLimit(env, 'cv:' + ip, 120))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
+        else { const { handleConvertApi } = await import('./wa-convert.js'); res = json(await handleConvertApi(req, env, ctx)); }
+      }
       else res = json({ error: 'not found' }, 404);
       Object.entries(cors).forEach(([k, v]) => res.headers.set(k, v));
       return res;

@@ -199,7 +199,7 @@ export function waImage(url) {
 }
 
 /** Build and send one template on the Cloud API. keys/values are the checkout's variables in {{1}}..{{n}} order. */
-export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang }) {
+export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang, urlParam = '', onText = null }) {
   let tpl = null;
   try { tpl = await metaTemplate(env, name); } catch (e) { console.error('metaTemplate', name, e.message); }
   if (env.WA_WABA_ID && tpl === null) throw new Error(`template "${name}" not found or not approved in WhatsApp Manager`);
@@ -209,8 +209,9 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
   const header = comps.find((c) => c.type === 'HEADER');
   const buttons = comps.find((c) => c.type === 'BUTTONS')?.buttons || [];
   const components = [];
-  /* A URL button with {{1}} (e.g. a Go4WhatsUp short link) needs a value this checkout has no source for. */
-  if (buttons.some((b) => b.type === 'URL' && /{{\s*\d+\s*}}/.test(b.url || ''))) throw new Error(`template "${name}" has a dynamic link button this checkout can't fill`);
+  /* A URL button with {{1}}: filled with urlParam (e.g. the pay-page key); without one this checkout can't fill it. */
+  const dyn = buttons.map((b, i) => ({ b, i })).filter((x) => x.b.type === 'URL' && /{{\s*\d+\s*}}/.test(x.b.url || ''));
+  if (dyn.length && !urlParam) throw new Error(`template "${name}" has a dynamic link button this checkout can't fill`);
 
   if (!tpl ? image : header?.format === 'IMAGE') {
     if (!image) throw new Error(`template "${name}" has an image header but no image was found`);
@@ -235,6 +236,17 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
     components.push({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: act + ':' + orderId }] });
   }
 
+  for (const { i } of dyn) components.push({ type: 'button', sub_type: 'url', index: String(i), parameters: [{ type: 'text', text: String(urlParam) }] });
+  /* what the customer actually reads, for the message log / Chats */
+  if (onText && text) {
+    try {
+      const filled = named
+        ? text.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (m, n) => clean(keys.includes(n) ? values[keys.indexOf(n)] : m))
+        : text.replace(/{{\s*(\d+)\s*}}/g, (m, n) => clean(values[Number(n) - 1]));
+      const btns = buttons.map((b) => b.text).filter(Boolean);
+      onText(filled + (btns.length ? `\n[${btns.join('] [')}]` : ''));
+    } catch { /* preview only */ }
+  }
   const res = await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
     body: JSON.stringify({ messaging_product: 'whatsapp', to: '91' + phone, type: 'template', template: { name, language: { code: tpl?.language || lang || 'en' }, components } }),
@@ -280,7 +292,8 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
   const candidates = (n) => [...new Set([...alts(n), ...alts(cfg.name), t.fallback].filter(Boolean))];
   /* Worth trying the next template: not approved yet, an image version with no picture to send, or a button we can't fill. */
   const RETRY = /not found or not approved|image header but no image|dynamic link button/;
-  const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });
+  let shown = '';   /* the template text as sent (Cloud API), else the variables */
+  const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: shown || cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });
 
   try {
     if (!phone) { await logMsg(env, { ...base(), status: 'skipped', error: 'no phone number' }); return { skipped: 'nophone' }; }
@@ -312,7 +325,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     let wamid = '';
     if (viaG4w(env)) {
       const body = Object.fromEntries(cfg.vars.filter((k) => k !== 'btnurl').map((k) => [k, v[k] ?? '-']));
-      const button = cfg.vars.includes('btnurl') ? { btnurl: v.btnurl } : {};
+      const button = cfg.vars.includes('btnurl') ? { btnurl: v.btnurl } : t.urlParam && v[t.urlParam] ? { btnurl: v[t.urlParam] } : {};
       const send = (name) => g4w.sendTemplate(env, { name, to: phone, body, button, fileUrl: t.media ? image : '' });
       /* A rotation variant still awaiting approval must not cost a send: walk down to an approved one. */
       let r;
@@ -325,7 +338,8 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
       }
       wamid = r.wamid;
     } else {
-      const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', orderId: t.buttons ? orderId : '', lang: cfg.lang });
+      const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', orderId: t.buttons ? orderId : '', lang: cfg.lang,
+        urlParam: t.urlParam ? v[t.urlParam] || '' : '', onText: (x) => { shown = x; } });
       const list = candidates(templateName);
       for (let i = 0; i < list.length; i++) {
         templateName = list[i];

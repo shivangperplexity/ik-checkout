@@ -101,6 +101,11 @@ export const SCHEMA = [
   /* WhatsApp chats a person has to answer (assistant handed off, or the team took over) */
   `CREATE TABLE IF NOT EXISTS wa_handoff (phone TEXT PRIMARY KEY, state TEXT, reason TEXT, opened_at BIGINT, replied_at BIGINT, resolved_at BIGINT, ai_paused_until BIGINT, seen_at BIGINT)`,
   `ALTER TABLE wa_handoff ADD COLUMN IF NOT EXISTS seen_id BIGINT`,
+  /* Pay-online offer (lib/wa-convert.js): the window, and the exact amount / % quoted when the payment started */
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_expires_at BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_pct INT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_payable_paise BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_started_at BIGINT`,
 ];
 
 let ready;

@@ -86,6 +86,9 @@ export async function inboxThread(env, phone) {
   /* items and the address come from Shopify, for the newest three orders */
   const { orderDetail } = await import('./shopify.js');
   const detail = await Promise.all(orders.slice(0, 3).map((o) => Promise.race([orderDetail(env, o.order_id), new Promise((ok) => setTimeout(() => ok(null), 5000))]).catch(() => null)));
+  /* a COD order that can still be paid online: the pay-online link for a quick reply */
+  const { storePayLink, discountPct } = await import('./wa-convert.js');
+  const payLinks = await Promise.all(orders.map((o) => (o.method === 'cod' && !o.converted_at && !(Number(o.advance_paise) > 0) && !o.awb && !o.shipped_at && o.status !== 'cancelled' ? storePayLink(env, o.order_id) : '')));
   const out = orders.map((o, i) => {
     const d = detail[i];
     const total = Number(o.total_paise) / 100, adv = Number(o.advance_paise) / 100 || 0;
@@ -94,6 +97,7 @@ export async function inboxThread(env, phone) {
       confirmed: o.method !== 'cod' || !!o.confirmed_at, packed: !!o.packed_at, shipped: !!(o.shipped_at || o.awb),
       awb: o.awb || '', courier: o.courier || '', stage: o.stage || '', sr_status: o.sr_status || '', edd: o.edd || '', delivered_at: Number(o.delivered_at) || null,
       ndr: o.stage === 'ndr' ? { reason: o.ndr_reason || '', choice: o.ndr_choice || '', date: o.ndr_date || '', by: o.ndr_by || '' } : null,
+      pay_link: payLinks[i] || '', pay_pct: payLinks[i] ? discountPct(env) : 0,
       track: o.awb ? `https://shiprocket.co/tracking/${o.awb}` : (o.tracking && /^https?:/.test(o.tracking) ? o.tracking : ''), status_url: o.status_url || '',
       items: d ? (d.lineItems?.nodes || []).map((l) => ({ title: l.title, qty: l.quantity, size: l.variantTitle || '', image: l.image?.url || '' })) : null,
       address: d?.shippingAddress ? [d.shippingAddress.address1, d.shippingAddress.address2, d.shippingAddress.city, d.shippingAddress.province, d.shippingAddress.zip].filter(Boolean).join(', ') : '',

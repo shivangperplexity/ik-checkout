@@ -93,7 +93,7 @@ function orderLine(r, live) {
   return `- Order ${r.order_name} placed ${day(r.created_at)}, ${r.method === 'cod' ? 'Cash on Delivery' : 'prepaid'}, Rs ${Math.round(Number(r.total_paise || 0) / 100)}${items ? ', items: ' + items : ''}. Status: ${state}.`;
 }
 
-const ORDER_SQL = `SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.total_paise, o.confirmed_at, o.shipped_at, o.tracking, o.created_at, o.contents_json,
+const ORDER_SQL = `SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.total_paise, o.confirmed_at, o.shipped_at, o.tracking, o.created_at, o.contents_json, o.converted_at, o.advance_paise,
     s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.status AS ship_status, s.ndr_choice, s.ndr_date
     FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'`;
 
@@ -120,6 +120,10 @@ export async function customerOrders(env, phone, text = '') {
   for (const r of rows) {
     const live = r.awb && ACTIVE.includes(r.stage) && lookups < 2 ? (lookups++, await liveScans(env, r.awb)) : null;
     lines.push(orderLine(r, live));
+    /* a COD order not booked yet can still be paid online with the prepaid discount: give the assistant the link */
+    if (r.method === 'cod' && !r.converted_at && !(Number(r.advance_paise) > 0) && !r.awb && !r.shipped_at && r.status === 'placed') {
+      try { const { storePayLink, discountPct } = await import('./wa-convert.js'); const l = await storePayLink(env, r.order_id); if (l) lines.push(`  If the customer wants to pay online instead of cash: they can pay for ${r.order_name} at ${l} and get ${discountPct(env)}% off (only until it ships).`); } catch { /* no link */ }
+    }
   }
   /* an order number in the message that is not in the list above */
   const asked = [...String(text).matchAll(/#?\b(\d{4,5})\b/g)].map((m) => '#' + m[1]).filter((n) => !rows.some((r) => r.order_name === n)).slice(0, 2);

@@ -174,7 +174,9 @@ export async function planShipment(env, order, row, { pickOption }) {
   if (!/^\d{6}$/.test(pin)) throw new Error('This order has no valid PIN code');
   /* COD only when something is still to be collected: a COD order paid online later (converted) ships prepaid, and a
      partial-COD order collects only the balance (total - advance). */
-  const due = codDue(row), cod = due > 0, amount = Number(row.total_paise) / 100 || 499, codAmount = cod ? due / 100 : 0;
+  /* a COD order paid online before shipping is worth what was paid (the pay-online discount), not the old COD total */
+  const paidOnline = row.converted_at && Number(row.paid_paise) > 0 ? Number(row.paid_paise) / 100 : 0;
+  const due = codDue(row), cod = due > 0, amount = paidOnline || Number(row.total_paise) / 100 || 499, codAmount = cod ? due / 100 : 0;
   const c = cfg(env);
   const options = (await srRates(env, { pin, cod, amount: cod ? codAmount : amount, pack })).map((o) => ({ ...o, eddDate: eddOf(o.edd) }));
   options.sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
@@ -193,6 +195,8 @@ function eddOf(edd) {
  */
 export async function bookShipment(env, order, row, { pickOption }) {
   const db = env.DB, id = String(row.order_id);
+  /* the customer is paying online right now (pay-online offer): booking it as COD would race the payment */
+  if (!row.converted_at && Number(row.convert_started_at) > Math.floor(Date.now() / 1000) - 15 * 60) throw new Error('The customer is paying online right now (pay-online offer). Book it again in 15 minutes: it will go as prepaid if they paid.');
   const s = env.SETTINGS?.shipping || {};
   if (!s.sr_pickup) throw new Error('Choose your Shiprocket pickup location in Settings, Shipping carriers, first.');
   let rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();

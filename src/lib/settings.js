@@ -1,6 +1,7 @@
 import { DEFAULTS as PARTIAL } from './partial-cod.js';
 import { META_DEFAULTS } from './meta.js';
 import { NDR_DEFAULTS } from './ndr-rules.js';
+import { CONVERT_DEFAULTS } from './convert-cfg.js';
 // Dashboard-editable settings (stored in the settings table) layered over env vars.
 //
 // Variable names matter on the Go4WhatsUp path: they are sent as named key/value pairs and must match the
@@ -15,7 +16,10 @@ import { NDR_DEFAULTS } from './ndr-rules.js';
 export const TRIGGERS = {
   cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm_v2', fallback: 'cod_order_confirm', on: true },
   cod_reminder: { label: 'COD reminder (not confirmed)', to: 'Customer', when: 'COD order still unconfirmed after 20h (checked every cron run)', vars: ['name', 'order', 'total'], buttons: true, def: 'cod_order_reminder', on: false },
-  cod_to_prepaid: { label: 'Convert COD to prepaid (discount offer)', to: 'Customer', when: 'COD order still unconfirmed after COD_CONVERT_HOURS (off unless that env var is set)', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay'], media: true, marketing: true, def: 'cod_to_prepaid', on: true },
+  /* Pay-online offer (lib/wa-convert.js, Settings > Pay-online offer). cod_prepaid_offer uses named variables and a
+     "Pay online" URL button to https://www.inkkulture.in/pages/pay?k={{1}} (paykey). The older cod_to_prepaid
+     (link in the body, {{1}}..{{6}}) is the fallback while the new one is in review. */
+  cod_to_prepaid: { label: 'Pay online before shipping (discount offer)', to: 'Customer', when: 'COD order, a few minutes after it is placed (Settings > Pay-online offer). Sent as a free in-chat button when the customer wrote in the last 23 h', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay', 'hours'], media: true, marketing: true, def: 'cod_prepaid_offer', fallback: 'cod_to_prepaid', urlParam: 'paykey', on: true },
   /* Partial COD (lib/partial-cod.js): by default the same approved "payment received" template, with total = the advance.
      Make a dedicated template (e.g. partial_cod_paid with name, order, total, balance) and select it here to mention the balance. */
   partial_paid: { label: 'Partial COD advance received', to: 'Customer', when: 'Right after the ₹99 (advance) is paid for a partial COD order', vars: ['name', 'order', 'total'], def: 'order_paid', on: true },
@@ -35,7 +39,7 @@ export const TRIGGERS = {
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
-export const VAR_LABELS = { edd: 'Expected delivery date', location: 'Last scan city', track: 'Tracking link', name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
+export const VAR_LABELS = { hours: 'Pay-online offer: hours it stays open', edd: 'Expected delivery date', location: 'Last scan city', track: 'Tracking link', name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
   confirm: 'One-tap confirm link (automatic)', pay: 'Pay-online link (automatic)', pct: 'Prepaid discount %', newtotal: 'Total if paid online (Rs)', btnurl: 'Confirm link for a Dynamic URL button (automatic)', balance: 'Partial COD: amount to pay on delivery (Rs)' };
 
 const DEFAULTS = {
@@ -57,6 +61,8 @@ const DEFAULTS = {
   meta: { ...META_DEFAULTS },
   /* Automatic NDR rules (lib/ndr-rules.js) */
   ndr: structuredClone(NDR_DEFAULTS),
+  /* Pay-online offer before shipping (lib/wa-convert.js) */
+  convert: { ...CONVERT_DEFAULTS },
 };
 
 let cache = { at: 0, s: null };
@@ -72,6 +78,7 @@ export async function getSettings(env, fresh) {
   s.ai = { ...DEFAULTS.ai, ...(s.ai || {}) };
   s.partial = { ...DEFAULTS.partial, ...(s.partial || {}) };
   s.meta = { ...DEFAULTS.meta, ...(s.meta || {}) };
+  s.convert = { ...DEFAULTS.convert, ...(s.convert || {}) };
   cache = { at: Date.now(), s };
   return s;
 }
