@@ -5,6 +5,8 @@ import { orderForShipping, packingItems, activeFulfilments, updateTracking, canc
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
+import { cfg as cfgShip, courierBlocked } from './shipping.js';
+import { isCollab } from './collab.js';
 import { labelPdf } from './labels.js';
 import { stopShipment, sweepCancelled, syncCancelledOrders, syncFulfilledOrders } from './ship-cancel.js';
 import { stageOf, LABEL as STAGE_LABEL, refreshShipment, refreshDue, requestPickup, manifestUrl } from './ship-status.js';
@@ -140,7 +142,8 @@ function orderOut(o, all) {
     risk: r.score, level: r.level,
     advance: num(o.advance_paise) / 100, cod_due: codDue(o) / 100,
     /* pay-online offer: paid (converted, with what they paid), or open until convert_expires_at */
-    converted: !!o.converted_at, paid_online: o.converted_at ? num(o.paid_paise) / 100 : 0,
+    converted: !!o.converted_at, paid_online: o.converted_at ? num(o.paid_paise) / 100 : 0, marked_prepaid: /^manual/.test(String(o.convert_txnid || '')),
+    collab: isCollab(o.source_url),
     offer_until: !o.converted_at && num(o.convert_expires_at) > now() ? num(o.convert_expires_at) : null, offer_sent: num(o.convert_offer_at) || null,
   };
 }
@@ -366,7 +369,8 @@ const ACTIONS = {
     });
     /* chip counts on the Orders tab: confirmed (or prepaid) but not shipped, and COD still waiting for confirmation */
     const live = list.filter((o) => !o.shipped && o.status !== 'cancelled');
-    const counts = { toship: live.filter((o) => o.method !== 'cod' || o.confirmed_at).length, unconfirmed: live.filter((o) => o.method === 'cod' && !o.confirmed_at).length };
+    const counts = { toship: live.filter((o) => o.method !== 'cod' || o.confirmed_at).length, unconfirmed: live.filter((o) => o.method === 'cod' && !o.confirmed_at).length, collab: list.filter((o) => o.collab && o.status !== 'cancelled').length };
+    if (b.filter === 'collab') list = list.filter((o) => o.collab);
     if (b.filter === 'high') list = list.filter((o) => o.level === 'high');
     if (b.filter === 'toship') list = list.filter((o) => !o.shipped && o.status !== 'cancelled' && (o.method !== 'cod' || o.confirmed_at));
     if (b.filter === 'unshipped') list = list.filter((o) => !o.shipped && o.status !== 'cancelled').map((o) => ({ ...o, ready: o.method !== 'cod' || !!o.confirmed_at }));
@@ -377,7 +381,7 @@ const ACTIONS = {
       /* expected profit per shipped order: revenue - items x product cost - CAC - the parcel's Shiprocket charge (assumes it is delivered) */
       const pf = (env.SETTINGS || await getSettings(env)).profit || { unit_cost: 40, cac: 80 };
       const unitCost = num(pf.unit_cost), cac = num(pf.cac);
-      const sum = { n: 0, revenue: 0, units: 0, product: 0, cac: 0, shipping: 0, net: 0, known: 0, unknown: 0 };
+      const sum = { n: 0, revenue: 0, units: 0, product: 0, cac: 0, shipping: 0, net: 0, known: 0, unknown: 0, collab: 0 };
       /* no Shiprocket charge on record (shipped another way): use the average of the known charges so the order still counts */
       const knownCharges = list.map((o) => booked[String(o.id)]).filter((s) => s && s.charge_paise != null && num(s.charge_paise) > 0).map((s) => num(s.charge_paise) / 100);
       const estShip = knownCharges.length ? Math.round(knownCharges.reduce((a, c) => a + c, 0) / knownCharges.length) : num(pf.ship_estimate) || 65;
@@ -387,10 +391,12 @@ const ACTIONS = {
         if (!units) units = 1;
         const known = booked[String(o.id)] && booked[String(o.id)].charge_paise != null && num(booked[String(o.id)].charge_paise) > 0;
         const ship = known ? num(booked[String(o.id)].charge_paise) / 100 : estShip;
-        const product = units * unitCost, net = Math.round((o.total - product - cac - ship) * 100) / 100;
-        o.profit = { units, product, cac, shipping: ship, net, est: !known };
-        sum.n++; sum.revenue += o.total; sum.units += units; sum.product += product; sum.cac += cac; sum.shipping += ship; sum.net += net;
+        const oCac = o.collab ? 0 : cac;   /* a barter collab came from a creator, not from paid ads */
+        const product = units * unitCost, net = Math.round((o.total - product - oCac - ship) * 100) / 100;
+        o.profit = { units, product, cac: oCac, shipping: ship, net, est: !known };
+        sum.n++; sum.revenue += o.total; sum.units += units; sum.product += product; sum.cac += oCac; sum.shipping += ship; sum.net += net;
         if (known) sum.known++; else sum.unknown++;
+        if (o.collab) sum.collab++;
       });
       profit = { ...sum, unit_cost: unitCost, cac_per_order: cac, ship_estimate: estShip, avg: sum.n ? Math.round(sum.net / sum.n) : 0 };
       Object.keys(profit).forEach((k) => { if (typeof profit[k] === 'number') profit[k] = Math.round(profit[k] * 100) / 100; });
@@ -711,6 +717,7 @@ const ACTIONS = {
     if (b.weight_g !== undefined) sh.weight_g = Math.max(10, Math.min(5000, +b.weight_g || 50));
     if (b.shiprocket_email !== undefined) sh.shiprocket_email = String(b.shiprocket_email).trim().slice(0, 200);
     if (b.shiprocket_password && !String(b.shiprocket_password).startsWith('••')) sh.shiprocket_password = String(b.shiprocket_password).trim();
+    if (b.shiprocket_block !== undefined) sh.shiprocket_block = String(b.shiprocket_block).replace(/[^\w |,&.-]/g, '').trim().slice(0, 200);
     for (const k of ['shiprocket_couriers']) {
       if (b[k] === undefined) continue;
       const v = String(b[k]).trim().slice(0, 200);
@@ -796,7 +803,9 @@ const ACTIONS = {
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
         cod: codDue({ ...r, status: r.order_status }) > 0, cod_due: codDue({ ...r, status: r.order_status }) / 100, advance: num(r.advance_paise) / 100, total: num(r.total_paise) / 100,
         cod_mismatch: r.cod_paise != null && r.sr_total_paise != null && Math.abs(num(r.cod_paise) - num(r.sr_total_paise)) > 100 ? { ours: num(r.cod_paise) / 100, shiprocket: num(r.sr_total_paise) / 100 } : null, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
-        picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null };
+        picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null,
+        /* cash the courier collects on this parcel: what it was booked to collect (a later pay-online conversion does not change a parcel already out) */
+        cod_amt: r.cod_paise != null ? num(r.cod_paise) / 100 : codDue({ ...r, status: r.order_status }) / 100 };
     });
     const inRange = all.filter((x) => x.booked_at >= from && x.booked_at < to);
     const counts = Object.fromEntries(Object.keys(STAGE_LABEL).map((k) => [k, 0]));
@@ -807,7 +816,7 @@ const ACTIONS = {
     const dueToday = (x) => ['transit', 'ofd', 'ndr'].includes(x.stage) && x.edd === todayIso;   // courier's own estimate says today
     counts.due_today = all.filter(dueToday).length;
     let list = b.stage === 'to_pack' ? inRange.filter(toPack).sort((a, c) => a.booked_at - c.booked_at) : b.stage === 'due_today' ? all.filter(dueToday) : b.stage && b.stage !== 'all' ? inRange.filter((x) => x.stage === b.stage) : inRange;
-    if (b.q) { const q = String(b.q).toLowerCase().trim(); list = list.filter((x) => `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase().includes(q)); }
+    if (b.q) { const q = String(b.q).toLowerCase().trim(); const q0 = q.replace(/\s+/g, ''); list = list.filter((x) => { const h = `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase(); return h.includes(q) || h.replace(/\s+/g, '').includes(q0); }); }
     const live = all.filter((x) => x.stage !== 'cancelled');
     const liveR = inRange.filter((x) => x.stage !== 'cancelled'), rto = liveR.filter((x) => x.stage === 'rto');
     /* expected profit for the parcels in range (same assumptions as Orders > Shipped): total - items x product cost - CAC - courier charge */
@@ -817,6 +826,22 @@ const ACTIONS = {
     const profitDelivered = liveR.filter((x) => x.stage === 'delivered').reduce((a, x) => a + (x.total_paise / 100 - units(x) * num(pf.unit_cost) - num(pf.cac) - x.charge), 0);
     /* an RTO loses the CAC and the courier charge; a partial-COD advance stays with us and offsets it */
     const rtoLoss = rto.reduce((a, x) => a + num(pf.cac) + x.charge - (x.advance || 0), 0);
+    /* COD cash: collected = delivered COD parcels (delivered in the range), to collect = COD parcels still on the way (any date) */
+    const OPEN_STAGES = ['delivered', 'rto', 'lost', 'cancelled'];
+    const sumCod = (xs) => Math.round(xs.reduce((a, x) => a + (x.cod_amt || 0), 0));
+    const codDel = all.filter((x) => x.stage === 'delivered' && x.cod_amt > 0 && (x.delivered_at || x.booked_at) >= from && (x.delivered_at || x.booked_at) < to);
+    const codOpen = all.filter((x) => !OPEN_STAGES.includes(x.stage) && x.cod_amt > 0);
+    const codRto = inRange.filter((x) => x.stage === 'rto' && x.cod_amt > 0);
+    let codUnshipped = { n: 0, amount: 0 };
+    try {
+      const shippedIds = new Set(all.filter((x) => x.stage !== 'cancelled').map((x) => String(x.order_id)));
+      const ords = (await env.DB.prepare("SELECT order_id, method, status, total_paise, advance_paise, converted_at, shipped_at FROM orders WHERE method='cod' AND created_at > ?").bind(t - 30 * DAY).all()).results;
+      const wait = ords.filter((o) => o.status !== 'cancelled' && !num(o.shipped_at) && !shippedIds.has(String(o.order_id)) && codDue(o) > 0);
+      codUnshipped = { n: wait.length, amount: Math.round(wait.reduce((a, o) => a + codDue(o), 0) / 100) };
+    } catch (e) { console.error('cod unshipped', e.message); }
+    const cod = { collected: sumCod(codDel), collected_n: codDel.length, to_collect: sumCod(codOpen), to_collect_n: codOpen.length,
+      out_for_delivery: sumCod(codOpen.filter((x) => x.stage === 'ofd')), rto: sumCod(codRto), rto_n: codRto.length, unshipped: codUnshipped.amount, unshipped_n: codUnshipped.n };
+    const blockList = cfgShip({ ...env, SETTINGS: await getSettings(env) }).shiprocketBlock;
     let wallet = null, walletErr = '';
     try { wallet = await srWallet(await withSettingsFresh(env), !!b.fresh_wallet); } catch (e) { walletErr = String(e.message || e).slice(0, 120); }
     const pubList = list.slice(0, 500).map(({ contents_json, total_paise, ...x }) => x);
@@ -830,7 +855,11 @@ const ACTIONS = {
         unverified: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.verified_at).length,
         due_today: counts.due_today,
         cancelled_after_pickup: all.filter((x) => x.cancel_state === 'picked' && !['delivered', 'rto'].includes(x.stage)).length,
+        /* booked with a courier on the never-use list (e.g. Blue Dart) and not picked up yet: cancel and re-book */
+        blocked: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && courierBlocked(x.courier, blockList)).length,
+        blocked_name: String(blockList || '').split(/[|,]/)[0].trim(),
       },
+      cod,
       today: { booked: all.filter((x) => x.booked_at >= today0).length, picked: all.filter((x) => x.picked_at && x.picked_at >= today0).length,
         delivered: all.filter((x) => x.delivered_at && x.delivered_at >= today0).length, pickup_pending: live.filter((x) => x.stage === 'pickup_pending').length,
         packed: all.filter((x) => x.packed_at && x.packed_at >= today0).length },
@@ -1017,6 +1046,14 @@ const ACTIONS = {
     if (r?.skipped) throw new Error('Shopify says this order is paid, fulfilled or cancelled');
     if (r && r.ok === false) throw new Error(r.error || 'WhatsApp did not send it');
     return { ok: true };
+  },
+  /** "Mark as prepaid": the customer paid another way. amount in ₹ (blank = the whole COD balance), ref = UPI / bank ref. */
+  async mark_prepaid(env, b) {
+    const { manualPrepaid } = await import('./wa-convert.js');
+    const { withSettings } = await import('./settings.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const amt = b.amount === undefined || b.amount === null || String(b.amount).trim() === '' ? null : Math.round(Number(b.amount) * 100);
+    return manualPrepaid(e2, String(b.id), { amountPaise: amt, ref: b.ref, notify: !!b.notify });
   },
   /** Automatic NDR rules: settings, what they would do right now, and the last automatic actions. */
   async ndr_rules(env) {

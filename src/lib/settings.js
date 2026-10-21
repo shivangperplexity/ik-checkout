@@ -52,6 +52,8 @@ const DEFAULTS = {
   /* Shiprocket login (API user) for booking, tracking and the "Express shipping" delivery estimate (lib/rates.js) */
   shipping: { origin_pin: '410206', weight_g: 50,
     shiprocket_email: '', shiprocket_password: '', shiprocket_couriers: '',
+    /* couriers never used, whatever their price (names separated by | ; spaces ignored) */
+    shiprocket_block: 'Blue Dart',
     policy: 'cheapest', tolerance_days: 2 },
   /* Expected-profit column on Orders > Shipped: product cost per item and customer acquisition cost per order (₹) */
   profit: { unit_cost: 40, cac: 80 },

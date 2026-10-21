@@ -32,6 +32,7 @@ const whole = (p) => (Math.round(p) % 100 ? (Math.round(p) / 100).toFixed(2) : S
 /* ---------------- settings ---------------- */
 
 import { CONVERT_DEFAULTS, convertCfg } from './convert-cfg.js';
+import { codDue } from './partial-cod.js';
 export { CONVERT_DEFAULTS, convertCfg };
 export const discountPct = (env) => convertCfg(env).pct;
 
@@ -255,15 +256,15 @@ async function appendNote(env, orderId, oldNote, line) {
 }
 
 /** After the money lands: discount (if Shopify agrees), mark paid, retag, note. Never throws. */
-export async function markPrepaid(env, row, { pct, paidPaise, txnid }) {
+export async function markPrepaid(env, row, { pct, paidPaise, txnid, line: given, tags = [] }) {
   const orderId = String(row.order_id);
   const gid = `gid://shopify/Order/${orderId}`;
-  const line = `COD converted to prepaid via WhatsApp: paid ₹${rupees(paidPaise)} online (${pct}% prepaid discount), PayU txn ${txnid}.`;
+  const line = given || `COD converted to prepaid via WhatsApp: paid ₹${rupees(paidPaise)} online (${pct}% prepaid discount), PayU txn ${txnid}.`;
   let problem = '';
   try { await discountOrder(env, orderId, { pct, paidPaise, note: line }); } catch (e) { problem = String(e.message || e); }
   try { await markPaid(env, orderId); } catch (e) { problem = (problem ? problem + ' | ' : '') + String(e.message || e); }
   await removeTags(env, gid, ['cod-unconfirmed', 'cod']).catch(() => {});
-  await addTags(env, gid, ['prepaid', 'cod-converted-prepaid', ...(problem ? ['prepaid-needs-attention'] : [])]).catch(() => {});
+  await addTags(env, gid, ['prepaid', 'cod-converted-prepaid', ...tags, ...(problem ? ['prepaid-needs-attention'] : [])]).catch(() => {});
   try {
     const cur = await liveOrder(env, orderId);
     await appendNote(env, orderId, cur?.note || '', line + (problem ? ` NEEDS ATTENTION: ${problem}` : ''));
@@ -297,6 +298,48 @@ export async function completeConversion(env, ctx, row, { txnid, amountPaise }) 
   })().catch((e) => console.error('convert', e));
   if (ctx?.waitUntil) ctx.waitUntil(job); else await job;
   return { ok: true };
+}
+
+/**
+ * Dashboard "Mark as prepaid": the customer paid some other way (UPI to you, bank transfer …), so nothing is to be
+ * collected on delivery. amountPaise = what they paid now (default: the whole COD balance). Paying less than the
+ * balance is taken as a discount: Shopify's total is brought down to match, like the pay-online offer.
+ * Same reconciliation as a pay-online conversion: Shopify paid + tagged + noted, a COD booking not picked up yet is
+ * cancelled for a prepaid re-book, one already with the courier is flagged. Returns { ok, shopify, shiprocket, notified }.
+ */
+export async function manualPrepaid(env, orderId, { amountPaise, ref = '', notify = false } = {}) {
+  const id = String(orderId);
+  const row = await env.DB.prepare('SELECT * FROM orders WHERE order_id=?').bind(id).first();
+  if (!row) throw new Error('Order not found');
+  if (row.status === 'cancelled') throw new Error('This order is cancelled');
+  if (row.method !== 'cod') throw new Error('This order is already prepaid');
+  if (row.converted_at) throw new Error('Already marked prepaid');
+  const ship = await env.DB.prepare('SELECT stage, status FROM shipments WHERE order_id=?').bind(id).first();
+  if (ship && ship.status !== 'cancelled' && ship.stage === 'delivered') throw new Error('Already delivered: the courier collected the cash');
+  const due = codDue(row);
+  if (due <= 0) throw new Error('Nothing left to collect on this order');
+  const amt = amountPaise == null || amountPaise === '' ? due : Math.round(Number(amountPaise));
+  if (!Number.isFinite(amt) || amt < 100) throw new Error('Enter the amount the customer paid');
+  if (amt > due + 100) throw new Error(`₹${rupees(amt)} is more than the ₹${rupees(due)} still due`);
+  const off = Math.max(0, due - amt), pct = off > 100 ? Math.round((off * 100) / due) : 0;
+  const cleanRef = String(ref || '').replace(/[^\w .:/#@-]/g, '').trim().slice(0, 60);
+  const txn = 'manual' + (cleanRef ? ':' + cleanRef : '');
+  const t = now();
+  const claim = await env.DB.prepare('UPDATE orders SET converted_at=?, paid_paise=?, convert_txnid=?, convert_pct=? WHERE order_id=? AND converted_at IS NULL RETURNING order_id')
+    .bind(t, amt + (Number(row.advance_paise) || 0), txn, pct, id).first();
+  if (!claim) throw new Error('Already marked prepaid');
+  await env.DB.prepare("UPDATE orders SET status='paid', confirmed_at=COALESCE(confirmed_at,?) WHERE order_id=?").bind(t, id).run();
+  const line = `Marked prepaid from the dashboard: customer paid ₹${rupees(amt)}${cleanRef ? ` (ref ${cleanRef})` : ''}${off > 100 ? `, ₹${rupees(off)} less than the COD balance (taken as a discount)` : ''}. Nothing to collect on delivery.`;
+  const { problem } = await markPrepaid(env, row, { pct, paidPaise: amt, txnid: txn, line, tags: ['marked-prepaid'] });
+  const sr = await reconcileShipment(env, row).catch((e) => ({ state: 'error', note: String(e.message || e) }));
+  if (sr.state === 'picked' || sr.state === 'error') await addTags(env, `gid://shopify/Order/${id}`, ['prepaid-needs-attention']).catch(() => {});
+  await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(id).run().catch(() => {});
+  let notified = false;
+  if (notify && row.phone) {
+    const r = await fireTrigger(env, 'prepaid_paid', { to: row.phone, vars: { name: row.first_name, order: row.order_name, total: rupees(amt) }, orderName: row.order_name }).catch(() => ({}));
+    notified = !!r?.ok;
+  }
+  return { ok: true, paid: amt / 100, discount: off / 100, shopify: problem || 'ok', shiprocket: sr.state, shiprocket_note: sr.note || '', notified };
 }
 
 /** After a conversion: make sure no courier will collect cash. */

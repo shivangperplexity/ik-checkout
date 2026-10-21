@@ -13,7 +13,7 @@
 //   POST orders/cancel {ids:[order_id]}                               GET  ndr/all ; POST ndr/<awb>/action
 // Only the fields documented there are used; replies are read defensively and errors are passed on verbatim.
 
-import { cfg } from './shipping.js';
+import { cfg, courierBlocked } from './shipping.js';
 import { codDue } from './partial-cod.js';
 import { packCfg, packOrder } from './packing.js';
 import { summarize, PRE } from './sr-scan.js';
@@ -84,7 +84,7 @@ export async function srRates(env, { pin, cod, amount, pack }) {
   const list = j.data?.available_courier_companies;
   if (!Array.isArray(list)) return [];
   let only = null; try { only = c.shiprocketCouriers ? new RegExp(c.shiprocketCouriers, 'i') : null; } catch { only = null; }
-  return list.filter((x) => !x.blocked && (!only || only.test(String(x.courier_name || '')))).map((x) => ({
+  return list.filter((x) => !x.blocked && !courierBlocked(x.courier_name, c.shiprocketBlock) && (!only || only.test(String(x.courier_name || '')))).map((x) => ({
     id: String(x.courier_company_id ?? ''), courier: String(x.courier_name || 'Courier'),
     charge: money(x.rate ?? (Number(x.freight_charge || 0) + Number(x.cod_charges || 0))), freight: money(x.freight_charge), cod: money(x.cod_charges),
     edd: x.etd || x.estimated_delivery_days || '', rating: Number(x.rating) || null,
@@ -247,7 +247,11 @@ export async function bookShipment(env, order, row, { pickOption }) {
     try { const st = await srOrderAmount(env, rec.sr_order_id); if (st) await save({ sr_total_paise: st.cod ? Math.round(st.total * 100) : 0 }); } catch { /* checked again by the audit */ }
   }
 
-  /* 2. AWB with the cheapest courier */
+  /* 2. AWB with the cheapest courier (a resumed booking that had picked a courier now on the never-use list switches) */
+  if (courierBlocked(rec.courier, cfg(env).shiprocketBlock)) {
+    await save({ courier: plan.pick.courier, courier_id: plan.pick.id, charge_paise: Math.round((plan.pick.charge || 0) * 100) });
+    rec.courier = plan.pick.courier; rec.courier_id = plan.pick.id;
+  }
   const a = await sr(env, 'POST', 'courier/assign/awb', { shipment_id: rec.sr_shipment_id, courier_id: String(rec.courier_id || plan.pick.id) });
   const rd = a.response?.data || a.data || {};
   const awb = rd.awb_code || a.awb_code;

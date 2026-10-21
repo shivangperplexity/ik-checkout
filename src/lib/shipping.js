@@ -20,6 +20,7 @@ export function cfg(env) {
     shiprocketEmail: s.shiprocket_email || env.SHIPROCKET_EMAIL || '',
     shiprocketPassword: s.shiprocket_password || env.SHIPROCKET_PASSWORD || '',
     shiprocketCouriers: s.shiprocket_couriers || '',          // blank = every courier Shiprocket offers
+    shiprocketBlock: s.shiprocket_block ?? 'Blue Dart',       // never these (Blue Dart: bad local office)
     toleranceDays: Number(s.tolerance_days ?? 2),             // how much slower than the fastest the cheapest may be
     policy: s.policy === 'fastest' ? 'fastest' : 'cheapest',
   };
@@ -88,3 +89,10 @@ export async function shippingEstimate(req, env) {
   }
 }
 
+
+/** True when a courier name is on the never-use list ("Blue Dart" also matches "Bluedart Surface", "BLUE DART AIR"). */
+export function courierBlocked(name, block) {
+  const n = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!n) return false;
+  return String(block || '').split(/[|,]/).map((b) => b.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean).some((b) => n.includes(b));
+}

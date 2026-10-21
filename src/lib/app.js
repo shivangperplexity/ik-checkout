@@ -1,4 +1,5 @@
 import { corsHeaders, allowedOrigins, json, cleanPhone, stateCode } from './util.js';
+import { isCollab, COLLAB_TAG } from './collab.js';
 import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees } from './pricing.js';
@@ -150,7 +151,7 @@ async function handleOrder(req, env, ctx) {
     ...(a.sid ? [{ key: 'Session', value: String(a.sid).slice(0, 40) }] : []),
     ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'landing'].filter((k) => a[k]).map((k) => ({ key: k, value: String(a[k]).slice(0, 250) })),
   ];
-  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : method === 'cod' ? ['cod-unconfirmed'] : [])];
+  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : [])];
   const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes });
   if (Math.abs(draft.total - price.total) > 100) {
     console.error('total mismatch', { ours: price.total, shopify: draft.total, draft: draft.id });
