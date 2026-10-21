@@ -40,6 +40,23 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;animation:pu 1.4s infinite}@keyframes pu{50%{opacity:.25}}
 .steps{display:flex;gap:3px}.steps i{height:5px;flex:1;border-radius:3px;background:#e6e1d6}.steps i.f{background:var(--ink)}
 .bars .r{display:grid;grid-template-columns:170px 1fr 70px;gap:8px;align-items:center;margin:6px 0;font-size:13px}.bars .t{height:16px;background:#efeadf;border-radius:5px;overflow:hidden}.bars .t u{display:block;height:100%;background:var(--ink);text-decoration:none}
+.chatwrap{display:grid;grid-template-columns:290px minmax(0,1fr) 300px;gap:10px;height:calc(100vh - 150px);min-height:420px}
+.chatlist,.chatmain,.chatside{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.chatlist .items{overflow-y:auto;flex:1}.chi{padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;display:grid;gap:2px}.chi:hover{background:var(--cream)}.chi.on{background:#f1ede4}
+.chi .t{display:flex;gap:6px;align-items:center}.chi .t b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chi .p{font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.udot{width:9px;height:9px;border-radius:9px;background:var(--bad);flex:none}
+.msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--cream)}
+.bub{max-width:78%;padding:8px 10px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;font-size:14px;line-height:1.35}
+.bub .m{display:block;font-size:11px;color:var(--mut);margin-top:3px}.bub.in{align-self:flex-start;background:#fff;border:1px solid var(--line)}
+.bub.out{align-self:flex-end;background:#e7f6dd}.bub.ai{background:#e9eefc}.bub.tpl{background:#f3efe6;font-size:13px}.bub.bad{background:#fde8e6}
+.sys{align-self:center;font-size:12px;color:var(--mut);background:#fff;border:1px dashed var(--line);border-radius:99px;padding:3px 10px;max-width:90%;text-align:center}
+.compose{border-top:1px solid var(--line);padding:8px;display:grid;gap:6px}.compose textarea{width:100%;min-height:62px;resize:vertical;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box}
+.qr{display:flex;gap:6px;flex-wrap:wrap}.qr button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer}
+.chatside{overflow-y:auto;padding:10px;gap:10px}.och{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:4px;font-size:13px}.och .its{display:flex;gap:6px;flex-wrap:wrap}.och .its img{width:44px;height:44px;object-fit:contain;background:var(--cream);border-radius:6px}
+.chl{display:inline-grid;place-items:center;text-decoration:none}#ch_back{display:none}@media(max-width:760px){#ch_back{display:inline-block}}
+.chhead{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media(max-width:1100px){.chatwrap{grid-template-columns:260px minmax(0,1fr)}.chatside{grid-column:1/-1;max-height:none}}
+@media(max-width:760px){.chatwrap{grid-template-columns:1fr;height:auto}.chatwrap.th .chatlist{display:none}.chatwrap:not(.th) .chatmain,.chatwrap:not(.th) .chatside{display:none}.msgs{min-height:55vh;max-height:65vh}.chatlist .items{max-height:70vh}}
 .drawer{position:fixed;inset:0 0 0 auto;width:min(560px,100%);background:#fff;z-index:50;box-shadow:-10px 0 40px #0004;overflow-y:auto;padding:18px}
 .scrim{position:fixed;inset:0;background:#0006;z-index:40}
 .vfy{position:fixed;inset:0;background:#0a0a0c;color:#fff;z-index:60;display:flex;flex-direction:column}.vfy video{width:100%;height:42vh;object-fit:cover;background:#000;display:block}.vfy .res{padding:14px 16px;font-size:17px;line-height:1.35;min-height:88px}.vfy .res.ok{background:#14532d}.vfy .res.bad{background:#7f1d1d}.vfy .res.warn{background:#92400e}.vfy .res.mut{background:#1f2937}.vfy .bar{display:flex;gap:8px;align-items:center;padding:10px 12px;flex-wrap:wrap}.vfy .bar .btn{background:#fff;color:#0a0a0c;border-color:#fff}.vfy .bar .btn.ghost{background:transparent;color:#fff;border-color:#fff8}.vfy input{background:#111;color:#fff;border:1px solid #444;border-radius:8px;padding:10px 12px;font-size:16px;flex:1;min-width:160px}.vfy .list{overflow:auto;flex:1;padding:0 12px 12px;font-size:14px}.vfy .list div{display:flex;gap:8px;padding:7px 4px;border-bottom:1px solid #222;align-items:center}.vfy .list .ok{color:#86efac}.vfy .list .no{color:#fca5a5}.vfy .list .exp{outline:2px solid #fff;border-radius:6px;padding:7px}
@@ -70,7 +87,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 <script>
 (function(){
 'use strict';
-var TABS=[['live','Live'],['unshipped','Unshipped'],['ship','Shipments'],['orders','Orders'],['wa','WhatsApp'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['settings','Settings']];
+var TABS=[['live','Live'],['unshipped','Unshipped'],['ship','Shipments'],['orders','Orders'],['chats','Chats'],['wa','WhatsApp'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['settings','Settings']];
 var tab='live',token='',timer=null,S={filter:'all',days:7,msgTab:false,sel:{},rows:{},report:''},BULK=false;
 function $(s,r){return (r||document).querySelector(s)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -92,12 +109,13 @@ $('#lf').addEventListener('submit',function(e){e.preventDefault();$('#le').textC
   token=j.token;ls('ik_admin_tok',token);ls('ik_admin_email',j.email);start()}).catch(function(){$('#lb').disabled=false;$('#le').textContent='Network error'})});
 $('#out').onclick=logout;
 function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');$('#who').textContent=ls('ik_admin_email')||'';
- $('#nav').innerHTML=TABS.map(function(t){return '<button data-t="'+t[0]+'">'+t[1]+(t[0]==='live'?'<span class="dot" id="livedot">0</span>':'')+'</button>'}).join('');
- $('#nav').onclick=function(e){var b=e.target.closest('button');if(b)go(b.dataset.t)};go(tab);setTimeout(tick,1500);
- clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;tick();if(tab==='live')loadLive(true);else if((tab==='orders'||tab==='unshipped')&&!$('#ov').innerHTML)loadOrders(true);else if(tab==='ship'&&!shSel().length&&!SH.report&&(SH.tick=(SH.tick||0)+1)%6===0)loadShip(true)},5000)}
+ $('#nav').innerHTML=TABS.map(function(t){return '<button data-t="'+t[0]+'">'+t[1]+(t[0]==='live'?'<span class="dot" id="livedot">0</span>':t[0]==='chats'?'<span class="dot hide" id="chatdot" style="background:var(--bad)">0</span>':'')+'</button>'}).join('');
+ $('#nav').onclick=function(e){var b=e.target.closest('button');if(b)go(b.dataset.t)};go(tab);setTimeout(tick,1500);setTimeout(chatCount,700);
+ clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;tick();if(tab==='live')loadLive(true);else if((tab==='orders'||tab==='unshipped')&&!$('#ov').innerHTML)loadOrders(true);else if(tab==='ship'&&!shSel().length&&!SH.report&&(SH.tick=(SH.tick||0)+1)%6===0)loadShip(true);else if(tab==='chats'&&!$('#ov').innerHTML&&(CH.tick=(CH.tick||0)+1)%2===0)loadChats(true);if((CH.ct=(CH.ct||0)+1)%6===1)chatCount()},5000);
+ if(/^#chat=\d{10}$/.test(location.hash)){CH.phone=location.hash.slice(6);history.replaceState(null,'',location.pathname);go('chats')}}
 function go(t){tab=t;[].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t)});
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({live:loadLive,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,settings:loadSettings})[t]()}
+ ({live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,settings:loadSettings})[t]()}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */
@@ -285,7 +303,7 @@ function openOrder(id){
   var d='<div class="row"><h2 style="margin:0">'+esc(o.name)+'</h2><span class="pill '+r.level+'">Risk '+r.score+' · '+r.level+'</span><span class="grow"></span><button class="btn ghost sm" id="cl">Close</button></div>';
   d+='<p class="mut small">'+ist(o.created_at)+' · '+(o.method==='cod'?'Cash on delivery':'Prepaid')+' · <b>'+inr(o.total)+'</b></p>';
   d+='<div class="card" style="margin:10px 0"><h3>Risk check</h3><div class="gauge"><i style="left:calc('+r.score+'% - 2px)"></i></div><p class="small"><b>'+esc(r.advice)+'</b></p>'+(r.factors.length?r.factors.map(function(f){return '<div class="fac"><span>'+esc(f.why)+'</span><b class="'+(f.w>0?'p':'n')+'">'+(f.w>0?'+':'')+f.w+'</b></div>'}).join(''):'<p class="mut small">No risk signals.</p>')+'</div>';
-  d+='<div class="card" style="margin:10px 0"><h3>Customer & address</h3><div class="small">'+esc(a.name||o.customer)+'<br>'+esc([a.address1,a.address2,a.city,a.province,a.zip].filter(Boolean).join(', '))+'<br>+91 '+esc(o.phone)+'</div><div class="row" style="margin-top:8px"><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(o.phone)+'">WhatsApp</a><a class="btn ghost sm" style="display:inline-grid;place-items:center" href="tel:+91'+esc(o.phone)+'">Call</a></div></div>';
+  d+='<div class="card" style="margin:10px 0"><h3>Customer & address</h3><div class="small">'+esc(a.name||o.customer)+'<br>'+esc([a.address1,a.address2,a.city,a.province,a.zip].filter(Boolean).join(', '))+'<br>+91 '+esc(o.phone)+'</div><div class="row" style="margin-top:8px"><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(o.phone)+'">WhatsApp</a><button class="btn ghost sm" type="button" id="or_chat" data-ph="'+esc(o.phone)+'">Chat here</button><a class="btn ghost sm" style="display:inline-grid;place-items:center" href="tel:+91'+esc(o.phone)+'">Call</a></div></div>';
   d+='<div class="card" style="margin:10px 0"><h3>Items</h3>'+(items||'<p class="mut small">'+(sh.error?esc(sh.error):'-')+'</p>')+'</div>';
   if(o.status!=='cancelled'&&!fulfilled)d+='<div class="card" style="margin:10px 0"><h3>Ship with Shiprocket</h3><div id="or_rt" class="small mut">Working out parcel size and rates…</div></div>';
   if(o.status==='cancelled')d+='<p class="pill bad">Cancelled</p>';
@@ -306,6 +324,7 @@ function openOrder(id){
   if(j.session)d+='<p class="small mut">Came from <b>'+esc(j.session.source||'direct')+'</b> on '+esc(j.session.device||'?')+'</p>';
   $('#ov').querySelector('.drawer').innerHTML=d;
   $('#cl').onclick=close;
+  var och=$('#or_chat');if(och)och.onclick=function(){CH.phone=och.dataset.ph;close();go('chats')};
   if($('#or_rt'))shipPanel(id,o);
   function act(btn,fn){btn.onclick=function(){btn.disabled=true;fn().then(function(){toast('Done');close();loadOrders()}).catch(function(e){btn.disabled=false;toast(e.message)})}}
   if($('#cf'))act($('#cf'),function(){return rpc('confirm',{id:id})});
@@ -485,12 +504,17 @@ function loadShip(quiet){
   h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&f[0]!=='to_pack'&&f[0]!=='due_today'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+(f[0]==='to_pack'&&k?' tp':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')
    +(SH.stage==='to_pack'&&j.shipments.length?'<span class="grow"></span><button class="btn sm" data-pack="list">Start packing these · '+j.shipments.length+'</button>':'')+'</div>';
   h+=SH.report||'';
-  if(n.length){var tdy=new Date(Date.now()+19800e3).toISOString().slice(0,10),mx=new Date(Date.now()+19800e3+7*86400e3).toISOString().slice(0,10);h+='<div class="card" style="margin-bottom:12px"><h3>Delivery failed (NDR)'+(function(){var w=n.filter(function(x){return !x.done}).length;return w?' · '+w+' need'+(w===1?'s':'')+' action':' · all handled'})()+'</h3><p class="small mut" style="margin:0 0 8px">Customers get a WhatsApp message with a link to choose re-attempt (any day) or return themselves; what they chose shows on the parcel. Pick a date here only to override.</p>'+n.slice().sort(function(a,b){return (a.done?1:0)-(b.done?1:0)}).map(function(x){SH.ndrOpen=SH.ndrOpen||{};
-   var who=x.choice_by==='team'?'You':x.choice_by==='customer'?'Customer':'Chosen';
+  if(n.length){var tdy=new Date(Date.now()+19800e3).toISOString().slice(0,10),mx=new Date(Date.now()+19800e3+7*86400e3).toISOString().slice(0,10);h+='<div class="card" style="margin-bottom:12px"><h3>Delivery failed (NDR)'+(function(){var w=n.filter(function(x){return !x.done}).length;return w?' · '+w+' need'+(w===1?'s':'')+' action':' · all handled'})()+'</h3><p class="small mut" style="margin:0 0 8px">Customers get a WhatsApp message with a link to choose re-attempt (any day), fix the address / number, or return. '+(a[1].auto==='on'?'<b>Automatic rules are on</b>: no answer in time means the rule acts for you.':'Automatic rules are off.')+' <button class="btn ghost sm" id="ndr_rules" type="button">NDR rules</button></p>'+n.slice().sort(function(a,b){return (a.done?1:0)-(b.done?1:0)}).map(function(x){SH.ndrOpen=SH.ndrOpen||{};
+   var who=x.choice_by==='team'?'You':x.choice_by==='customer'?'Customer':x.choice_by==='auto'?'Auto rule':'Chosen';
+   var P=x.plan,plan='';if(!x.done&&P){var hm=P.due?new Date(P.due*1000).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit',timeZone:'Asia/Kolkata'})+(new Date(P.due*1000+19800e3).toISOString().slice(0,10)!==tdy?' tomorrow':''):'';
+    plan=P.act==='wait'?'<br><span class="small" style="color:var(--warn)">⏳ Waiting for the customer · '+(P.then==='manual'?'then it comes to you':'auto '+(P.then==='return'?'return':'re-attempt'))+' at '+hm+'</span>'
+     :P.act==='manual'?'<br><span class="small" style="color:var(--bad)">Needs you: '+esc(P.why)+'</span>'
+     :(P.act==='reattempt'||P.act==='return')?'<br><span class="small" style="color:var(--warn)">Auto '+(P.act==='return'?'return':'re-attempt')+' in the next few minutes ('+esc(P.why)+')</span>':''}
+   if(x.auto_error)plan+='<br><span class="small err">Auto action failed: '+esc(x.auto_error)+'</span>';
    var chosen=x.choice?'<br><span class="small" style="color:'+(x.done?'#16a34a':'var(--warn)')+'">'+(x.done?'✓ ':'')+who+(x.choice==='return'?' asked for return':' asked for re-attempt'+(x.choice_date?' on '+esc(eddNice(x.choice_date)):' (next working day)'))+(x.choice_at?' · '+ago(x.choice_at):'')+(x.done?'':' · courier failed again, choose again')+'</span>':'';
    var acts=(x.done&&!SH.ndrOpen[x.awb])?'<span class="row"><button class="btn ghost sm" data-ndrchg="'+esc(x.awb)+'">Change</button></span>'
      :'<span class="row"><input type="date" class="ra_d" data-awb="'+esc(x.awb)+'" min="'+tdy+'" max="'+mx+'" title="Re-attempt on this day (blank = next working day)" style="max-width:160px"><button class="btn sm" data-ra="'+esc(x.awb)+'" data-att="'+(x.attempts||'')+'">Re-attempt</button><button class="btn bad sm" data-rt="'+esc(x.awb)+'" data-att="'+(x.attempts||'')+'">Return (RTO)</button></span>';
-   return '<div class="fac" style="align-items:center;gap:8px;flex-wrap:wrap'+(x.done?';opacity:.75':'')+'"><span><b>'+esc(x.order_name)+'</b> · AWB '+esc(x.awb)+'<br><span class="mut small">'+esc(x.reason||'No reason given')+(x.attempts?' · attempt '+x.attempts:'')+'</span>'+chosen+'</span>'+acts+'</div>'}).join('')+'</div>'}
+   return '<div class="fac" style="align-items:center;gap:8px;flex-wrap:wrap'+(x.done?';opacity:.75':'')+'"><span><b>'+esc(x.order_name)+'</b> · AWB '+esc(x.awb)+'<br><span class="mut small">'+esc(x.reason||'No reason given')+(x.attempts?' · attempt '+x.attempts:'')+(x.category_label?' · <b>'+esc(x.category_label)+'</b>':'')+(x.paid?' · prepaid':'')+'</span>'+chosen+plan+'</span>'+acts+'</div>'}).join('')+'</div>'}
   h+='<div class="row hide" id="sh_bar" style="position:sticky;top:100px;z-index:15;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"></div>';
   h+=j.shipments.length?'<div class="card tw"><table><thead><tr><th class="ck"><input type="checkbox" id="sh_all"></th><th>Order</th><th>Courier / AWB</th><th>Status</th><th>Booked</th><th>Freight</th><th></th></tr></thead><tbody>'+j.shipments.map(function(x){
    var live=x.stage!=='cancelled',pre=live&&(x.stage==='pickup_pending'||x.stage==='pickup_failed');
@@ -521,6 +545,7 @@ function loadShip(quiet){
    if(t.id==='rep_xs'){SH.report='';loadShip();return}
    if(t.dataset&&t.dataset.act){shAct(t.dataset.act,t);return}
    var ra=t.closest('[data-ra]'),rt=t.closest('[data-rt]');
+   if(t.id==='ndr_rules'){ndrRules();return}
    var chg=t.closest('[data-ndrchg]');if(chg){SH.ndrOpen=SH.ndrOpen||{};SH.ndrOpen[chg.dataset.ndrchg]=1;loadShip();return}
    if(ra){var di=document.querySelector('input.ra_d[data-awb="'+ra.dataset.ra+'"]'),dt=di?di.value:'';ra.disabled=true;rpc('ndr_do',{awb:ra.dataset.ra,action_type:'reattempt',deferred_date:dt,attempts:ra.dataset.att}).then(function(){toast('Re-attempt requested'+(dt?' for '+eddNice(dt):''));if(SH.ndrOpen)delete SH.ndrOpen[ra.dataset.ra];loadShip()}).catch(function(er){ra.disabled=false;toast(er.message)})}
    if(rt){if(!confirm('Send this parcel back to you? You pay the return freight.'))return;rt.disabled=true;rpc('ndr_do',{awb:rt.dataset.rt,action_type:'return',attempts:rt.dataset.att}).then(function(){toast('Return requested');if(SH.ndrOpen)delete SH.ndrOpen[rt.dataset.rt];loadShip()}).catch(function(er){rt.disabled=false;toast(er.message)})}}}).catch(function(e){if(!quiet)fail(e)})}
@@ -623,6 +648,93 @@ function cancelAllPending(btn){var n=+(btn.textContent.match(/\d+/)||[0])[0];
  function step(){if(i>=ids.length)return fin();var chunk=ids.slice(i,i+4);i+=chunk.length;btn.textContent='Cancelling '+Math.min(i,ids.length)+' of '+ids.length+'…';
   rpc('ship_cancel',{ids:chunk}).then(function(r){res=res.concat(r.results)}).catch(function(er){chunk.forEach(function(id){res.push({id:id,name:(SH.rows[id]||{}).order_name||id,ok:false,note:er.message})})}).then(step)}
  rpc('ship_pending_ids').then(function(r){ids=r.ids||[];if(!ids.length){btn.disabled=false;btn.textContent=t0;toast('Nothing waiting for pickup');return}step()}).catch(function(er){btn.disabled=false;btn.textContent=t0;toast(er.message)})}
+/* ---- Chats: WhatsApp conversations the assistant handed off / left unanswered; reply as the team (lib/inbox.js) ---- */
+var CH={filter:'needs',q:'',phone:'',list:[],th:null,draft:{}};
+function chatCount(){if(!token)return;rpc('inbox_count').then(function(r){var d=$('#chatdot');if(!d)return;d.textContent=r.needs;d.classList.toggle('hide',!r.needs);d.style.background=r.unread?'var(--bad)':'var(--warn)'}).catch(function(){})}
+function loadChats(quiet){
+ if(!quiet||!$('#chatwrap')){$('#main').innerHTML='<div class="chatwrap'+(CH.phone?' th':'')+'" id="chatwrap"><div class="chatlist"><div style="padding:8px;display:grid;gap:6px;border-bottom:1px solid var(--line)"><div class="chips" style="margin:0">'+[['needs','Needs reply'],['handoff','With team'],['all','All']].map(function(f){return '<button class="chip'+(CH.filter===f[0]?' on':'')+'" data-cf="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><input type="search" id="ch_q" placeholder="Name, phone, order" value="'+esc(CH.q)+'"></div><div class="items" id="ch_items"><p class="mut small" style="padding:10px">Loading…</p></div></div><div class="chatmain" id="ch_main"><p class="mut" style="padding:16px">Pick a chat on the left.</p></div><div class="chatside" id="ch_side"></div></div>';
+  var w=$('#chatwrap');w.onclick=chatClick;$('#ch_q').onkeydown=function(e){if(e.key==='Enter'){CH.q=this.value;loadChats()}};
+  if(CH.phone)loadThread(CH.phone)}
+ rpc('inbox_list',{filter:CH.filter,q:CH.q}).then(function(j){if(tab!=='chats')return;CH.list=j.chats;drawChatList();if(quiet&&CH.phone)loadThread(CH.phone,true)}).catch(function(e){if(!quiet)toast(e.message)})}
+function drawChatList(){var box=$('#ch_items');if(!box)return;
+ box.innerHTML=CH.list.length?CH.list.map(function(c){var who=c.preview_dir==='in'?'':c.preview_by==='ai'?'Assistant: ':c.preview_by==='agent'?'You: ':'';
+  return '<div class="chi'+(c.phone===CH.phone?' on':'')+'" data-ph="'+c.phone+'"><div class="t">'+(c.unread?'<i class="udot" title="New message"></i>':'')+'<b>'+esc(c.name||('+91 '+c.phone))+'</b><span class="small mut">'+ago(c.last_ts)+'</span></div>'
+   +'<div class="p">'+esc(who+(c.preview||''))+'</div><div class="row" style="gap:4px;margin:0">'+(c.handoff?'<span class="pill bad" style="font-size:11px">With team</span>':'')+(c.unanswered&&!c.handoff?'<span class="pill warn" style="font-size:11px">No reply yet</span>':'')+(c.order?'<span class="small mut">'+esc(c.order)+'</span>':'')+(!c.in_window?'<span class="small mut" title="More than 24 h since they wrote">· 24h passed</span>':'')+'</div></div>'}).join('')
+  :'<p class="mut small" style="padding:12px">'+(CH.filter==='needs'?'Nothing waiting. The assistant has answered everyone.':'No chats.')+'</p>'}
+function chatClick(e){var t=e.target,cf=t.closest('[data-cf]');if(cf){CH.filter=cf.dataset.cf;loadChats();return}
+ var it=t.closest('.chi');if(it){CH.phone=it.dataset.ph;$('#chatwrap').classList.add('th');[].forEach.call(document.querySelectorAll('.chi'),function(x){x.classList.toggle('on',x.dataset.ph===CH.phone)});loadThread(CH.phone);return}
+ if(t.id==='ch_back'){CH.phone='';CH.th=null;$('#chatwrap').classList.remove('th');loadChats();return}
+ var q=t.closest('[data-qr]');if(q){var ta=$('#ch_txt');ta.value=(ta.value?ta.value+'\n':'')+q.dataset.qr;ta.focus();CH.draft[CH.phone]=ta.value;return}
+ var oo=t.closest('[data-oo]');if(oo){openOrder(oo.dataset.oo);return}
+ if(t.id==='ch_send'||t.id==='ch_done_send'){sendChat(t.id==='ch_done_send');return}
+ if(t.id==='ch_take'||t.id==='ch_done'){t.disabled=true;rpc('inbox_state',{phone:CH.phone,state:t.id==='ch_done'?'done':'takeover'}).then(function(){toast(t.id==='ch_done'?'Handed back to the assistant':'You have this chat: the assistant stays quiet');loadThread(CH.phone);loadChats(true)}).catch(function(er){t.disabled=false;toast(er.message)})}}
+function sendChat(done){var ta=$('#ch_txt'),txt=ta.value.trim();if(!txt)return;var b=$('#ch_send'),b2=$('#ch_done_send');b.disabled=b2.disabled=true;
+ rpc('inbox_send',{phone:CH.phone,text:txt,done:done}).then(function(){ta.value='';CH.draft[CH.phone]='';toast(done?'Sent · chat handed back to the assistant':'Sent');loadThread(CH.phone);loadChats(true)}).catch(function(er){toast(er.message)}).then(function(){b.disabled=b2.disabled=false})}
+function loadThread(phone,quiet){rpc('inbox_thread',{phone:phone}).then(function(j){if(tab!=='chats'||CH.phone!==phone)return;
+ var sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id:0)+':'+(j.handoff?j.handoff.ai_paused_until:0)+':'+j.in_window;if(quiet&&CH.th&&CH.th.sig===sig)return;
+ CH.th={sig:sig,j:j};drawThread(j,quiet)}).catch(function(e){if(!quiet)$('#ch_main').innerHTML='<p class="err" style="padding:16px">'+esc(e.message)+'</p>'})}
+function bubble(m){var t=ist(m.ts),tx=m.preview||'';
+ if(m.direction==='in'){if(m.trigger==='reply'&&!m.template)return '<div class="bub in">'+esc(tx)+'<span class="m">'+t+'</span></div>';
+  return '<div class="sys">Customer: '+esc(m.template?('tapped '+m.template):m.trigger)+(tx?' · '+esc(tx):'')+' · '+t+'</div>'}
+ var bad=m.status==='failed',by=m.trigger==='ai'?'Assistant'+(m.template==='handoff'?' · handed off to you':''):m.trigger==='agent'?'You':'';
+ if(by)return '<div class="bub out'+(m.trigger==='ai'?' ai':'')+(bad?' bad':'')+'">'+esc(tx)+'<span class="m">'+by+' · '+t+(bad?' · NOT DELIVERED: '+esc(m.error||''):'')+'</span></div>';
+ if(/^(queued|capped|expired|merged)$/.test(m.status||''))return '';
+ return '<div class="bub out tpl'+(bad?' bad':'')+'">'+(tx?esc(tx):'<i>'+esc(m.template||m.trigger)+'</i>')+'<span class="m">'+esc(m.trigger)+(m.template&&tx?' · '+esc(m.template):'')+(m.order_name?' · '+esc(m.order_name):'')+' · '+t+(bad?' · failed: '+esc(m.error||''):m.status==='skipped'?' · not sent: '+esc(m.error||''):'')+'</span></div>'}
+function stageTxt(o){var L={pickup_pending:'Waiting for pickup',pickup_failed:'Pickup failed',transit:'In transit',ofd:'Out for delivery',ndr:'Delivery failed',delivered:'Delivered',rto:'Returning to us (RTO)',lost:'Lost'};
+ if(o.status==='cancelled')return '<span class="pill bad">Cancelled</span>';if(o.stage)return '<span class="pill '+(o.stage==='delivered'||o.stage==='ofd'?'ok':/ndr|rto|lost|failed/.test(o.stage)?'bad':'warn')+'">'+esc(L[o.stage]||o.stage)+'</span>';
+ if(o.shipped)return '<span class="pill ok">Shipped</span>';if(!o.confirmed)return '<span class="pill warn">COD not confirmed</span>';return '<span class="pill">'+(o.packed?'Packed':'To ship')+'</span>'}
+function drawThread(j,quiet){var c=CH.list.find(function(x){return x.phone===j.phone})||{},o0=j.orders[0]||{},nm=(o0.name_on_order||c.name||'').split(' ')[0];
+ var h=j.handoff,head='<div class="chhead"><button class="btn ghost sm" id="ch_back" type="button" aria-label="Back to chats">←</button><div style="flex:1;min-width:0"><b>'+esc(o0.name_on_order||c.name||'Customer')+'</b><div class="small mut">+91 '+j.phone+(j.last_in?' · last wrote '+ago(j.last_in):'')+'</div></div>'
+  +'<a class="btn ghost sm chl" href="tel:+91'+j.phone+'">Call</a><a class="btn ghost sm chl" target="_blank" rel="noopener" href="https://wa.me/91'+j.phone+'">WhatsApp</a>'
+  +(h?'<button class="btn sm" id="ch_done" type="button" title="Mark solved and let the assistant answer this customer again">Done · back to assistant</button>':'<button class="btn ghost sm" id="ch_take" type="button" title="Keep the assistant quiet on this chat while you handle it">Take over</button>')+'</div>'
+  +(h?'<div class="small" style="padding:6px 12px;background:#fff6e5;border-bottom:1px solid var(--line)"><b>With you</b>'+(h.reason?' · '+esc(h.reason):'')+(h.ai_paused_until&&h.ai_paused_until>Date.now()/1000?' · assistant quiet until '+ist(h.ai_paused_until):'')+'</div>':'');
+ var msgs='<div class="msgs" id="ch_msgs">'+(j.messages.length?j.messages.map(bubble).join(''):'<p class="mut small">No messages in the last 90 days.</p>')+'</div>';
+ var t0=o0.name?{name:nm||'there',order:o0.name,courier:o0.courier,track:o0.track,edd:o0.edd}:null;
+ var QR=[];if(t0&&t0.track)QR.push(['Tracking','Hi '+t0.name+', your order '+t0.order+' is on its way'+(t0.courier?' with '+t0.courier:'')+'. Track it here: '+t0.track]);
+ if(t0&&t0.edd)QR.push(['Delivery date','Your order '+t0.order+' should reach you by '+eddNice(t0.edd)+'.']);
+ QR.push(['Need address','Could you please share your full address with house / flat number, street and a landmark, so the courier can find you?']);
+ QR.push(['Checking','Sorry for the trouble! Let me check this and get back to you shortly.']);QR.push(['Thanks','Thank you for shopping with Ink Kulture! 😊']);
+ var comp='<div class="compose">'+(j.in_window?'<div class="qr">'+QR.map(function(q){return '<button type="button" data-qr="'+esc(q[1])+'">'+esc(q[0])+'</button>'}).join('')+'</div><textarea id="ch_txt" placeholder="Type a reply… (Ctrl+Enter to send)">'+esc(CH.draft[j.phone]||'')+'</textarea><div class="row" style="margin:0"><button class="btn sm" id="ch_send" type="button">Send</button><button class="btn ghost sm" id="ch_done_send" type="button" title="Send, then hand the chat back to the assistant">Send &amp; done</button><span class="small mut">Sent from your WhatsApp business number'+(h?'':' · the assistant stays quiet on this chat for 24 h after you reply')+'</span></div>'
+  :'<p class="small" style="margin:0;color:var(--warn)"><b>More than 24 hours since they last wrote.</b> WhatsApp only delivers a typed message within 24 h of the customer\'s last message. Call them, or wait for them to write again.</p>')+'</div>';
+ var keepTop=quiet&&$('#ch_msgs')?$('#ch_msgs'):null,nearBottom=!keepTop||keepTop.scrollHeight-keepTop.scrollTop-keepTop.clientHeight<80,typed=$('#ch_txt')?$('#ch_txt').value:null,focused=document.activeElement&&document.activeElement.id==='ch_txt';
+ $('#ch_main').innerHTML=head+msgs+comp;
+ var ta=$('#ch_txt');if(ta){if(typed!==null)ta.value=typed;ta.oninput=function(){CH.draft[j.phone]=ta.value};ta.onkeydown=function(e){if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendChat(false)}};if(focused)ta.focus()}
+ var mb=$('#ch_msgs');if(nearBottom)mb.scrollTop=mb.scrollHeight;
+ $('#ch_side').innerHTML='<h3 style="margin:0">Orders</h3>'+(j.orders.length?j.orders.map(function(o){
+  return '<div class="och"><div class="row" style="margin:0;gap:6px"><b>'+esc(o.name)+'</b>'+stageTxt(o)+'<span class="grow"></span><button class="btn ghost sm" data-oo="'+o.id+'" type="button">Open</button></div>'
+   +'<div class="mut">'+ist(o.created_at)+' · '+inr(o.total)+' · '+esc(o.pay)+'</div>'
+   +(o.items?'<div class="its">'+o.items.map(function(i){return '<span title="'+esc(i.title+(i.size?' · '+i.size:''))+' ×'+i.qty+'" style="position:relative">'+(i.image?'<img src="'+esc(i.image+(i.image.indexOf('?')>-1?'&':'?')+'width=96')+'" alt="">':'')+'</span>'}).join('')+'</div><div class="small">'+o.items.map(function(i){return esc(i.title)+(i.qty>1?' ×'+i.qty:'')}).join(', ')+'</div>':'')
+   +(o.awb?'<div>'+esc(o.courier||'')+' · AWB '+esc(o.awb)+(o.edd&&!o.delivered_at?' · by '+esc(eddNice(o.edd)):'')+(o.delivered_at?' · delivered '+ist(o.delivered_at):'')+'</div>':'')
+   +(o.sr_status?'<div class="mut">'+esc(o.sr_status)+'</div>':'')
+   +(o.ndr?'<div style="color:var(--bad)">Delivery failed: '+esc(o.ndr.reason||'')+(o.ndr.choice?' · '+esc(o.ndr.by||'')+' chose '+esc(o.ndr.choice)+(o.ndr.date?' on '+esc(o.ndr.date):''):'')+'</div>':'')
+   +(o.address?'<div class="mut">'+esc(o.address)+'</div>':'')
+   +'<div class="row" style="margin:0;gap:8px">'+(o.track?'<a class="small" target="_blank" rel="noopener" href="'+esc(o.track)+'">Tracking</a><button class="btn ghost sm" type="button" data-qr="'+esc('Track your order '+o.name+' here: '+o.track)+'">Send tracking</button>':'')+'</div></div>'}).join(''):'<p class="mut small">No orders from this number.</p>');
+ }
+/* ---- automatic NDR rules (lib/ndr-rules.js) ---- */
+function ndrRules(){$('#ov').innerHTML='<div class="scrim" id="sc"></div><div class="drawer" style="width:min(820px,100%)"><p class="mut">Loading…</p></div>';$('#sc').onclick=close;
+ rpc('ndr_rules').then(function(r){var c=r.cfg,d=$('#ov').querySelector('.drawer');
+  var FI=[['ask','Ask the customer'],['reattempt','Re-attempt now'],['return','Return now'],['manual','Leave to me']],TH=[['reattempt','Re-attempt'],['return','Return (RTO)'],['manual','Leave to me']];
+  function sel(cls,k,opts,v){return '<select class="'+cls+'" data-k="'+k+'">'+opts.map(function(o){return '<option value="'+o[0]+'"'+(o[0]===v?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select>'}
+  var st=r.stats||{},h='<div class="row"><b>Automatic NDR rules</b><span class="grow"></span><button class="btn ghost sm" id="nr_x">Close</button></div>';
+  h+='<p class="small mut">When the courier fails a delivery, the parcel is sorted by the courier\'s reason and the rule below runs every 5 minutes. "Ask the customer" sends the Delivery-failed WhatsApp with a link (deliver again, any day, new address / number, or return); if they have not answered after the wait, the "No answer" step runs. A choice by the customer or by you always wins.</p>';
+  if(!r.ship_failed_on)h+='<p class="small err">The "Delivery attempt failed" WhatsApp is switched off (WhatsApp tab), so customers are not asked: the "No answer" step runs after the wait.</p>';
+  h+='<label class="row small"><input type="checkbox" id="nr_on"'+(c.mode==='on'?' checked':'')+'> <b>Rules on</b> (off = nothing automatic; the customer link still works)</label>';
+  h+='<div class="tw"><table class="small"><thead><tr><th>Courier reason</th><th>First</th><th>Wait (h)</th><th>No answer</th></tr></thead><tbody>'+Object.keys(r.categories).map(function(k){var x=c.rules[k];
+   return '<tr><td>'+esc(r.categories[k])+'</td><td>'+sel('nr_f',k,FI,x.first)+'</td><td><input type="number" class="nr_w" data-k="'+k+'" min="0" max="72" value="'+x.wait+'" style="width:70px"></td><td>'+sel('nr_t',k,TH,x.then)+'</td></tr>'}).join('')+'</tbody></table></div>';
+  h+='<div class="grid two"><label class="f">Stop re-attempting after this many failed attempts<input type="number" id="nr_max" min="1" max="5" value="'+c.max_attempts+'"></label><label class="f">Then<select id="nr_am"><option value="manual"'+(c.after_max==='manual'?' selected':'')+'>Leave to me</option><option value="return"'+(c.after_max==='return'?' selected':'')+'>Return (RTO)</option></select></label></div>';
+  h+='<label class="row small"><input type="checkbox" id="nr_pp"'+(c.protect_paid?' checked':'')+'> Never return prepaid / part-paid parcels automatically (they come to you instead)</label>';
+  h+='<div class="row"><button class="btn" id="nr_sv">Save rules</button><button class="btn ghost" id="nr_dry">Preview: what would happen now</button><button class="btn ghost" id="nr_go">Run now</button></div><div id="nr_out" class="small"></div>';
+  h+='<h3 style="margin-top:18px">Last 14 days</h3><p class="small">'+st.total+' failed deliveries · <b>'+(st.reattempt||0)+'</b> auto re-attempted · '+(st['return']||0)+' auto returned · '+(st.manual||0)+' sent to you · '+(st.customer||0)+' answered by the customer · <b style="color:var(--ok)">'+(st.delivered||0)+' delivered after all</b> · '+(st.rto||0)+' RTO</p>';
+  var AL={reattempt:'Re-attempted',return:'Returned',manual:'Left to you'};
+  h+=r.log.length?'<div class="tw"><table class="small"><thead><tr><th>When</th><th>Order</th><th>Reason</th><th>Auto</th><th>Now</th></tr></thead><tbody>'+r.log.map(function(x){return '<tr><td>'+ago(x.first_seen)+'</td><td><b>'+esc(x.order_name||'')+'</b>'+(x.attempt?'<div class="mut">attempt '+x.attempt+'</div>':'')+'</td><td>'+esc(r.categories[x.category]||x.category||'')+'<div class="mut">'+esc((x.reason||'').slice(0,90))+'</div></td><td>'+(x.action?esc(AL[x.action]||x.action)+(x.note?'<div class="mut">'+esc(x.note)+'</div>':''):'<span class="mut">—</span>')+(x.error?'<div class="err">'+esc(x.error)+'</div>':'')+'</td><td>'+esc(x.outcome||'')+'</td></tr>'}).join('')+'</tbody></table></div>':'<p class="mut small">No failed deliveries seen yet.</p>';
+  d.innerHTML=h;$('#nr_x').onclick=close;
+  function collect(){var o={mode:$('#nr_on').checked?'on':'off',max_attempts:$('#nr_max').value,after_max:$('#nr_am').value,protect_paid:$('#nr_pp').checked,rules:{}};
+   Object.keys(r.categories).forEach(function(k){o.rules[k]={first:d.querySelector('.nr_f[data-k="'+k+'"]').value,wait:d.querySelector('.nr_w[data-k="'+k+'"]').value,then:d.querySelector('.nr_t[data-k="'+k+'"]').value}});return o}
+  function out(x){var o=x.result||{};$('#nr_out').innerHTML=o.skipped?'Rules are off.':o.error?'<span class="err">'+esc(o.error)+'</span>':'Open NDRs in Shiprocket: '+(o.open||0)+' (ours: '+(o.mine||0)+') · waiting for customers: '+(o.waiting||0)+(o.actions&&o.actions.length?'<br>'+o.actions.map(function(a){return '<b>'+esc(a.order)+'</b>: '+(a.act==='return'?'return':'re-attempt')+' ('+esc(a.why)+')'}).join('<br>'):'<br>Nothing to do right now.')+(o.failed?'<br><span class="err">'+o.failed+' failed</span>':'')}
+  $('#nr_sv').onclick=function(){var b=this;b.disabled=true;rpc('save_ndr',collect()).then(function(){toast('NDR rules saved')}).catch(function(e){toast(e.message)}).then(function(){b.disabled=false})};
+  $('#nr_dry').onclick=function(){var b=this;b.disabled=true;rpc('save_ndr',collect()).then(function(){return rpc('ndr_run',{dry:true})}).then(out).catch(function(e){toast(e.message)}).then(function(){b.disabled=false})};
+  $('#nr_go').onclick=function(){if(!confirm('Save the rules and run them on the open NDRs now?'))return;var b=this;b.disabled=true;rpc('save_ndr',collect()).then(function(){return rpc('ndr_run',{})}).then(function(x){out(x);loadShip()}).catch(function(e){toast(e.message)}).then(function(){b.disabled=false})};
+ }).catch(function(e){$('#ov').querySelector('.drawer').innerHTML='<p class="err">'+esc(e.message)+'</p>'})}
 function shBar(){var b=$('#sh_bar');if(!b)return;var ids=shSel();b.classList.toggle('hide',!ids.length);
  var st=ids.map(function(k){return SH.rows[k].stage}),pk=st.filter(function(s){return s==='pickup_pending'||s==='pickup_failed'}).length;
  var up=ids.filter(function(k){var x=SH.rows[k];return (x.stage==='pickup_pending'||x.stage==='pickup_failed')&&!x.packed_at}).length;

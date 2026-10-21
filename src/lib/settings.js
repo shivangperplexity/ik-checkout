@@ -1,5 +1,6 @@
 import { DEFAULTS as PARTIAL } from './partial-cod.js';
 import { META_DEFAULTS } from './meta.js';
+import { NDR_DEFAULTS } from './ndr-rules.js';
 // Dashboard-editable settings (stored in the settings table) layered over env vars.
 //
 // Variable names matter on the Go4WhatsUp path: they are sent as named key/value pairs and must match the
@@ -54,6 +55,8 @@ const DEFAULTS = {
   partial: { ...PARTIAL },
   /* Meta pixel for the Purchase events (lib/meta.js) */
   meta: { ...META_DEFAULTS },
+  /* Automatic NDR rules (lib/ndr-rules.js) */
+  ndr: structuredClone(NDR_DEFAULTS),
 };
 
 let cache = { at: 0, s: null };

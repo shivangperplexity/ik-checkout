@@ -98,7 +98,7 @@ export function parseStatuses(payload) {
 async function logMsg(env, m) {
   if (!env.DB) return null;
   const r = await env.DB.prepare('INSERT INTO messages (ts,direction,phone,trigger,template,status,order_name,wamid,error,preview) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id')
-    .bind(Math.floor(Date.now() / 1000), m.direction || 'out', m.phone || '', m.trigger || '', m.template || '', m.status || '', m.orderName || '', m.wamid || '', (m.error || '').slice(0, 300), (m.preview || '').slice(0, 300)).first();
+    .bind(Math.floor(Date.now() / 1000), m.direction || 'out', m.phone || '', m.trigger || '', m.template || '', m.status || '', m.orderName || '', m.wamid || '', (m.error || '').slice(0, 300), (m.preview || '').slice(0, 2000)).first();
   return r?.id;
 }
 export { logMsg };

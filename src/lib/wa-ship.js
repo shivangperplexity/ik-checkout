@@ -20,6 +20,7 @@ import { orderDetail, addTags } from './shopify.js';
 import { srTrack, ndrList } from './shiprocket.js';
 import { fireTrigger, logMsg } from './whatsapp.js';
 import { triggerConfig } from './settings.js';
+import { shouldNotify } from './ndr-rules.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const POLL = 25 * 60;              // seconds between checks of one shipment
@@ -95,7 +96,7 @@ function mark(sent, what, c) {
   if (what === 'picked') s.picked = now();
   if (what === 'transit') s.transit = now();
   if (what === 'ofd') s.ofd = [...s.ofd, day].slice(-10);
-  if (what === 'failed' || what === 'failed-refused') s.failed = [...s.failed, c.at].slice(-10);
+  if (what === 'failed' || what === 'failed-refused' || what === 'failed-quiet') s.failed = [...s.failed, c.at].slice(-10);
   return s;
 }
 
@@ -153,10 +154,17 @@ export async function shipUpdates(env) {
         if (rto && !sent.rto) { try { await addTags(env, `gid://shopify/Order/${r.order_id}`, ['rto']); sent = { ...sent, rto: now() }; } catch { /* retried next run */ } }
       }
       let ndrLinkV = '';
-      if (todo.includes('failed')) { try { const { ndrLink } = await import('./wa-ndr.js'); ndrLinkV = await ndrLink(env, r.order_id); } catch { /* plain tracking link then */ } }
+      if (todo.includes('failed') || todo.includes('failed-refused')) { try { const { ndrLink } = await import('./wa-ndr.js'); ndrLinkV = await ndrLink(env, r.order_id); } catch { /* plain tracking link then */ } }
       const vars = { name: r.first_name || 'there', order: r.order_name, courier: String(courier || tr.courier_name || 'our courier').replace(/\s+(Surface|Air)$/i, ''), edd: fmtEdd(tr.edd), location: c.city || 'a courier hub', track: ndrLinkV || url || r.status_url || '' };
-      for (const what of todo) {
-        if (what === 'failed-refused') {
+      /* automatic NDR rules (lib/ndr-rules.js) decide whether the customer is asked; off = refused ones are not */
+      const failReason = c.stage === 'failed' ? (/[a-z]{4,}/i.test(c.reason || '') ? c.reason : `${c.reason || ''} ${(ndr || {})[awb] || ''}`).trim() : '';
+      if (failReason) await env.DB.prepare('UPDATE shipments SET ndr_reason=? WHERE awb=?').bind(failReason.slice(0, 300), String(awb)).run().catch(() => {});
+      const notify = failReason ? shouldNotify(env, failReason) : null;
+      for (let what of todo) {
+        if ((what === 'failed' || what === 'failed-refused') && notify !== null) what = notify ? 'failed' : 'failed-quiet';
+        if (what === 'failed-quiet') {
+          await logMsg(env, { direction: 'out', phone: r.phone, trigger: 'ship_failed', status: 'skipped', orderName: r.order_name, error: 'NDR rule for this reason does not message the customer (' + failReason.slice(0, 80) + ')' });
+        } else if (what === 'failed-refused') {
           await logMsg(env, { direction: 'out', phone: r.phone, trigger: 'ship_failed', status: 'skipped', orderName: r.order_name, error: 'courier says the customer refused / cancelled with OTP' });
         } else {
           const key = { picked: 'ship_picked', transit: 'ship_transit', ofd: 'ship_ofd', failed: 'ship_failed' }[what];

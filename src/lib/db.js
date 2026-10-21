@@ -95,6 +95,12 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS capi_tries INT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_ip TEXT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_ua TEXT`,
+  /* Automatic NDR handling (lib/ndr-rules.js): one row per failed attempt (k = attempt number, or the day it was raised) */
+  `CREATE TABLE IF NOT EXISTS ndr_auto (awb TEXT, k TEXT, order_id TEXT, order_name TEXT, attempt INT, category TEXT, reason TEXT, first_seen BIGINT, action TEXT, action_at BIGINT, note TEXT, error TEXT, PRIMARY KEY (awb, k))`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_reason TEXT`,
+  /* WhatsApp chats a person has to answer (assistant handed off, or the team took over) */
+  `CREATE TABLE IF NOT EXISTS wa_handoff (phone TEXT PRIMARY KEY, state TEXT, reason TEXT, opened_at BIGINT, replied_at BIGINT, resolved_at BIGINT, ai_paused_until BIGINT, seen_at BIGINT)`,
+  `ALTER TABLE wa_handoff ADD COLUMN IF NOT EXISTS seen_id BIGINT`,
 ];
 
 let ready;

@@ -445,6 +445,21 @@ const ACTIONS = {
     const lastIn = await env.DB.prepare("SELECT ts FROM messages WHERE phone=? AND direction='in' ORDER BY ts DESC LIMIT 1").bind(to).first().catch(() => null);
     return { ok: true, sent: res.ok, via: res.via || (viaG4w(e2) ? 'g4w' : 'meta'), id: res.id || '', error: res.error || '', last_in: Number(lastIn?.ts) || null };
   },
+  /* ---- Chats tab (lib/inbox.js): chats the assistant handed off, unanswered messages, manual replies ---- */
+  async inbox_list(env, b) { const { inboxList } = await import('./inbox.js'); return { ok: true, chats: await inboxList(env, { filter: ['needs', 'handoff', 'all'].includes(b.filter) ? b.filter : 'needs', q: String(b.q || '').slice(0, 60) }) }; },
+  async inbox_count(env) { const { inboxCount } = await import('./inbox.js'); return { ok: true, ...(await inboxCount(env)) }; },
+  async inbox_thread(env, b) { const { inboxThread } = await import('./inbox.js'); return { ok: true, ...(await inboxThread(await withSettingsFresh(env), b.phone)) }; },
+  async inbox_send(env, b) {
+    const { inboxSend } = await import('./inbox.js');
+    const { withSettings } = await import('./settings.js');
+    return inboxSend(await withSettings(await withSettingsFresh(env)), b.phone, b.text, { done: !!b.done });
+  },
+  /** done: hand the chat back to the assistant. takeover: keep the assistant quiet on it (24 h, renewed by each reply). */
+  async inbox_state(env, b) {
+    const { resolveHandoff, openHandoff } = await import('./inbox.js');
+    if (b.state === 'done') await resolveHandoff(env, b.phone); else await openHandoff(env, b.phone, 'taken over by the team');
+    return { ok: true };
+  },
   /** Customers whose last plain-text message has no answer yet, with today's usage and limits. */
   async ai_backlog(env) {
     const { backlog, budget } = await import('./wa-ai.js');
@@ -950,8 +965,45 @@ const ACTIONS = {
       const raised = Math.floor(Date.parse(String(x.date || '').replace(' ', 'T') + (/[zZ+]/.test(x.date) ? '' : '+05:30')) / 1000);
       return Number.isFinite(raised) ? at >= raised - 60 : true;
     };
-    return { ok: true, ndr: list.map((x) => { const m = mine[x.awb];
-      return { ...x, order_name: m?.order_name || String(x.order || ''), done: handled(x, m), choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '' }; }) };
+    /* what the automatic rules will do with each (lib/ndr-rules.js), from the same state the cron uses */
+    const { ndrCfg, planNdr, classifyNdr, CATEGORIES } = await import('./ndr-rules.js');
+    const cfg = ndrCfg(f);
+    const autoRows = list.length ? (await env.DB.prepare(`SELECT * FROM ndr_auto WHERE awb IN (${list.map(() => '?').join(',')})`).bind(...list.map((x) => x.awb)).all()).results : [];
+    const pay = list.length ? Object.fromEntries((await env.DB.prepare(`SELECT s.awb, o.method, o.advance_paise, o.converted_at FROM shipments s JOIN orders o ON o.order_id=s.order_id WHERE s.awb IN (${list.map(() => '?').join(',')})`).bind(...list.map((x) => x.awb)).all()).results.map((r) => [r.awb, r.method !== 'cod' || num(r.advance_paise) > 0 || !!r.converted_at])) : {};
+    return { ok: true, auto: cfg.mode, ndr: list.map((x) => { const m = mine[x.awb];
+      const k = x.attempts ? 'a' + x.attempts : 'd' + String(x.date || '').slice(0, 10);
+      const st = autoRows.find((r) => r.awb === x.awb && r.k === k);
+      const plan = m ? planNdr(cfg, x, st || {}, m, !!pay[x.awb]) : null;
+      const cat = classifyNdr(x.reason);
+      return { ...x, order_name: m?.order_name || String(x.order || ''), done: handled(x, m), choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '',
+        category: cat, category_label: CATEGORIES[cat].label, paid: !!pay[x.awb],
+        plan: plan ? { act: plan.act, why: plan.why, due: plan.due || null, then: plan.then || '' } : null, auto_action: st?.action || '', auto_error: st?.error || '' }; }) };
+  },
+  /** Automatic NDR rules: settings, what they would do right now, and the last automatic actions. */
+  async ndr_rules(env) {
+    const { ndrCfg, CATEGORIES } = await import('./ndr-rules.js');
+    const f = await withSettingsFresh(env);
+    const log = (await env.DB.prepare('SELECT * FROM ndr_auto WHERE first_seen>? ORDER BY first_seen DESC LIMIT 60').bind(now() - 14 * 86400).all()).results;
+    const stats = { total: log.length, reattempt: 0, return: 0, manual: 0, customer: 0 };
+    log.forEach((r) => { if (r.action && stats[r.action] !== undefined) stats[r.action]++; });
+    const sel = log.length ? (await env.DB.prepare(`SELECT awb, ndr_by, stage, delivered_at FROM shipments WHERE awb IN (${log.map(() => '?').join(',')})`).bind(...log.map((r) => r.awb)).all()).results : [];
+    const by = Object.fromEntries(sel.map((r) => [r.awb, r]));
+    log.forEach((r) => { const x = by[r.awb]; r.outcome = x?.delivered_at || x?.stage === 'delivered' ? 'delivered' : x?.stage === 'rto' ? 'rto' : x?.stage || ''; if (!r.action && x?.ndr_by === 'customer') stats.customer++; });
+    stats.delivered = log.filter((r) => r.outcome === 'delivered').length;
+    stats.rto = log.filter((r) => r.outcome === 'rto').length;
+    return { ok: true, cfg: ndrCfg(f), categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])), log, stats, ship_failed_on: triggerConfig(f, 'ship_failed').enabled };
+  },
+  async save_ndr(env, b) {
+    const { ndrCfg } = await import('./ndr-rules.js');
+    const c = ndrCfg({ SETTINGS: { ndr: b } });
+    await putSetting(env, 'ndr', c);
+    return { ok: true, cfg: c };
+  },
+  /** Run the NDR rules now (dry = only show what would happen). */
+  async ndr_run(env, b) {
+    const { autoNdr } = await import('./ndr-rules.js');
+    const { withSettings } = await import('./settings.js');
+    return { ok: true, result: await autoNdr(await withSettings(await withSettingsFresh(env)), { dry: !!b.dry }) };
   },
   /** action: 'reattempt' (optionally with a new date/phone) or 'return' (start RTO). */
   async ndr_do(env, b) {

@@ -262,6 +262,8 @@ const withRoute = (env, route) => route ? Object.assign(Object.create(null), env
  * A reply that Meta refuses as "re-engagement" (131047) is retried once through the other channel.
  */
 export async function answerPhone(env0, phone, { route = null } = {}) {
+  /* a person is handling this chat in the dashboard (Chats tab): stay quiet */
+  try { const { aiPaused } = await import('./inbox.js'); if (await aiPaused(env0, phone)) return 'paused'; } catch { /* table not there yet: answer */ }
   const conv = await conversation(env0, phone);
   if (!conv.pending.length) return 'nothing';
   const last = conv.pending[conv.pending.length - 1];
@@ -291,8 +293,12 @@ export async function answerPhone(env0, phone, { route = null } = {}) {
   }
   await logMsg(env, { direction: 'out', phone, trigger: 'ai', template: a.handoff ? 'handoff' : 'answer', status: !res.ok ? 'failed' : a.handoff ? 'handoff' : 'accepted', wamid: res.id || '', error: res.ok ? '' : `${res.via}${used?.phoneId ? ' ' + used.phoneId : ''}: ${res.error}`, preview: a.text });
   if (!res.ok) return 'failed';
+  if (a.handoff) {
+    try { const { openHandoff } = await import('./inbox.js'); await openHandoff(env0, phone, text.slice(0, 200)); } catch (e) { console.error('handoff', e.message); }
+  }
   if (a.handoff && env0.SETTINGS?.wa?.admin_phone) {
-    try { await sendText(env0, '91' + String(env0.SETTINGS.wa.admin_phone).replace(/\D/g, '').slice(-10), `Customer +91 ${phone} needs a reply (assistant handed off).\nThey wrote: "${text.slice(0, 300)}"\nAssistant said: "${a.text.slice(0, 300)}"`); } catch { /* best effort */ }
+    const link = env0.WORKER_URL ? `\nReply here: ${String(env0.WORKER_URL).replace(/\/$/, '')}/admin#chat=${phone}` : '';
+    try { await sendText(env0, '91' + String(env0.SETTINGS.wa.admin_phone).replace(/\D/g, '').slice(-10), `Customer +91 ${phone} needs a reply (assistant handed off).\nThey wrote: "${text.slice(0, 300)}"\nAssistant said: "${a.text.slice(0, 300)}"${link}`); } catch { /* best effort */ }
   }
   return a.handoff ? 'handoff' : 'replied';
 }
