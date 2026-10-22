@@ -4,7 +4,9 @@
  *  1. Customer taps "Yes, confirm" (or types yes).  -> sendAddressCheck(): the delivery address, read live from
  *     Shopify, with two reply buttons: "Address is correct" (ADDR_OK:<id>) and "Edit address" (ADDR_EDIT:<id>).
  *     The customer has just written to us, so this is a free service-window reply and needs no template.
- *  2. ADDR_OK   -> tag the Shopify order address-confirmed, say thanks.
+ *  2. ADDR_OK   -> tag the Shopify order address-confirmed, say thanks, then the pay-online offer (30 min,
+ *                  lib/wa-convert.js offerAfterAddress). A typed "correct" / "yes" / "sahi hai" right after the
+ *                  question counts as ADDR_OK (Go4WhatsUp has no buttons; some people just type).
  *     ADDR_EDIT -> send a signed link to /api/wa/addr, a short prefilled form.
  *  3. The form writes the new address straight to the Shopify order (orderUpdate). Editing stops once the order
  *     is fulfilled or cancelled.
@@ -52,7 +54,7 @@ export async function sendAddressCheck(env, row) {
     let wamid = '';
     if (viaG4w(env)) {
       const link = await addrLink(env, row.order_id);
-      await sendText(env, '91' + row.phone, text + (link ? `\n\nNeed to change it? Open: ${link}` : ''));
+      await sendText(env, '91' + row.phone, text + `\n\nReply YES if it is correct.` + (link ? `\nNeed to change it? Open: ${link}` : ''));
     } else {
       wamid = await sendInteractive(env, '91' + row.phone, {
         type: 'button',
@@ -93,6 +95,8 @@ export async function handleAddressReply(env, rep) {
       await addTags(env, gidOf(row.order_id), ['address-confirmed']).catch(() => {});
       await sendText(env, to, `Perfect, order ${row.order_name} will be delivered to this address. We'll message you when it ships.`);
       await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'address', template: 'ADDR_OK', status: 'address-confirmed', orderName: row.order_name });
+      const { offerAfterAddress } = await import('./wa-convert.js');
+      await offerAfterAddress(env, row.order_id);
       return;
     }
     const o = await orderDetail(env, row.order_id);
@@ -107,6 +111,27 @@ export async function handleAddressReply(env, rep) {
   } catch (e) {
     await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'address', template: 'ADDR_' + rep.action, status: 'failed', orderName: row.order_name, error: String(e.message || e) }).catch(() => {});
   }
+}
+
+const TYPED_OK = /^\s*(?:yes|yess|yeah|ha+n?|haa?n ji|ji|ok|okay|okk|correct|right|sahi|sahi hai|haan sahi hai|bilkul|theek|thik|theek hai|thik hai|ye sahi hai|yes correct|yes it is|yes its correct|address (?:is )?(?:correct|right|ok|sahi|sahi hai|theek|thik)|correct address|yes address is correct)\s*[.!👍✅]*\s*$/i;
+
+/**
+ * A typed answer to the address question ("yes", "correct", "sahi hai") within 6 h of it, with no newer COD question
+ * for another order and no answer yet: handled like the "Address is correct" button. Returns true when handled.
+ */
+export async function typedAddressOk(env, phone, text) {
+  if (!TYPED_OK.test(String(text || ''))) return false;
+  const now = Math.floor(Date.now() / 1000);
+  const q = await env.DB.prepare("SELECT ts, order_name FROM messages WHERE phone=? AND trigger='address_check' AND status='sent' AND ts>? ORDER BY id DESC LIMIT 1").bind(String(phone), now - 6 * 3600).first().catch(() => null);
+  if (!q) return false;
+  const answered = await env.DB.prepare("SELECT 1 AS x FROM messages WHERE phone=? AND trigger='address' AND ts>=? LIMIT 1").bind(String(phone), Number(q.ts)).first().catch(() => null);
+  if (answered) return false;
+  const row = await env.DB.prepare('SELECT * FROM orders WHERE phone=? AND order_name=?').bind(String(phone), q.order_name).first();
+  if (!row) return false;
+  const newer = await env.DB.prepare('SELECT p.sent_at FROM wa_pending p JOIN orders o ON o.order_id = p.order_id WHERE p.phone=? AND p.order_id<>? AND o.confirmed_at IS NULL AND p.sent_at>?').bind(String(phone), String(row.order_id), Number(q.ts)).first().catch(() => null);
+  if (newer) return false;
+  await handleAddressReply(env, { action: 'OK', orderId: String(row.order_id), from: '91' + phone });
+  return true;
 }
 
 /* ---------------- step 3: the form ---------------- */
@@ -197,5 +222,7 @@ export async function handleAddr(req, env0) {
   await env.DB.prepare('UPDATE orders SET city=?, state_code=?, pincode=? WHERE order_id=?').bind(v.city, stateCode(v.state), v.pincode, orderId).run().catch(() => {});
   await sendText(env, '91' + row.phone, `Address updated for order ${row.order_name}. We'll deliver to:\n\n${fmtAddress(saved)}`).catch(() => {});
   await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'address', template: 'form', status: 'address-updated', orderName: row.order_name, preview: `Address changed (PIN ${v.pincode})` }).catch(() => {});
+  /* a corrected address is a confirmed address: the pay-online offer follows */
+  try { const { offerAfterAddress } = await import('./wa-convert.js'); await offerAfterAddress(env, orderId); } catch (e) { console.error('addr offer', e.message); }
   return page('Address updated', `Order ${name} will be delivered to:<br><br>${esc(fmtAddress(saved)).replace(/\n/g, '<br>')}`, `<a class="btn n" href="/api/wa/addr?o=${orderId}&s=${sig}">Change again</a>`);
 }

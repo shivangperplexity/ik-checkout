@@ -1019,12 +1019,12 @@ const ACTIONS = {
     const e2 = await withSettings(f);
     const { metaTemplate } = await import('./whatsapp.js');
     const tpl = async (n) => { try { const t = await metaTemplate(e2, n); return t ? { name: n, status: t.status, category: t.category || '' } : { name: n, status: 'MISSING' }; } catch (e) { return { name: n, status: 'UNKNOWN', error: String(e.message || e).slice(0, 120) }; } };
-    return { ok: true, cfg: convertCfg(f), stats: await convertStats(env), templates: [await tpl('cod_prepaid_offer'), await tpl('cod_to_prepaid')], trigger_on: triggerConfig(f, 'cod_to_prepaid').enabled, store: env.STORE_URL || '' };
+    return { ok: true, cfg: convertCfg(f), stats: await convertStats(env), templates: [await tpl('cod_prepaid_offer_v2'), await tpl('cod_prepaid_offer')], trigger_on: triggerConfig(f, 'cod_to_prepaid').enabled, store: env.STORE_URL || '' };
   },
   async save_convert(env, b) {
     const { CONVERT_DEFAULTS } = await import('./wa-convert.js');
     const c = { ...CONVERT_DEFAULTS, mode: b.mode === 'on' ? 'on' : 'off', pct: Math.min(50, Math.max(1, Math.round(Number(b.pct) || 20))),
-      delay_min: Math.max(0, Math.min(1440, Math.round(Number(b.delay_min) || 0))), hours: Math.max(1, Math.min(72, Math.round(Number(b.hours) || 12))) };
+      minutes: Math.max(5, Math.min(72 * 60, Math.round(Number(b.minutes) || CONVERT_DEFAULTS.minutes))) };
     await putSetting(env, 'convert', c);
     return { ok: true, cfg: c };
   },

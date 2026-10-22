@@ -1,10 +1,11 @@
 /**
  * COD -> prepaid: the "pay online, get X% off" offer before the parcel ships.
  *
- *   Offer      cron (offerPrepaidConversion): COD orders `delay_min` after they are placed get one WhatsApp: a free
- *              in-chat message with a "Pay ₹… now" button when the customer wrote to us in the last 23 h, otherwise
- *              the cod_prepaid_offer template (URL button to the pay page). The offer is open for `hours`, and closes
- *              earlier the moment the parcel is booked with Shiprocket.
+ *   Offer      sent the moment a COD customer confirms their delivery address on WhatsApp (offerAfterAddress, from
+ *              lib/wa-address.js): a free in-chat message with a "Pay ₹… now" button (they have just written, so the
+ *              24 h window is open), else the cod_prepaid_offer_v2 template. The offer is open for `minutes` (30 by
+ *              default) and closes earlier the moment the parcel is booked with Shiprocket. The old env mode
+ *              (COD_CONVERT_HOURS) still runs on the cron (offerPrepaidConversion).
  *   Pay page   https://www.inkkulture.in/pages/pay?k=<orderId>-<sig> (a Shopify page whose script calls /api/convert),
  *              falling back to /api/wa/pay here. UPI apps by intent (one tap on a phone) or PayU's hosted page.
  *   Money in   PayU's surl (/api/wa/paid) or the page's status poll (verify_payment) -> completeConversion(), once.
@@ -389,9 +390,12 @@ export async function handlePaid(req, env0, ctx) {
 
 /* ---------------- the offer ---------------- */
 
+/** "30 minutes", "1 hour", "90 minutes", "2 hours" */
+export const validity = (min) => (min % 60 === 0 ? `${min / 60} hour${min === 60 ? '' : 's'}` : `${min} minutes`);
+
 /** Free in-chat message with a "Pay ₹… now" button (only inside the 24 h window, Cloud API). */
-async function sendCta(env, row, q, link, hours) {
-  const body = `Hi ${row.first_name || 'there'}! Pay for order ${row.order_name} online now and get ${q.pct}% off: ${inr(q.payable)} instead of ${inr(q.total)} cash on delivery.\n\nValid for ${hours} hours, until we ship. Prepaid orders are packed and shipped first.`;
+async function sendCta(env, row, q, link, minutes) {
+  const body = `Hi ${row.first_name || 'there'}! Pay for order ${row.order_name} online now and get ${q.pct}% off: ${inr(q.payable)} instead of ${inr(q.total)} cash on delivery.\n\nThis offer is valid for the next ${validity(minutes)} only. Prepaid orders are packed and shipped first.`;
   const res = await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_ID}/messages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
     body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: '91' + row.phone, type: 'interactive',
@@ -406,23 +410,43 @@ async function sendCta(env, row, q, link, hours) {
 /** One order: quote, open the window, send (in-chat when we can, else the template). */
 export async function sendOffer(env, row, c = convertCfg(env)) {
   const t = now();
-  await env.DB.prepare('UPDATE orders SET convert_offer_at=?, convert_expires_at=?, convert_pct=? WHERE order_id=?').bind(t, t + c.hours * 3600, c.pct, row.order_id).run();
+  await env.DB.prepare('UPDATE orders SET convert_offer_at=?, convert_expires_at=?, convert_pct=? WHERE order_id=?').bind(t, t + c.minutes * 60, c.pct, row.order_id).run();
   const q = await quoteConversion(env, row, c.pct);
   if (q.missing || q.cancelled || q.fulfilled || /^paid/i.test(q.financial)) return { skipped: true };
   const link = await storePayLink(env, row.order_id);
   const lastIn = await env.DB.prepare("SELECT ts FROM messages WHERE phone=? AND direction='in' ORDER BY id DESC LIMIT 1").bind(String(row.phone)).first();
   const { viaG4w } = await import('./whatsapp.js');
   if (lastIn && Number(lastIn.ts) > t - 23 * 3600 && !viaG4w(env) && env.WA_PHONE_ID && env.WA_TOKEN) {
-    try { return await sendCta(env, { ...row, convert_pct: c.pct }, q, link, c.hours); } catch (e) { console.error('convert cta', e.message); /* template below */ }
+    try { return await sendCta(env, { ...row, convert_pct: c.pct }, q, link, c.minutes); } catch (e) { console.error('convert cta', e.message); /* template below */ }
   }
   return fireTrigger(env, 'cod_to_prepaid', {
     to: row.phone, orderId: row.order_id, orderName: row.order_name,
-    vars: { name: row.first_name, order: row.order_name, total: whole(q.total), newtotal: whole(q.payable), pct: String(q.pct), hours: String(c.hours), pay: link, paykey: await payKey(env, row.order_id) },
+    vars: { name: row.first_name, order: row.order_name, total: whole(q.total), newtotal: whole(q.payable), pct: String(q.pct), mins: String(c.minutes), hours: String(Math.round((c.minutes / 60) * 10) / 10), pay: link, paykey: await payKey(env, row.order_id) },
   });
 }
 
 /**
- * The cron: COD orders placed `delay_min` ago (and less than a day), not partial COD, not paid, not booked, never
+ * Right after the customer confirms (or corrects) their delivery address: offer pay-online for `minutes`, once per
+ * order. Skips orders that are not plain COD, already paid / offered, cancelled or booked. Never throws.
+ */
+export async function offerAfterAddress(env, orderId) {
+  try {
+    const c = convertCfg(env);
+    if (c.mode !== 'on') return { skipped: 'off' };
+    const st = await offerState(env, orderId);
+    if (st.state !== 'open' || st.row.convert_offer_at || st.row.status !== 'placed') return { skipped: st.state === 'open' ? 'already offered' : st.state };
+    /* claim it first: a double tap on "Address is correct" sends one offer */
+    const claim = await env.DB.prepare('UPDATE orders SET convert_offer_at=? WHERE order_id=? AND convert_offer_at IS NULL RETURNING order_id').bind(now(), String(orderId)).first();
+    if (!claim) return { skipped: 'already offered' };
+    return await sendOffer(env, st.row, c);
+  } catch (e) {
+    console.error('offerAfterAddress', orderId, e.message);
+    return { ok: false, error: String(e.message || e) };
+  }
+}
+
+/**
+ * The cron (old env mode only): COD orders placed `delay_min` ago (and less than a day), not partial COD, not paid, not booked, never
  * offered. The legacy env mode keeps its old rule (unconfirmed only). 25 per run.
  */
 export async function offerPrepaidConversion(env0) {
@@ -430,6 +454,8 @@ export async function offerPrepaidConversion(env0) {
   const env = await withSettings(env0);
   const c = convertCfg(env);
   if (c.mode === 'off') return { offered: 0, skipped: 'off' };
+  /* dashboard mode: the offer goes out when the address is confirmed (offerAfterAddress), not on a timer */
+  if (c.mode === 'on') return { offered: 0, skipped: 'sent on address confirmation' };
   const t = now();
   const { results } = await env.DB.prepare(
     `SELECT o.* FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id AND LENGTH(COALESCE(s.awb,'')) > 0 AND COALESCE(s.status,'')<>'cancelled'
@@ -449,11 +475,11 @@ export async function offerPrepaidConversion(env0) {
 /* ---------------- the WhatsApp template (created from the dashboard, approved by Meta) ---------------- */
 
 export const OFFER_TEMPLATE = {
-  name: 'cod_prepaid_offer', language: 'en', category: 'MARKETING', parameter_format: 'NAMED',
+  name: 'cod_prepaid_offer_v2', language: 'en', category: 'MARKETING', parameter_format: 'NAMED',
   components: [
     { type: 'HEADER', format: 'IMAGE' },
-    { type: 'BODY', text: 'Hi {{name}}, your Ink Kulture order {{order}} is getting ready to ship.\n\nPay online now and get {{pct}}% off: pay ₹{{newtotal}} instead of ₹{{total}} cash on delivery.\n\nThe offer is open for {{hours}} hours, until your order ships. Prepaid orders are packed and shipped first.',
-      example: { body_text_named_params: [{ param_name: 'name', example: 'Riya' }, { param_name: 'order', example: '#1627' }, { param_name: 'pct', example: '20' }, { param_name: 'newtotal', example: '319' }, { param_name: 'total', example: '399' }, { param_name: 'hours', example: '12' }] } },
+    { type: 'BODY', text: 'Hi {{name}}, your Ink Kulture order {{order}} is getting ready to ship.\n\nPay online now and get {{pct}}% off: pay ₹{{newtotal}} instead of ₹{{total}} cash on delivery.\n\nThis offer is valid for the next {{mins}} minutes only. Prepaid orders are packed and shipped first.',
+      example: { body_text_named_params: [{ param_name: 'name', example: 'Riya' }, { param_name: 'order', example: '#1627' }, { param_name: 'pct', example: '20' }, { param_name: 'newtotal', example: '319' }, { param_name: 'total', example: '399' }, { param_name: 'mins', example: '30' }] } },
     { type: 'FOOTER', text: 'Reply STOP to stop offers' },
     { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Pay online', url: 'https://www.inkkulture.in/pages/pay?k={{1}}', example: ['https://www.inkkulture.in/pages/pay?k=18951817658603-0123456789ab'] }] },
   ],

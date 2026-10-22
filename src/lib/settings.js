@@ -19,7 +19,7 @@ export const TRIGGERS = {
   /* Pay-online offer (lib/wa-convert.js, Settings > Pay-online offer). cod_prepaid_offer uses named variables and a
      "Pay online" URL button to https://www.inkkulture.in/pages/pay?k={{1}} (paykey). The older cod_to_prepaid
      (link in the body, {{1}}..{{6}}) is the fallback while the new one is in review. */
-  cod_to_prepaid: { label: 'Pay online before shipping (discount offer)', to: 'Customer', when: 'COD order, a few minutes after it is placed (Settings > Pay-online offer). Sent as a free in-chat button when the customer wrote in the last 23 h', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay', 'hours'], media: true, marketing: true, def: 'cod_prepaid_offer', fallback: 'cod_to_prepaid', urlParam: 'paykey', on: true },
+  cod_to_prepaid: { label: 'Pay online before shipping (discount offer)', to: 'Customer', when: 'COD order, the moment the customer confirms their delivery address on WhatsApp; open for 30 minutes (Settings > Pay-online offer). Sent as a free in-chat button when the customer wrote in the last 23 h', vars: ['name', 'order', 'pct', 'newtotal', 'total', 'pay', 'hours', 'mins'], media: true, marketing: true, def: 'cod_prepaid_offer_v2', fallback: 'cod_prepaid_offer', replaces: ['cod_prepaid_offer', 'cod_to_prepaid'], urlParam: 'paykey', on: true },
   /* Partial COD (lib/partial-cod.js): by default the same approved "payment received" template, with total = the advance.
      Make a dedicated template (e.g. partial_cod_paid with name, order, total, balance) and select it here to mention the balance. */
   partial_paid: { label: 'Partial COD advance received', to: 'Customer', when: 'Right after the ₹99 (advance) is paid for a partial COD order', vars: ['name', 'order', 'total'], def: 'order_paid', on: true },
@@ -46,7 +46,7 @@ export const TRIGGERS = {
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
-export const VAR_LABELS = { when: 'NDR: day of the next delivery attempt', amount: 'NDR: amount to pay at delivery', hours: 'Pay-online offer: hours it stays open', edd: 'Expected delivery date', location: 'Last scan city', track: 'Tracking link', name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
+export const VAR_LABELS = { mins: 'Pay-online offer: minutes it stays open', when: 'NDR: day of the next delivery attempt', amount: 'NDR: amount to pay at delivery', hours: 'Pay-online offer: hours it stays open', edd: 'Expected delivery date', location: 'Last scan city', track: 'Tracking link', name: 'Customer first name', order: 'Order number', total: 'Order total (Rs)', courier: 'Courier name', tracking: 'Tracking number', items: 'Items in cart', link: 'Checkout link', method: 'COD / Prepaid', risk: 'Risk score', reasons: 'Risk reasons',
   confirm: 'One-tap confirm link (automatic)', pay: 'Pay-online link (automatic)', pct: 'Prepaid discount %', newtotal: 'Total if paid online (Rs)', btnurl: 'Confirm link for a Dynamic URL button (automatic)', balance: 'Partial COD: amount to pay on delivery (Rs)' };
 
 const DEFAULTS = {
@@ -113,7 +113,8 @@ export function triggerConfig(env, key) {
   const envName = t.env && env[t.env];
   return {
     enabled: c.enabled !== undefined ? !!c.enabled : (key === 'cod_confirm' ? !!(envName || c.name || true) : t.on),
-    name: c.name || envName || t.def,
+    /* a saved older template this trigger has a newer version of moves to the new one (the old stays the fallback) */
+    name: (c.name && !(t.replaces || []).includes(c.name) ? c.name : '') || envName || t.def,
     lang: c.lang || env.WA_LANG || 'en',
     /* A saved list from before a template gained variables (e.g. cod_confirm without items/confirm) would
        send the wrong set, so a saved list is only used when it still covers every variable the template has. */

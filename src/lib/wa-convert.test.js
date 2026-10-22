@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { convertCfg, discountOrder, payKey, parseKey } from './wa-convert.js';
 
 test('settings: dashboard wins, legacy env still works, values clamped', () => {
-  assert.deepEqual(convertCfg({ SETTINGS: { convert: { mode: 'on', pct: 90, delay_min: -5, hours: 500 } } }), { mode: 'on', pct: 50, delay_min: 0, hours: 72, template: 'cod_prepaid_offer' });
+  assert.deepEqual(convertCfg({ SETTINGS: { convert: { mode: 'on', pct: 90, delay_min: -5, hours: 500 } } }), { mode: 'on', pct: 50, delay_min: 0, hours: 72, minutes: 30, template: 'cod_prepaid_offer_v2' });
+  assert.equal(convertCfg({ SETTINGS: { convert: { mode: 'on', minutes: 2 } } }).minutes, 5);
+  assert.equal(convertCfg({ SETTINGS: { convert: { mode: 'on', minutes: 45 } } }).minutes, 45);
   assert.equal(convertCfg({}).mode, 'off');
   const legacy = convertCfg({ COD_CONVERT_HOURS: '6', COD_CONVERT_DISCOUNT: '10' });
-  assert.deepEqual([legacy.mode, legacy.pct, legacy.delay_min], ['legacy', 10, 360]);
+  assert.deepEqual([legacy.mode, legacy.pct, legacy.delay_min, legacy.minutes], ['legacy', 10, 360, 720]);
 });
 
 test('pay key: signed, tamper-proof', async () => {
