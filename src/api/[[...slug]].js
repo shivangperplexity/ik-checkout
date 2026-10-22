@@ -31,6 +31,8 @@ export default {
       if (path === '/api/wa/addr') { const { handleAddr } = await import('../lib/wa-address.js'); return await handleAddr(req, env); }
       if (path === '/api/wa/pay') return await handlePay(req, env);
       if (path === '/api/wa/paid' && req.method === 'POST') return await handlePaid(req, env, ctx);
+      /* label printing agent on the packing Mac (lib/print-agent.js) */
+      if (path.startsWith('/api/print/')) { const { handlePrint } = await import('../lib/print-agent.js'); const { withSettings } = await import('../lib/settings.js'); return await handlePrint(req, await withSettings(env)); }
     } catch (e) {
       console.error('wa route', path, e);
       return new Response('Something went wrong. Please try again.', { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });

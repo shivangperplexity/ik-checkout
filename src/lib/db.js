@@ -107,6 +107,8 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_save_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_commit_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_fake INT`,
+  /* label printing on the packing Mac (lib/print-agent.js) */
+  `CREATE TABLE IF NOT EXISTS print_jobs (id SERIAL PRIMARY KEY, order_id TEXT, order_name TEXT, reason TEXT, created_at BIGINT, taken_at BIGINT, done_at BIGINT, ok BOOLEAN, error TEXT, tries INT DEFAULT 0)`,
   /* WhatsApp chats a person has to answer (assistant handed off, or the team took over) */
   `CREATE TABLE IF NOT EXISTS wa_handoff (phone TEXT PRIMARY KEY, state TEXT, reason TEXT, opened_at BIGINT, replied_at BIGINT, resolved_at BIGINT, ai_paused_until BIGINT, seen_at BIGINT)`,
   `ALTER TABLE wa_handoff ADD COLUMN IF NOT EXISTS seen_id BIGINT`,

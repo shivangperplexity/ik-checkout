@@ -417,7 +417,44 @@ const ACTIONS = {
     const sess = o.sid ? await env.DB.prepare('SELECT source,device,first_seen,page FROM sessions WHERE sid=?').bind(o.sid).first() : null;
     return { order: orderOut(o, all), risk: r, shop, messages: msgs, session: sess };
   },
-  async pack(env, b) { return { ok: true, results: await packOrders(env, b.ids, b.packed !== false) }; },
+  async pack(env, b) {
+    const results = await packOrders(env, b.ids, b.packed !== false);
+    /* auto-print: the labels of the orders just marked packed go to the packing Mac's printer (lib/print-agent.js) */
+    let printing = 0;
+    if (b.packed !== false) { try { const { onPacked } = await import('./print-agent.js'); printing = await onPacked(env, results); } catch (e) { console.error('auto print', e.message); } }
+    return { ok: true, results, printing };
+  },
+  /** Label printer: status, setting, setup command, recent jobs. */
+  async printer_info(env) {
+    const P = await import('./print-agent.js');
+    const s = await P.printerState(env);
+    const base = String(env.WORKER_URL || '').replace(/\/$/, '');
+    return { ok: true, auto: s.auto, ready: !!s.key, online: s.online, seen: s.seen, command: s.key && base ? P.setupCommand(base, s.key) : '', jobs: await P.recentJobs(env) };
+  },
+  /** Make (or with fresh, replace) the agent key and return the setup command. */
+  async printer_setup(env, b) {
+    const P = await import('./print-agent.js');
+    const base = String(env.WORKER_URL || '').replace(/\/$/, '');
+    if (!/^https:\/\//.test(base)) throw new Error('WORKER_URL (this app\'s https address) is not set');
+    const key = await P.printerKey(env, !!b.fresh);
+    return { ok: true, command: P.setupCommand(base, key) };
+  },
+  async printer_auto(env, b) { const P = await import('./print-agent.js'); await P.setAuto(env, !!b.on); return { ok: true }; },
+  /** Send labels to the printer now (order drawer / Shipments bar / reprint). */
+  async print_labels(env, b) {
+    const P = await import('./print-agent.js');
+    const s = await P.printerState(env);
+    if (!s.key) throw new Error('Set up the label printer first (Settings, Label printer)');
+    const n = await P.enqueuePrint(env, b.ids, 'manual');
+    return { ok: true, queued: n, online: s.online };
+  },
+  async printer_test(env) {
+    const P = await import('./print-agent.js');
+    const s = await P.printerState(env);
+    if (!s.key) throw new Error('Set up the label printer first');
+    await env.DB.prepare('INSERT INTO print_jobs (order_id, order_name, reason, created_at, tries) VALUES (?,?,?,?,0)').bind('', 'test', 'Test from the dashboard', now()).run();
+    return { ok: true, online: s.online };
+  },
   /** Which Shopify app the dashboard token belongs to, and the scopes it really has (so a missing one can be named). */
   async shopify_scopes(env) {
     const d = await gql(env, '{ currentAppInstallation { app { title } accessScopes { handle } } shop { myshopifyDomain } }');
