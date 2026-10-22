@@ -383,7 +383,7 @@ export async function handleNdrMessage(env, phone, text, action = null) {
 
 /* ---------------- follow-ups on the cron ---------------- */
 
-const SWEEP_SQL = `SELECT n.awb, n.k, n.attempt, n.category, n.first_seen, n.action, n.action_at, n.nudged_at, n.told_at,
+const SWEEP_SQL = `SELECT n.awb, n.k, n.attempt, n.category, n.first_seen, n.action, n.action_at, n.nudged_at, n.told_at, n.pilot_note,
     s.order_id, s.order_name, s.stage, s.ndr_choice, s.ndr_choice_at, s.ndr_by, s.ndr_date, s.ndr_commit_at,
     o.phone, o.first_name, o.method, o.total_paise, o.advance_paise, o.converted_at, o.status AS order_status, o.contents_json
   FROM ndr_auto n JOIN shipments s ON s.awb = n.awb JOIN orders o ON o.order_id = s.order_id`;
@@ -418,26 +418,37 @@ export async function pilotSweep(env, cfg = ndrCfg(env)) {
   const out = { nudged: 0, told: 0, failed: 0 };
   if (!cfg.pilot.on) return { ...out, skipped: 'off' };
   if (cfg.pilot.quiet && !daytime(t)) return { ...out, quiet: true };
-  const mark = (r, col, note = '') => env.DB.prepare(`UPDATE ndr_auto SET ${col}=?${note ? ', pilot_note=?' : ''} WHERE awb=? AND k=?`).bind(...[t, ...(note ? [note] : []), r.awb, r.k]).run();
+  const mark = (r, col, note = '') => env.DB.prepare(`UPDATE ndr_auto SET ${col}=?, pilot_note=? WHERE awb=? AND k=?`).bind(t, note || null, r.awb, r.k).run();
+  /* sends that failed only because the template was not approved yet are tried again (hourly) */
+  const RETRY_SQL = "LIKE '%not found or not approved%'";
+  /* a template still waiting for Meta's approval: try again in an hour instead of giving up */
+  const WAIT = /not found or not approved|status PENDING|status IN_REVIEW/i;
+  const waiting = (r) => { const m = /^template pending @(\d+)/.exec(String(r.pilot_note || '')); return m && t - Number(m[1]) < 3600; };
+  const hold = (r, res) => env.DB.prepare('UPDATE ndr_auto SET pilot_note=? WHERE awb=? AND k=?').bind(`template pending @${t}: ${String(res.error || '').slice(0, 100)}`, r.awb, r.k).run();
 
   /* 1. no answer yet after nudge_h hours: a second message, with the design photo */
-  const quiet = (await env.DB.prepare(`${SWEEP_SQL} WHERE n.first_seen>? AND n.first_seen<? AND n.nudged_at IS NULL AND n.action IS NULL ORDER BY n.first_seen LIMIT 10`)
+  const quiet = (await env.DB.prepare(`${SWEEP_SQL} WHERE n.first_seen>? AND n.first_seen<? AND (n.nudged_at IS NULL OR n.pilot_note ${RETRY_SQL}) AND n.action IS NULL ORDER BY n.first_seen LIMIT 10`)
     .bind(t - 3 * DAY, t - cfg.pilot.nudge_h * 3600).all()).results;
   for (const r of quiet) {
     if (ENDED(r) || r.stage !== 'ndr') { await mark(r, 'nudged_at', 'no nudge: parcel moved on'); continue; }
     if (Number(r.ndr_choice_at || 0) >= Number(r.first_seen) - 3600 || Number(r.ndr_commit_at || 0) >= Number(r.first_seen) - 3600) { await mark(r, 'nudged_at'); continue; }
+    if (waiting(r)) continue;
     const res = await nudge(env, r).catch((e) => ({ ok: false, error: e.message }));
+    if (!res.ok && WAIT.test(String(res.error || ''))) { await hold(r, res); out.pending = (out.pending || 0) + 1; continue; }
     await mark(r, 'nudged_at', res.ok ? '' : 'nudge failed: ' + String(res.error || res.skipped || '').slice(0, 120));
     if (res.ok) out.nudged++; else out.failed++;
   }
 
   /* 2. the rules booked a re-attempt on their own: tell the customer the day and ask them to commit */
-  const booked = (await env.DB.prepare(`${SWEEP_SQL} WHERE n.action='reattempt' AND n.told_at IS NULL AND n.action_at>? ORDER BY n.action_at LIMIT 10`).bind(t - 2 * DAY).all()).results;
+  /* only fresh ones: a day-old "booked again" would be stale (the courier may already be on the way) */
+  const booked = (await env.DB.prepare(`${SWEEP_SQL} WHERE n.action='reattempt' AND (n.told_at IS NULL OR n.pilot_note ${RETRY_SQL}) AND n.action_at>? ORDER BY n.action_at LIMIT 10`).bind(t - 14 * 3600).all()).results;
   for (const r of booked) {
     if (ENDED(r)) { await mark(r, 'told_at'); continue; }
     /* the customer chose something themselves since: they already know */
     if (r.ndr_by && r.ndr_by !== 'auto' && Number(r.ndr_choice_at || 0) > Number(r.action_at || 0)) { await mark(r, 'told_at'); continue; }
+    if (waiting(r)) continue;
     const res = await tell(env, r, lastTry(cfg, r.attempt)).catch((e) => ({ ok: false, error: e.message }));
+    if (!res.ok && WAIT.test(String(res.error || ''))) { await hold(r, res); out.pending = (out.pending || 0) + 1; continue; }
     await mark(r, 'told_at', res.ok ? '' : 'announcement failed: ' + String(res.error || res.skipped || '').slice(0, 120));
     if (res.ok) out.told++; else out.failed++;
   }
