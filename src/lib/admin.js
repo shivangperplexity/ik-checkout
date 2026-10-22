@@ -421,7 +421,7 @@ const ACTIONS = {
     const results = await packOrders(env, b.ids, b.packed !== false);
     /* auto-print: the labels of the orders just marked packed go to the packing Mac's printer (lib/print-agent.js) */
     let printing = 0;
-    if (b.packed !== false) { try { const { onPacked } = await import('./print-agent.js'); printing = await onPacked(env, results); } catch (e) { console.error('auto print', e.message); } }
+    if (b.packed !== false && b.server_print !== false) { try { const { onPacked } = await import('./print-agent.js'); printing = await onPacked(env, results); } catch (e) { console.error('auto print', e.message); } }
     return { ok: true, results, printing };
   },
   /** Label printer: status, setting, setup command, recent jobs. */

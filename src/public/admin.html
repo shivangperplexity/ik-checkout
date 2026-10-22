@@ -69,7 +69,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .pkgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin:12px 0}.pkc{border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff;position:relative;display:grid;gap:4px}.pkc img{width:100%;aspect-ratio:1;object-fit:contain;background:var(--cream);border-radius:8px}.pkc .qty{position:absolute;top:12px;right:12px;background:var(--ink);color:#fff;font-weight:800;border-radius:99px;padding:3px 11px;font-size:15px}.pkc .qty.many{background:var(--warn)}.pkc b{font-size:13px;line-height:1.25}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;z-index:99;font-weight:600}
 @media(max-width:640px){.bars .r{grid-template-columns:110px 1fr 56px}.hdrname{display:none}}
-</style></head><body>
+</style><script src="/btprint.js" defer></script></head><body>
 <div id="login"><form class="card login-card" id="lf">
   <img src="https://www.inkkulture.in/cdn/shop/t/40/assets/ikl-logo-black.svg" alt="Ink Kulture" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:'INK KULTURE'}))">
   <h2 style="margin:0">Admin sign in</h2>
@@ -98,8 +98,22 @@ var tickAt=0;function tick(){if(Date.now()-tickAt<5*60*1000)return;tickAt=Date.n
 function toast(m){var t=$('#toast');t.textContent=m;t.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.add('hide')},Math.max(2600,String(m).length*70))}
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}return null}
 function rpc(action,data){
+  /* marked packed on a device holding a Bluetooth printer: this device prints the labels (not the Mac queue) */
+  var btp=action==='pack'&&data&&data.packed!==false&&btOn()&&IKBT.cfg().auto;
+  if(btp)data=Object.assign({},data,{server_print:false});
   return fetch('/api/admin/rpc',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(Object.assign({action:action},data||{}))})
-   .then(function(r){if(r.status===401){logout();throw new Error('Session expired')}return r.json()}).then(function(j){if(!j.ok)throw new Error(j.error||'Failed');return j})}
+   .then(function(r){if(r.status===401){logout();throw new Error('Session expired')}return r.json()}).then(function(j){if(!j.ok)throw new Error(j.error||'Failed');
+    if(btp&&j.results){var ids=j.results.filter(function(x){return x.ok}).map(function(x){return x.id});if(ids.length)btPrint(ids)}return j})}
+/* ---- Bluetooth printer on this device (public/btprint.js) ---- */
+function btOn(){return !!(window.IKBT&&IKBT.connected())}
+var BTQ=Promise.resolve();
+function btLabelPdf(id){return fetch('/api/admin/label',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({id:id})}).then(function(r){
+  if((r.headers.get('Content-Type')||'').indexOf('pdf')<0)return r.json().then(function(j){throw new Error(j.error||'no label')});return r.arrayBuffer()})
+ .then(function(b){return (window.PDFLib?Promise.resolve():loadJs('/pdf-lib.min.js')).then(function(){return window.mergeLabels6x4?0:loadJs('/labels6x4.js')}).then(function(){return window.mergeLabels6x4([b])})})}
+function btPrint(ids){ids=(ids||[]).filter(Boolean);
+ ids.forEach(function(id){BTQ=BTQ.then(function(){var o=(S.rows&&S.rows[id])||(SH.rows&&SH.rows[id])||{};var nm=o.name||o.order_name||id;toast('Printing '+nm+' over Bluetooth…');
+  return btLabelPdf(id).then(function(pdf){return IKBT.printPdf(pdf)}).then(function(){toast(nm+' printed')}).catch(function(e){toast(nm+': '+e.message)})})});
+ return BTQ}
 function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 
 /* ---- login ---- */
@@ -178,8 +192,24 @@ function loadOrders(quiet){if(BULK)return;var UN=tab==='unshipped';if(UN)S.filte
   var ck=e.target.closest('td.ck');if(ck){var i=ck.querySelector('input.sel');if(i&&!i.disabled){if(e.target!==i)i.checked=!i.checked;if(i.checked)S.sel[i.dataset.id]=1;else delete S.sel[i.dataset.id];bulkBar()}return}
   var r=e.target.closest('tr.click');if(r)openOrder(r.dataset.id)}}).catch(function(e){if(!quiet)fail(e)})}
 /* ---- label printer on the packing Mac (lib/print-agent.js) ---- */
-function printLabels(ids){return rpc('print_labels',{ids:ids}).then(function(r){toast(r.queued?(r.queued+' label'+(r.queued>1?'s':'')+' sent to the printer'+(r.online?'':'. The printer Mac is offline: they print when it is back')):'Already waiting to print')}).catch(function(e){toast(e.message);throw e})}
-function printerCard(){var c=$('#pr_card');if(!c)return;rpc('printer_info').then(function(r){
+function printLabels(ids){if(btOn())return btPrint(ids);return rpc('print_labels',{ids:ids}).then(function(r){toast(r.queued?(r.queued+' label'+(r.queued>1?'s':'')+' sent to the printer'+(r.online?'':'. The printer Mac is offline: they print when it is back')):'Already waiting to print')}).catch(function(e){toast(e.message);throw e})}
+function btCard(){var c=$('#bt_card');if(!c)return;
+ if(!window.IKBT||!IKBT.available()){c.innerHTML='<h3>Bluetooth printer</h3><p class="small mut" style="margin:0">Print labels straight to the Bluetooth label printer from this screen. This browser has no Bluetooth: on iPhone open the dashboard in the free <b>Bluefy</b> app; on a Mac or Android use <b>Chrome</b>.</p>';return}
+ var g=IKBT.cfg(),on=IKBT.connected();
+ var h='<h3>Bluetooth printer</h3><p class="small mut" style="margin:0">This device prints labels straight to the printer over Bluetooth while this page is open: "Print label", "Print labels", and every order you mark packed here'+(g.auto?'':' (auto-print is off below)')+'. Close the printer\'s phone app first: the printer takes one connection at a time.</p>'
+  +'<div class="small">'+(on?'<b style="color:var(--ok)">Connected</b> · '+esc(IKBT.name()):'<b class="mut">Not connected</b>'+(g.last?' · last used: '+esc(g.last):''))+'</div>'
+  +'<div class="row"><button class="btn sm" id="bt_cn" type="button">'+(on?'Reconnect':'Connect printer')+'</button><button class="btn ghost sm" id="bt_ts" type="button"'+(on?'':' disabled')+'>Print test</button></div>'
+  +'<div class="grid two"><label class="f">Printer mode<select id="bt_md"><option value="tspl"'+(g.mode==='tspl'?' selected':'')+'>Label mode (TSPL)</option><option value="escpos"'+(g.mode==='escpos'?' selected':'')+'>Receipt mode (ESC/POS)</option></select></label>'
+  +'<label class="f">Label size (mm)<span class="row" style="margin:0;gap:6px"><input type="number" id="bt_w" value="'+g.w+'" style="width:70px"> × <input type="number" id="bt_h" value="'+g.h+'" style="width:70px"> gap <input type="number" id="bt_g" value="'+g.gap+'" style="width:55px"></span></label></div>'
+  +'<label class="row small"><input type="checkbox" id="bt_au"'+(g.auto?' checked':'')+'> Print automatically when I mark orders packed on this device</label>'
+  +'<label class="row small"><input type="checkbox" id="bt_iv"'+(g.invert?' checked':'')+'> Invert black and white (only if the test comes out as a black block)</label>';
+ c.innerHTML=h;
+ function keep(){var x=IKBT.cfg();x.mode=$('#bt_md').value;x.w=+$('#bt_w').value||100;x.h=+$('#bt_h').value||150;x.gap=+$('#bt_g').value||0;x.auto=$('#bt_au').checked;x.invert=$('#bt_iv').checked;IKBT.save(x)}
+ ['#bt_md','#bt_w','#bt_h','#bt_g','#bt_au','#bt_iv'].forEach(function(k){$(k).onchange=function(){keep();toast('Saved on this device')}});
+ $('#bt_cn').onclick=function(){var b=this;b.disabled=true;IKBT.connect().then(function(n){toast('Connected to '+n);btCard()}).catch(function(e){b.disabled=false;toast(/cancel/i.test(e.message)?'No printer chosen':e.message)})};
+ $('#bt_ts').onclick=function(){var b=this;b.disabled=true;b.textContent='Printing…';keep();IKBT.printTest().then(function(){toast('Test sent. Did it print?')}).catch(function(e){toast(e.message)}).then(function(){b.disabled=false;b.textContent='Print test'})};
+}
+function printerCard(){btCard();var c=$('#pr_card');if(!c)return;rpc('printer_info').then(function(r){
  var st=r.online?'<b style="color:var(--ok)">Online</b> · '+esc(r.seen.printer||'default printer')+' on '+esc(r.seen.host||'the Mac')+' · checked '+ago(r.seen.at):r.seen&&r.seen.at?'<b style="color:var(--warn)">Offline</b> since '+ago(r.seen.at)+' (the Mac is asleep, off, or not logged in)':'<b class="mut">Not set up yet</b>';
  var JS={true:'printed',false:'failed'};
  var h='<h3>Label printer</h3><p class="small mut" style="margin:0">Prints the 6×4 in label on the thermal printer plugged into your packing Mac, from any device: phone, laptop or the packing scan. A small background program on that Mac picks labels up within about 5 seconds.</p>'
@@ -914,7 +944,7 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  +'<label class="check" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rt_cod"> Cash on delivery</label>'
  +'<button class="btn" id="rt_go">Compare</button><div id="rt_out" class="small mut"></div></div>'
  +'<div class="card grid"><h3>Profit assumptions</h3><p class="small mut" style="margin:0">Used for the expected-profit column on Orders, Shipped.</p><div class="grid two"><label class="f">Product cost per item (₹)<input type="number" min="0" step="1" id="pf_u" value="'+esc(String((j.profit||{}).unit_cost!=null?(j.profit||{}).unit_cost:40))+'"></label><label class="f">Customer acquisition cost per order (₹)<input type="number" min="0" step="1" id="pf_c" value="'+esc(String((j.profit||{}).cac!=null?(j.profit||{}).cac:80))+'"></label></div><button class="btn sm" id="pf_sv">Save</button></div>'+'<div class="card grid" id="mt_card">'+metaCard(null)+'</div>'+'<div class="card grid"><h3>Product order</h3><p class="small mut" style="margin:0">Bestsellers, All Tattoos and Home page collections: best-selling first, sold-out designs at the end, and a few forearm / large designs mixed into the first 24 so every size shows up early. Re-ranked daily.</p><div class="small" id="rk_st">'+rankLine(j.rank)+'</div><button class="btn ghost sm" id="rk_go" type="button">Re-rank now</button></div>'
- +'<div class="card grid" id="pr_card"><h3>Label printer</h3><p class="small mut">Loading…</p></div>'+'<div class="card"><h3>Shopify app access</h3><div id="st_scope" class="small mut">Checking…</div></div>'+'<div class="card"><h3>Automations</h3><p class="small mut" style="margin:0">Shiprocket status refresh, cancelled-order sweep, fulfilment retry, reconciliation. '+(j.cron_at?'Last ran '+ago(j.cron_at)+' ('+(j.cron_via==='dashboard'?'from this dashboard':'Vercel cron')+').':'Never ran yet.')+' They run every 5 minutes on Vercel, and every 5 minutes from this dashboard while it is open, so the status stays fresh even if Vercel\'s cron is late.</p></div>'
+ +'<div class="card grid" id="bt_card"><h3>Bluetooth printer</h3></div>'+'<div class="card grid" id="pr_card"><h3>Label printer</h3><p class="small mut">Loading…</p></div>'+'<div class="card"><h3>Shopify app access</h3><div id="st_scope" class="small mut">Checking…</div></div>'+'<div class="card"><h3>Automations</h3><p class="small mut" style="margin:0">Shiprocket status refresh, cancelled-order sweep, fulfilment retry, reconciliation. '+(j.cron_at?'Last ran '+ago(j.cron_at)+' ('+(j.cron_via==='dashboard'?'from this dashboard':'Vercel cron')+').':'Never ran yet.')+' They run every 5 minutes on Vercel, and every 5 minutes from this dashboard while it is open, so the status stays fresh even if Vercel\'s cron is late.</p></div>'
  +'<div class="card grid"><h3>Change password</h3><label class="f">Current password<input type="password" id="p0" autocomplete="current-password"></label><label class="f">New password (8+ characters)<input type="password" id="p1" autocomplete="new-password"></label><button class="btn" id="pw_sv">Change password</button><p class="small mut">Signed in as '+esc(j.email||'')+'. The starter password is a test one: change it before you go live.</p></div></div>';
  $('#lg_sv').onclick=function(){var l={};[].forEach.call(document.querySelectorAll('.lg'),function(i){l[i.dataset.k]=i.value});rpc('save_logos',{logos:l}).then(function(){toast('Saved')}).catch(function(e){toast(e.message)})};
  $('#sh_pkl').onclick=function(){var b=$('#sh_pkl');b.disabled=true;rpc('sr_pickups').then(function(r){var cur=$('#sh_pk').value;$('#sh_pk').innerHTML=r.pickups.map(function(x){var n=typeof x==='string'?x:x.name;return '<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>'}).join('')||'<option value="">None found</option>';b.disabled=false}).catch(function(e){b.disabled=false;toast(e.message)})};
