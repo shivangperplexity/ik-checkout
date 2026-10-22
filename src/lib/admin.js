@@ -748,8 +748,8 @@ const ACTIONS = {
     const { fresh, row, order } = await shipCtx(env, b.id);
     const existing = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
     if (!srConnected(fresh)) throw new Error('Shiprocket is not connected yet. Add the API user login in Settings, Shipping carriers.');
-    const plan = await planShipment(fresh, order, row, { pickOption });
-    return { ok: true, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
+    const plan = await planShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
+    return { ok: true, allow_never: !!b.allow_never, only_never: !!plan.onlyNever, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
       shipment: publicRec(existing && existing.awb && existing.status !== 'cancelled' ? existing : null),
       options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null, excluded: o.excluded || '' })),
       fallback: plan.fallback || '', why: plan.why || '', excluded: plan.excluded || [], convert_on: convertCfgOf(fresh).mode === 'on' };
@@ -758,7 +758,7 @@ const ACTIONS = {
   async ship_book(env, b) {
     const { fresh, row, order } = await shipCtx(env, b.id);
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
-    const r = await bookShipment(fresh, order, row, { pickOption });
+    const r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
     /* the AWB exists in Shiprocket either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
     return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil, note: r.note || '' };

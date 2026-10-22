@@ -197,7 +197,7 @@ const istDate = () => new Date(Date.now() + 19800000).toISOString().slice(0, 16)
 const digits10 = (s) => String(s || '').replace(/\D/g, '').slice(-10);
 
 /** Parcel + live rates + the courier we'd use, without booking anything. */
-export async function planShipment(env, order, row, { pickOption }) {
+export async function planShipment(env, order, row, { pickOption, allowNever = false }) {
   const s = env.SETTINGS?.shipping || {};
   const pack = packOrder(order.items, packCfg(s.pack));
   const pin = String(order.address?.zip || row.pincode || '').replace(/\D/g, '').slice(0, 6);
@@ -220,6 +220,11 @@ export async function planShipment(env, order, row, { pickOption }) {
       fallback = `None of the couriers your rules allow deliver to ${pin}, so these are the others Shiprocket offers (${[...new Set(others.map((o) => o.excluded))].join('; ')}).`;
     }
   }
+  /* only never-use couriers serve this PIN and you chose to use one for this order: allowed for this booking only */
+  if (!options.length && allowNever) {
+    const nv = ready(r.list.filter((o) => o.never));
+    if (nv.length) { options = nv; fallback = `Only ${[...new Set(nv.map((o) => o.courier))].join(', ')} deliver${nv.length > 1 ? '' : 's'} to ${pin}. Using it for this order only: it stays on your never-use list for every other order.`; }
+  }
   if (!options.length) {
     const never = r.list.filter((o) => o.never).map((o) => o.courier);
     if (never.length) why = `Only ${[...new Set(never)].join(', ')} deliver${never.length > 1 ? '' : 's'} to ${pin}, and it is on your never-use list (Settings, Shipping carriers).`;
@@ -232,7 +237,8 @@ export async function planShipment(env, order, row, { pickOption }) {
   }
   const pick = pickOption(options, { policy: c.policy, toleranceDays: c.toleranceDays });
   const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
-  return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded };
+  const onlyNever = !r.list.some((o) => !o.never) && r.list.some((o) => o.never);
+  return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever };
 }
 function eddOf(edd) {
   const s = String(edd || '').trim(); if (!s) return null;
@@ -244,7 +250,7 @@ function eddOf(edd) {
  * Book one order with Shiprocket. Safe to call again: it resumes where it stopped and never creates a second
  * Shiprocket order / AWB for the same Shopify order. Addresses are sent to Shiprocket, never stored here.
  */
-export async function bookShipment(env, order, row, { pickOption }) {
+export async function bookShipment(env, order, row, { pickOption, allowNever = false }) {
   const db = env.DB, id = String(row.order_id);
   /* the customer is paying online right now (pay-online offer): booking it as COD would race the payment */
   if (!row.converted_at && Number(row.convert_started_at) > Math.floor(Date.now() / 1000) - 15 * 60) throw new Error('The customer is paying online right now (pay-online offer). Book it again in 15 minutes: it will go as prepaid if they paid.');
@@ -260,7 +266,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
   }
   if (rec?.awb) return { ok: true, already: true, shipment: publicRec(rec) };
 
-  const plan = await planShipment(env, order, row, { pickOption });
+  const plan = await planShipment(env, order, row, { pickOption, allowNever });
   if (!plan.pick) throw new Error(plan.why || `Shiprocket has no courier for PIN ${plan.pin} (${plan.cod ? 'COD' : 'prepaid'}).`);
   const t = now();
   if (!rec) {
@@ -299,7 +305,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
   }
 
   /* 2. AWB with the cheapest courier (a resumed booking that had picked a courier now on the never-use list switches) */
-  if (courierBlocked(rec.courier, cfg(env).shiprocketBlock)) {
+  if (courierBlocked(rec.courier, cfg(env).shiprocketBlock) && !(allowNever && courierBlocked(plan.pick.courier, cfg(env).shiprocketBlock))) {
     await save({ courier: plan.pick.courier, courier_id: plan.pick.id, charge_paise: Math.round((plan.pick.charge || 0) * 100) });
     rec.courier = plan.pick.courier; rec.courier_id = plan.pick.id;
   }
