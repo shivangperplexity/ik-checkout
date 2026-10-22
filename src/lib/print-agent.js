@@ -217,17 +217,40 @@ case "$URI" in
     if [ -z "$BT" ]; then
       echo "Bluetooth: no printer port found. Switch the printer on, connect it in System Settings > Bluetooth, then run this setup again."
     else
-      cat > "$DIR/ik-bt-relay.sh" <<IKRELAY
+      cat > "$DIR/ik-bt-relay.sh" <<'IKRELAY'
 #!/bin/bash
-# Ink Kulture: hands print jobs from 127.0.0.1:9100 to the Bluetooth printer ($BT)
+# Ink Kulture: takes print jobs from 127.0.0.1:9100 (the printer driver) and sends them to the Bluetooth printer.
+# Jobs are queued first, so the driver never waits on the printer; each one is sent with the port in raw mode and
+# a time limit, so one stuck send can never block the next label.
+DIR="$HOME/Library/Application Support/IKPrinter"
+BT="$(cat "$DIR/bt-port")"
+SP="$DIR/spool"; mkdir -p "$SP"
+log() { echo "$(date '+%d %b %H:%M:%S') $*" >> "$DIR/relay.log"; tail -n 200 "$DIR/relay.log" > "$DIR/relay.tmp" && mv "$DIR/relay.tmp" "$DIR/relay.log"; }
+( while true; do
+    F="$SP/$(date +%s)-$$-$RANDOM.prn"
+    if nc -l 127.0.0.1 9100 > "$F.part"; then mv "$F.part" "$F"; else rm -f "$F.part"; sleep 2; fi
+  done ) &
+LISTENER=$!
+trap 'kill $LISTENER 2>/dev/null; exit 0' TERM INT
 while true; do
-  if nc -l 127.0.0.1 9100 > "$DIR/bt-job.bin"; then
-    [ -s "$DIR/bt-job.bin" ] && cat "$DIR/bt-job.bin" > "$BT" || sleep 3
-  else
-    sleep 3
-  fi
+  for F in "$SP"/*.prn; do
+    [ -e "$F" ] || break
+    if [ -s "$F" ]; then
+      N=$(wc -c < "$F" | tr -d ' ')
+      ( exec 3<>"$BT" || exit 9; stty -f "$BT" raw -echo -opost 2>/dev/null; cat "$F" >&3; sleep 2 ) &
+      P=$!
+      ( sleep 120; kill -9 $P 2>/dev/null ) &
+      K=$!
+      wait $P; RC=$?
+      kill $K 2>/dev/null
+      log "sent $N bytes to $BT rc=$RC"
+    fi
+    rm -f "$F"
+  done
+  sleep 1
 done
 IKRELAY
+      echo "$BT" > "$DIR/bt-port"
       chmod +x "$DIR/ik-bt-relay.sh"
       RPL="$HOME/Library/LaunchAgents/in.inkkulture.btrelay.plist"
       cat > "$RPL" <<IKRP
