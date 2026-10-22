@@ -244,56 +244,99 @@ case "$URI" in
     if [ -z "$BT" ]; then
       echo "Bluetooth: no printer port found. Switch the printer on, connect it in System Settings > Bluetooth, then run this setup again."
     else
+      cat > "$DIR/ik-bt-rfcomm.js" <<'IKJXA'
+// Ink Kulture: sends one label file to the Bluetooth printer through macOS's own Bluetooth framework (RFCOMM),
+// the way the printer's phone app does. Run by osascript from the Terminal link window (Terminal has Bluetooth access).
+// osascript -l JavaScript ik-bt-rfcomm.js <printer name> <file>     prints OK ... or ERR ...
+// osascript -l JavaScript ik-bt-rfcomm.js <printer name> list       lists paired devices
+ObjC.import('Foundation');
+ObjC.import('IOBluetooth');
+function str(x) { try { return ObjC.unwrap(x) || ''; } catch (e) { return ''; } }
+function prop(o, k) { var v = o[k]; return typeof v === 'function' ? v.call(o) : v; }
+function nap(s) { $.NSThread.sleepForTimeInterval(s); }
+function run(argv) {
+  var hint = String(argv[0] || 'CD410').toLowerCase(), file = String(argv[1] || '');
+  var list = prop($.IOBluetoothDevice, 'pairedDevices'), n = list ? prop(list, 'count') : 0, dev = null, names = [];
+  for (var i = 0; i < n; i++) {
+    var d = list.objectAtIndex(i), nm = str(prop(d, 'name'));
+    names.push(nm + ' [' + str(prop(d, 'addressString')) + ']');
+    if (!dev && nm.toLowerCase().indexOf(hint) >= 0) dev = d;
+  }
+  if (file === 'list') return 'paired: ' + names.join(', ');
+  if (!dev) {
+    for (var j = 0; j < n && !dev; j++) { var d2 = list.objectAtIndex(j); if (/cd4|print|pos|label|thermal/i.test(str(prop(d2, 'name')))) dev = d2; }
+  }
+  if (!dev) return 'ERR printer "' + hint + '" is not paired with this Mac (paired: ' + names.join(', ') + ')';
+  var data = $.NSData.dataWithContentsOfFile(file);
+  if (!data || data.isNil()) return 'ERR cannot read ' + file;
+  var total = prop(data, 'length');
+  /* the printer's serial service and its channel (usually 1) */
+  var chans = [];
+  try {
+    var rec = dev.getServiceRecordForUUID($.IOBluetoothSDPUUID.uuid16(0x1101));
+    if (rec && !rec.isNil()) { var r = Ref(); if (rec.getRFCOMMChannelID(r) === 0 && r[0]) chans.push(Number(r[0])); }
+  } catch (e) { /* use the usual channels */ }
+  [1, 2, 3, 4, 5, 6].forEach(function (c) { if (chans.indexOf(c) < 0) chans.push(c); });
+  try { dev.openConnection; } catch (e) { /* the channel opens the link itself */ }
+  var ch = null, used = 0, codes = [];
+  for (var k = 0; k < chans.length && !ch; k++) {
+    var ref = Ref();
+    var rv = dev.openRFCOMMChannelSyncWithChannelIDDelegate(ref, chans[k], null);
+    codes.push(chans[k] + ':' + rv);
+    if (rv === 0 && ref[0] && !ref[0].isNil()) { ch = ref[0]; used = chans[k]; }
+  }
+  if (!ch) { try { dev.closeConnection; } catch (e) {} return 'ERR could not open the printer channel (' + codes.join(' ') + '). Is the printer on and close to the Mac?'; }
+  var mtu = Number(prop(ch, 'getMTU')) || 127, step = Math.max(32, Math.min(mtu, 512)), off = 0, err = 0;
+  while (off < total) {
+    var len = Math.min(step, total - off);
+    var part = data.subdataWithRange($.NSMakeRange(off, len));
+    var w = ch.writeSyncLength(prop(part, 'bytes'), len);
+    if (w !== 0) { err = w; break; }
+    off += len;
+    if (off % 8192 < step) nap(0.02);
+  }
+  nap(0.5);
+  try { ch.closeChannel; } catch (e) {}
+  try { dev.closeConnection; } catch (e) {}
+  if (err) return 'ERR write stopped at ' + off + ' of ' + total + ' bytes (code ' + err + ')';
+  return 'OK sent ' + total + ' bytes on channel ' + used + ' (mtu ' + mtu + ')';
+}
+IKJXA
       cat > "$DIR/ik-bt-writer.pl" <<'IKPERL'
 #!/usr/bin/perl
-# Ink Kulture: sends queued label jobs to the Bluetooth printer port. Opens the port without waiting for a carrier
-# signal (Bluetooth printers never raise one), keeps one connection open like the phone app does, retries on errors.
-use strict; use warnings; use Fcntl; use POSIX qw(:termios_h);
-my ($port, $spool, $log) = @ARGV;
-my $fh; my %tries;
+# Ink Kulture: sends queued label jobs to the Bluetooth printer, one at a time, through ik-bt-rfcomm.js
+# (macOS's Bluetooth framework; the printer's /dev/cu serial port is not used: on new macOS opening it hangs).
+use strict; use warnings;
+my ($hint, $spool, $log, $jxa) = @ARGV;
+my %tries;
 sub lg { if (open(my $l, '>>', $log)) { my @t = localtime; printf $l "%02d %s %02d:%02d:%02d %s\\n", $t[3], (qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec))[$t[4]], $t[2], $t[1], $t[0], join(' ', @_); close $l; } }
-sub opn {
-  my $h; my $okk = 0;
-  lg("connecting to $port");
-  eval { local $SIG{ALRM} = sub { die "timeout\\n" }; alarm 30; $okk = sysopen($h, $port, O_RDWR | O_NOCTTY | O_NONBLOCK); alarm 0; };
+sub jxa {
+  my @a = @_; my ($out, $pid) = ('', 0);
+  eval {
+    local $SIG{ALRM} = sub { die "timeout\\n" };
+    alarm 150;
+    $pid = open(my $o, '-|', '/usr/bin/osascript', '-l', 'JavaScript', $jxa, @a) or die "osascript: $!\\n";
+    local $/; $out = <$o>; close $o;
+    alarm 0;
+  };
   alarm 0;
-  if ($@) { lg("no answer from the printer in 30 s: is it on and paired, and is Terminal allowed to use Bluetooth?"); return 0; }
-  unless ($okk) { lg("could not open $port: $!"); return 0; }
-  my $t = POSIX::Termios->new;
-  if ($t->getattr(fileno $h)) {
-    $t->setcflag((($t->getcflag) & ~(PARENB | CSTOPB | CSIZE)) | CS8 | CLOCAL | CREAD);
-    $t->setlflag(0); $t->setoflag(0); $t->setiflag(0);
-    $t->setattr(fileno $h, TCSANOW);
-  }
-  my $fl = fcntl($h, F_GETFL, 0); fcntl($h, F_SETFL, $fl & ~O_NONBLOCK);
-  binmode $h; $fh = $h; lg("port open: $port"); return 1;
+  if ($@) { kill 9, $pid if $pid; $out = "ERR $@"; }
+  $out = '' unless defined $out; $out =~ s/\\s+$//; return $out;
 }
-sub cls { if ($fh) { close $fh; $fh = undef; } }
-lg("writer started for $port");
+lg("writer started for $hint");
+lg(jxa($hint, 'list'));
 while (1) {
   my @jobs = ();
   if (opendir(my $d, $spool)) { @jobs = sort grep { /\\.prn$/ } readdir $d; closedir $d; }
   for my $f (@jobs) {
-    my $p = "$spool/$f"; my $data;
-    { open(my $i, '<:raw', $p) or next; local $/; $data = <$i>; close $i; }
-    if (!defined $data || !length $data) { unlink $p; next; }
-    unless ($fh) { opn() or do { sleep 3; last; }; }
-    my ($off, $ok, $t0) = (0, 1, time);
-    eval {
-      local $SIG{ALRM} = sub { die "timeout\\n" };
-      alarm 120;
-      while ($off < length $data) {
-        my $w = syswrite($fh, $data, 4096, $off);
-        die "write: $!\\n" unless defined $w;
-        $off += $w;
-      }
-      alarm 0;
-    };
-    alarm 0;
-    if ($@) { $ok = 0; lg("send failed after $off of " . length($data) . " bytes: $@"); cls(); }
-    else { lg("sent " . length($data) . " bytes in " . (time - $t0) . "s"); }
-    if ($ok || ++$tries{$f} >= 3) { unlink $p; delete $tries{$f}; lg("dropped $f after 3 tries") unless $ok; }
-    else { sleep 3; last; }
+    my $p = "$spool/$f";
+    my $size = -s $p;
+    if (!$size) { unlink $p; next; }
+    lg("label $f ($size bytes): sending");
+    my $r = jxa($hint, $p);
+    lg($r || 'ERR no answer from osascript');
+    if ($r =~ /^OK/ || ++$tries{$f} >= 3) { lg("dropped $f after 3 tries") unless $r =~ /^OK/; unlink $p; delete $tries{$f}; }
+    else { sleep 5; last; }
   }
   sleep 1;
 }
@@ -309,7 +352,8 @@ SP="$DIR/spool"; mkdir -p "$SP"
     F="$SP/$(date +%s)-$$-$RANDOM.prn"
     if nc -l 127.0.0.1 9100 > "$F.part"; then mv "$F.part" "$F"; else rm -f "$F.part"; sleep 2; fi
   done ) &
-while true; do /usr/bin/perl "$DIR/ik-bt-writer.pl" "$BT" "$SP" "$DIR/relay.log"; sleep 3; done
+HINT="$(basename "$BT" | sed 's/^cu\\.//')"
+while true; do /usr/bin/perl "$DIR/ik-bt-writer.pl" "$HINT" "$SP" "$DIR/relay.log" "$DIR/ik-bt-rfcomm.js"; sleep 3; done
 IKRELAY
       echo "$BT" > "$DIR/bt-port"
       chmod +x "$DIR/ik-bt-relay.sh"
