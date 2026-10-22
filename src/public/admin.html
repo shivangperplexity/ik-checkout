@@ -276,12 +276,16 @@ function shipPanel(id,o){
   var pk=r.options.filter(function(x){return x.key===r.pick})[0];
   var h='<p style="margin:0 0 6px"><b>Parcel (automatic):</b> '+esc(r.pack.label)+' · '+r.pack.weight_g+' g</p>';
   if(!r.ready)h+='<p style="color:#b45309;margin:4px 0">Choose your Shiprocket pickup location in Settings first.</p>';
-  if(!r.options.length)h+='<p>Shiprocket has no courier for this PIN.</p>';
+  var exl=(r.excluded||[]).length?'<details class="small" style="margin-top:6px"><summary class="mut">Left out by your rules ('+r.excluded.length+')</summary>'+r.excluded.map(function(x){return '<div class="mut">'+esc(x.courier)+(x.charge!=null?' · '+rup(x.charge):'')+' · '+esc(x.excluded)+'</div>'}).join('')+'</details>':'';
+  if(!r.options.length){h+='<p style="color:var(--bad);margin:6px 0">'+esc(r.why||'Shiprocket has no courier for this PIN.')+'</p>'+exl;
+   if(r.cod&&/prepaid/.test(r.why||''))h+='<button class="btn sm" id="sr_pay" style="margin-top:8px">Send pay-online link on WhatsApp</button>';}
   else{
+   if(r.fallback)h+='<p class="small" style="color:var(--warn);margin:6px 0">'+esc(r.fallback)+'</p>';
    h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(x){var p=x.key===r.pick;return '<tr style="border-top:1px solid #eee'+(p?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(x.courier)+(p?'<div style="font-weight:400;color:#16a34a">will be used</div>':'')+'</td><td>'+(x.charge==null?'-':rup(x.charge))+'</td><td>'+(esc(x.edd)||'-')+'</td></tr>'}).join('')+'</table>';
-   h+='<button class="btn" id="sr_go" style="margin-top:10px"'+(r.ready&&pk?'':' disabled')+'>Ship with Shiprocket'+(pk&&pk.charge!=null?' · '+rup(pk.charge):'')+'</button>';
+   h+='<button class="btn" id="sr_go" style="margin-top:10px"'+(r.ready&&pk?'':' disabled')+'>Ship with Shiprocket'+(pk&&pk.charge!=null?' · '+rup(pk.charge):'')+'</button>'+(r.fallback?'':exl);
   }
   el.innerHTML=h;
+  var sp=$('#sr_pay');if(sp)sp.onclick=function(){sp.disabled=true;sp.textContent='Sending…';rpc('convert_send',{id:id}).then(function(){sp.textContent='Pay-online link sent';toast('Sent. Once they pay, ship it again: it books as prepaid.')}).catch(function(e){sp.disabled=false;sp.textContent='Send pay-online link on WhatsApp';toast(e.message)})};
   var g=$('#sr_go');if(g)g.onclick=function(){
    if(!confirm('Book '+(pk?pk.courier:'the cheapest courier')+' for '+o.name+'? This creates the AWB, asks for pickup and charges your Shiprocket wallet.'))return;
    g.disabled=true;g.textContent='Booking…';

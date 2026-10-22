@@ -95,20 +95,30 @@ export async function srPickups(env) {
 
 /* ---------- rates for a real parcel ---------- */
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^\d.]/g, '')); return Number.isFinite(n) && String(v ?? '').trim() !== '' ? Math.round(n * 100) / 100 : null; };
-export async function srRates(env, { pin, cod, amount, pack }) {
+/**
+ * Couriers for one parcel, cheapest first. By default only the ones your rules allow (not blocked in Shiprocket, not on
+ * the never-use list, in the "only use" list when one is set). { all: true } returns { list, message } with every
+ * courier Shiprocket offers, each with `excluded` (why a rule leaves it out, '' when allowed) and `never` (never-use list).
+ */
+export async function srRates(env, { pin, cod, amount, pack }, { all = false } = {}) {
   const c = cfg(env);
   const qs = new URLSearchParams({ pickup_postcode: c.origin, delivery_postcode: pin, weight: String(pack.weight_kg), cod: cod ? '1' : '0', declared_value: String(Math.round(amount) || 499), length: String(pack.length), breadth: String(pack.breadth), height: String(pack.height) });
   let j;
   try { j = await sr(env, 'GET', 'courier/serviceability/?' + qs); }
-  catch (e) { if (e.status === 404 || /no courier|not serviceable/i.test(e.message)) return []; throw e; }
+  catch (e) { if (e.status === 404 || e.status === 422 || /no courier|not serviceable/i.test(e.message)) return all ? { list: [], message: String(e.body?.message || e.message || '').replace(/^Shiprocket [^:]+: /, '') } : []; throw e; }
   const list = j.data?.available_courier_companies;
-  if (!Array.isArray(list)) return [];
+  if (!Array.isArray(list)) return all ? { list: [], message: String(j.message || '') } : [];
   let only = null; try { only = c.shiprocketCouriers ? new RegExp(c.shiprocketCouriers, 'i') : null; } catch { only = null; }
-  return list.filter((x) => !x.blocked && !courierBlocked(x.courier_name, c.shiprocketBlock) && (!only || only.test(String(x.courier_name || '')))).map((x) => ({
-    id: String(x.courier_company_id ?? ''), courier: String(x.courier_name || 'Courier'),
-    charge: money(x.rate ?? (Number(x.freight_charge || 0) + Number(x.cod_charges || 0))), freight: money(x.freight_charge), cod: money(x.cod_charges),
-    edd: x.etd || x.estimated_delivery_days || '', rating: Number(x.rating) || null,
-  }));
+  const rows = list.map((x) => {
+    const name = String(x.courier_name || 'Courier'), never = courierBlocked(name, c.shiprocketBlock);
+    return {
+      id: String(x.courier_company_id ?? ''), courier: name,
+      charge: money(x.rate ?? (Number(x.freight_charge || 0) + Number(x.cod_charges || 0))), freight: money(x.freight_charge), cod: money(x.cod_charges),
+      edd: x.etd || x.estimated_delivery_days || '', rating: Number(x.rating) || null,
+      never, excluded: never ? 'on your never-use list' : x.blocked ? 'blocked in your Shiprocket account' : only && !only.test(name) ? 'not in your "only use these couriers" list' : '',
+    };
+  });
+  return all ? { list: rows, message: '' } : rows.filter((r) => !r.excluded);
 }
 
 /* ---------- tracking, adapted to the status vocabulary lib/wa-ship.js classify() reads ---------- */
@@ -198,10 +208,31 @@ export async function planShipment(env, order, row, { pickOption }) {
   const paidOnline = row.converted_at && Number(row.paid_paise) > 0 ? Number(row.paid_paise) / 100 : 0;
   const due = codDue(row), cod = due > 0, amount = paidOnline || Number(row.total_paise) / 100 || 499, codAmount = cod ? due / 100 : 0;
   const c = cfg(env);
-  const options = (await srRates(env, { pin, cod, amount: cod ? codAmount : amount, pack })).map((o) => ({ ...o, eddDate: eddOf(o.edd) }));
-  options.sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
+  const r = await srRates(env, { pin, cod, amount: cod ? codAmount : amount, pack }, { all: true });
+  const ready = (arr) => arr.map((o) => ({ ...o, eddDate: eddOf(o.edd) })).sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
+  let options = ready(r.list.filter((o) => !o.excluded)), fallback = '', why = '';
+  /* none of the couriers your rules allow deliver here: offer the others Shiprocket has (never the never-use list);
+     ones you only left out of the "only use" list come before ones blocked inside Shiprocket */
+  if (!options.length) {
+    const others = ready(r.list.filter((o) => o.excluded && !o.never)).sort((a, b) => Number(/Shiprocket/.test(a.excluded)) - Number(/Shiprocket/.test(b.excluded)));
+    if (others.length) {
+      options = others;
+      fallback = `None of the couriers your rules allow deliver to ${pin}, so these are the others Shiprocket offers (${[...new Set(others.map((o) => o.excluded))].join('; ')}).`;
+    }
+  }
+  if (!options.length) {
+    const never = r.list.filter((o) => o.never).map((o) => o.courier);
+    if (never.length) why = `Only ${[...new Set(never)].join(', ')} deliver${never.length > 1 ? '' : 's'} to ${pin}, and it is on your never-use list (Settings, Shipping carriers).`;
+    else if (cod) {
+      const p = await srRates(env, { pin, cod: false, amount, pack }, { all: true }).catch(() => ({ list: [] }));
+      const n = p.list.filter((o) => !o.never).length;
+      why = n ? `No courier collects Cash on Delivery at ${pin}, but ${n} deliver${n > 1 ? '' : 's'} prepaid: send the customer the pay-online link and book it once paid.`
+        : `Shiprocket has no courier for ${pin} at all${r.message ? ' (' + r.message + ')' : ''}. Check the PIN code with the customer.`;
+    } else why = `Shiprocket has no courier for ${pin}${r.message ? ' (' + r.message + ')' : ''}. Check the PIN code with the customer.`;
+  }
   const pick = pickOption(options, { policy: c.policy, toleranceDays: c.toleranceDays });
-  return { pack, pin, cod, amount, codAmount, options, pick };
+  const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
+  return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded };
 }
 function eddOf(edd) {
   const s = String(edd || '').trim(); if (!s) return null;
@@ -230,7 +261,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
   if (rec?.awb) return { ok: true, already: true, shipment: publicRec(rec) };
 
   const plan = await planShipment(env, order, row, { pickOption });
-  if (!plan.pick) throw new Error(`Shiprocket has no courier for PIN ${plan.pin} (${plan.cod ? 'COD' : 'prepaid'}).`);
+  if (!plan.pick) throw new Error(plan.why || `Shiprocket has no courier for PIN ${plan.pin} (${plan.cod ? 'COD' : 'prepaid'}).`);
   const t = now();
   if (!rec) {
     await db.prepare(`INSERT INTO shipments (order_id, order_name, courier, courier_id, charge_paise, pack, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT (order_id) DO NOTHING`)

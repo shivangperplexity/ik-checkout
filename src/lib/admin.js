@@ -1,5 +1,6 @@
 import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js';
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
+const convertCfgOf = (f) => { try { return { mode: f.SETTINGS?.convert?.mode === 'on' ? 'on' : 'off' }; } catch { return { mode: 'off' }; } };
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderForShipping, packingItems, activeFulfilments, updateTracking, cancelFulfilmentsFor } from './shopify.js';
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
@@ -750,7 +751,8 @@ const ACTIONS = {
     const plan = await planShipment(fresh, order, row, { pickOption });
     return { ok: true, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
       shipment: publicRec(existing && existing.awb && existing.status !== 'cancelled' ? existing : null),
-      options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null })) };
+      options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null, excluded: o.excluded || '' })),
+      fallback: plan.fallback || '', why: plan.why || '', excluded: plan.excluded || [], convert_on: convertCfgOf(fresh).mode === 'on' };
   },
   /** Book it: Shiprocket order -> AWB (cheapest courier) -> pickup -> label, then Shopify fulfilment + WhatsApp. */
   async ship_book(env, b) {
