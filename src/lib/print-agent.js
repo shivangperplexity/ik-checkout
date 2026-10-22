@@ -28,7 +28,9 @@ export async function printerState(env) {
   const row = async (k) => { const r = await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind(k).first().catch(() => null); try { return r ? JSON.parse(r.v) : null; } catch { return null; } };
   const cfg = (await row('printer')) || {};
   const seen = (await row('printer_seen')) || {};
-  return { auto: cfg.auto !== false, key: cfg.key || '', seen, online: Number(seen.at || 0) > now() - 90 };
+  /* PRINT_AGENT_KEY (Vercel env) works until a key is made in the dashboard */
+  const envKey = /^[a-f0-9]{40}$/.test(String(env.PRINT_AGENT_KEY || '')) ? String(env.PRINT_AGENT_KEY) : '';
+  return { auto: cfg.auto !== false, key: cfg.key || envKey, seen, online: Number(seen.at || 0) > now() - 90 };
 }
 async function saveCfg(env, patch) {
   const s = await printerState(env);
@@ -124,7 +126,7 @@ const shq = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'";
 export const setupCommand = (base, key) => `bash -c "$(curl -fsSL '${base}/api/print/setup?k=${key}')"`;
 
 /** The setup script (bash 3.2, as on every Mac): pick the printer, install the agent, start it at login, print a test. */
-export function setupScript(base, key) {
+export function setupScript(base, key, preset = '') {
   const agent = `#!/bin/bash
 # Ink Kulture label printer: prints labels from the IK dashboard queue on this Mac.
 URL=${shq(base)}
@@ -169,9 +171,15 @@ DEF=$(lpstat -d 2>/dev/null | sed -n 's/^system default destination: //p')
 i=0
 for p in $LIST; do i=$((i+1)); if [ "$p" = "$DEF" ]; then echo "  $i) $p   (default)"; else echo "  $i) $p"; fi; done
 echo ""
-printf "Which one is the label printer? Type its number and press Return: "
-read N < /dev/tty
-PRINTER=$(echo "$LIST" | sed -n "\${N}p")
+PRESET=${shq(String(preset).replace(/[^\w.@-]/g, ''))}
+if [ -n "$PRESET" ] && echo "$LIST" | grep -qx "$PRESET"; then
+  PRINTER="$PRESET"
+  echo "Label printer: $PRINTER"
+else
+  printf "Which one is the label printer? Type its number and press Return: "
+  read N < /dev/tty
+  PRINTER=$(echo "$LIST" | sed -n "\${N}p")
+fi
 if [ -z "$PRINTER" ]; then echo "That number is not in the list. Run the setup again."; exit 1; fi
 mkdir -p "$DIR" "$HOME/Library/LaunchAgents"
 echo "$PRINTER" > "$DIR/printer"
@@ -214,7 +222,7 @@ export async function handlePrint(req, env) {
   const key = get('k');
   if (!st.key || !/^[a-f0-9]{40}$/.test(key) || key !== st.key) return text('not allowed', 401);
   const base = String(env.WORKER_URL || url.origin).replace(/\/$/, '');
-  if (op === 'setup') return text(setupScript(base, st.key));
+  if (op === 'setup') return text(setupScript(base, st.key, get('p')));
   if (op === 'next') {
     /* check-in: who is printing, on what (written at most every 30 s) */
     const host = get('host').slice(0, 60) || st.seen.host || '', printer = get('printer').slice(0, 80) || st.seen.printer || '';
