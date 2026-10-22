@@ -309,6 +309,15 @@ IKRP
       launchctl load -w "$RPL"
       echo "Bluetooth: labels go to $BT"
     fi;;
+  *)
+    # a USB / network printer: no Bluetooth relay needed (an older one is removed)
+    RPL="$HOME/Library/LaunchAgents/in.inkkulture.btrelay.plist"
+    if [ -f "$RPL" ]; then
+      launchctl unload "$RPL" >/dev/null 2>&1 || true
+      rm -f "$RPL"
+      for HP in $(pgrep -f 'IKPrinter/ik-bt' 2>/dev/null); do [ "$HP" != "$$" ] && kill -9 "$HP" 2>/dev/null; done
+      echo "Bluetooth relay removed (this printer is on $URI)"
+    fi;;
 esac
 launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load -w "$PLIST"
