@@ -13,6 +13,9 @@
  *   Key        a random secret in Settings (printer.key); "New key" in the dashboard cuts off an old Mac.
  */
 import { labelPdf } from './labels.js';
+import { createHash } from 'node:crypto';
+import { agentScript, setupScript } from './mac-setup.js';
+export { setupScript };
 
 const now = () => Math.floor(Date.now() / 1000);
 const TAKE_TIMEOUT = 120;          // a job taken but not reported done is handed out again after this
@@ -31,7 +34,7 @@ export async function printerState(env) {
   /* PRINT_AGENT_KEY (Vercel env) works until a key is made in the dashboard */
   const envKey = /^[a-f0-9]{40}$/.test(String(env.PRINT_AGENT_KEY || '')) ? String(env.PRINT_AGENT_KEY) : '';
   const station = (await row('print_station')) || {};
-  return { auto: cfg.auto !== false, key: cfg.key || envKey, seen, online: Number(seen.at || 0) > now() - 90, station, stationOn: stationFresh(station) };
+  return { auto: cfg.auto !== false, key: cfg.key || envKey, tune: cfg.tune || null, seen, online: Number(seen.at || 0) > now() - 90, station, stationOn: stationFresh(station) };
 }
 /* Print station: a phone or computer holding the Bluetooth printer, with the dashboard open and "Print station" on.
    It asks for queued labels every few seconds (admin action print_station) and prints them over Bluetooth. While it is
@@ -49,7 +52,7 @@ export async function stationBeat(env, name, off = false) {
 }
 async function saveCfg(env, patch) {
   const s = await printerState(env);
-  const v = { auto: s.auto, key: s.key, ...patch };
+  const v = { auto: s.auto, key: s.key, ...(s.tune ? { tune: s.tune } : {}), ...patch };
   await env.DB.prepare('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v').bind('printer', JSON.stringify(v)).run();
   return v;
 }
@@ -60,6 +63,27 @@ export async function printerKey(env, fresh = false) {
   return (await saveCfg(env, { key: randomKey() })).key;
 }
 export const setAuto = (env, on) => saveCfg(env, { auto: !!on });
+
+/* How the Bluetooth link prints (TSPL): label size, darkness 0-15, speed 1-6 in/s (slower = sharper), direction,
+   black-and-white threshold. Kept with the printer settings; the Mac picks changes up within 10 minutes. */
+export const TUNE_DEFAULTS = { w: 100, h: 150, gap: 2, density: 12, speed: 3, direction: 1, threshold: 160, invert: false };
+export async function printTune(env) {
+  const r = await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind('printer').first().catch(() => null);
+  let t = {}; try { t = (r ? JSON.parse(r.v) : {}).tune || {}; } catch { /* defaults */ }
+  return { ...TUNE_DEFAULTS, ...t };
+}
+export async function setTune(env, b) {
+  const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
+  const cur = await printTune(env);
+  const tune = {
+    w: clamp(b.w ?? cur.w, 20, 120, 100), h: clamp(b.h ?? cur.h, 20, 300, 150), gap: clamp(b.gap ?? cur.gap, 0, 10, 2),
+    density: clamp(b.density ?? cur.density, 0, 15, 12), speed: clamp(b.speed ?? cur.speed, 1, 6, 3),
+    direction: Number(b.direction ?? cur.direction) ? 1 : 0, threshold: clamp(b.threshold ?? cur.threshold, 60, 230, 160),
+    invert: !!(b.invert ?? cur.invert),
+  };
+  await saveCfg(env, { tune });
+  return tune;
+}
 
 /** Add labels to print. Skips an order that already has one waiting. Returns how many were added. */
 export async function enqueuePrint(env, ids, reason = 'manual') {
@@ -140,285 +164,8 @@ const shq = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'";
 /** The one-line setup command shown in the dashboard. */
 export const setupCommand = (base, key) => `bash -c "$(curl -fsSL '${base}/api/print/setup?k=${key}')"`;
 
-/** The setup script (bash 3.2, as on every Mac): pick the printer, install the agent, start it at login, print a test. */
-export function setupScript(base, key, preset = '', bthint = '') {
-  const agent = `#!/bin/bash
-# Ink Kulture label printer: prints labels from the IK dashboard queue on this Mac.
-URL=${shq(base)}
-KEY=${shq(key)}
-DIR="$HOME/Library/Application Support/IKPrinter"
-PRINTER="$(cat "$DIR/printer" 2>/dev/null)"
-mkdir -p "$DIR"
-N=0
-while true; do
-  H=$(date +%H); H=\${H#0}
-  if [ "$H" -ge 8 ] && [ "$H" -lt 23 ]; then WAIT=5; else WAIT=30; fi
-  P="$PRINTER"; [ -z "$P" ] && P=$(lpstat -d 2>/dev/null | sed -n 's/^system default destination: //p')
-  CODE=$(curl -s -m 25 -o "$DIR/job.pdf" -D "$DIR/head.txt" -w '%{http_code}' -G "$URL/api/print/next" --data-urlencode "k=$KEY" --data-urlencode "host=$(hostname -s)" --data-urlencode "printer=$P")
-  if [ "$CODE" = "200" ]; then
-    ID=$(grep -i '^x-job-id:' "$DIR/head.txt" | tr -d '\\r' | awk '{print $2}')
-    ORD=$(grep -i '^x-order:' "$DIR/head.txt" | tr -d '\\r' | cut -d' ' -f2-)
-    if OUT=$(lp -d "$P" -o fit-to-page "$DIR/job.pdf" 2>&1); then ST=1; else ST=0; fi
-    curl -s -m 15 -X POST "$URL/api/print/done" --data-urlencode "k=$KEY" --data-urlencode "id=$ID" --data-urlencode "ok=$ST" --data-urlencode "msg=$OUT" >/dev/null
-    echo "$(date '+%d %b %H:%M:%S') $ORD ok=$ST $OUT" >> "$DIR/agent.log"
-    tail -n 300 "$DIR/agent.log" > "$DIR/agent.tmp" && mv "$DIR/agent.tmp" "$DIR/agent.log"
-    continue
-  fi
-  [ "$CODE" = "401" ] && WAIT=300
-  # Bluetooth link: it runs in a Terminal window (macOS lets Terminal use Bluetooth, not background programs); reopen it if closed
-  N=$((N+1))
-  if [ $((N % 12)) = 1 ] && [ -f "$DIR/IK Printer Bluetooth.command" ] && ! pgrep -f 'ik-bt-writer.pl' >/dev/null 2>&1; then
-    open -g -a Terminal "$DIR/IK Printer Bluetooth.command" >/dev/null 2>&1 && echo "$(date '+%d %b %H:%M:%S') Bluetooth link window reopened" >> "$DIR/relay.log"
-  fi
-  M="$(stat -f %m "$DIR/relay.log" 2>/dev/null)-$(stat -f %m "$DIR/agent.log" 2>/dev/null)"
-  if [ "$M" != "$LASTM" ]; then
-    LASTM="$M"
-    { echo "relay:"; tail -n 15 "$DIR/relay.log" 2>/dev/null; echo "agent:"; tail -n 5 "$DIR/agent.log" 2>/dev/null; echo "port: $(cat "$DIR/bt-port" 2>/dev/null) $(ls -l "$(cat "$DIR/bt-port" 2>/dev/null)" 2>&1 | awk '{print $1}')"; echo "queue:"; lpstat -o "$P" 2>/dev/null | head -3; } > "$DIR/upload.txt" 2>&1
-    curl -s -m 15 -X POST "$URL/api/print/log" --data-urlencode "k=$KEY" --data-urlencode "host=$(hostname -s)" --data-urlencode "log@$DIR/upload.txt" >/dev/null
-  fi
-  sleep $WAIT
-done
-`;
-  return `#!/bin/bash
-# Ink Kulture: label printer setup for this Mac
-set -e
-URL=${shq(base)}
-KEY=${shq(key)}
-DIR="$HOME/Library/Application Support/IKPrinter"
-PLIST="$HOME/Library/LaunchAgents/in.inkkulture.printer.plist"
-echo ""
-echo "Ink Kulture label printer setup"
-echo "-------------------------------"
-LIST=$(lpstat -p 2>/dev/null | awk '/^printer /{print $2}')
-if [ -z "$LIST" ]; then
-  echo "No printer found on this Mac. Connect the label printer, add it in System Settings > Printers & Scanners, then run this again."
-  exit 1
-fi
-DEF=$(lpstat -d 2>/dev/null | sed -n 's/^system default destination: //p')
-i=0
-for p in $LIST; do i=$((i+1)); if [ "$p" = "$DEF" ]; then echo "  $i) $p   (default)"; else echo "  $i) $p"; fi; done
-echo ""
-PRESET=${shq(String(preset).replace(/[^\w.@-]/g, ''))}
-BTHINT=${shq(String(bthint || 'CD410|print|label|thermal|pos|xp|tsc|sp4').replace(/[^\w|.-]/g, ''))}
-PMATCH=$( [ -n "$PRESET" ] && { echo "$LIST" | grep -x "$PRESET" || echo "$LIST" | grep -i "$PRESET"; } | head -1 )
-if [ -n "$PMATCH" ]; then
-  PRINTER="$PMATCH"
-  echo "Label printer: $PRINTER"
-else
-  printf "Which one is the label printer? Type its number and press Return: "
-  read N < /dev/tty
-  PRINTER=$(echo "$LIST" | sed -n "\${N}p")
-fi
-if [ -z "$PRINTER" ]; then echo "That number is not in the list. Run the setup again."; exit 1; fi
-mkdir -p "$DIR" "$HOME/Library/LaunchAgents"
-echo "$PRINTER" > "$DIR/printer"
-cat > "$DIR/ik-printer.sh" <<'IKAGENT'
-${agent}IKAGENT
-chmod +x "$DIR/ik-printer.sh"
-cat > "$PLIST" <<IKPLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>in.inkkulture.printer</string>
-  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$DIR/ik-printer.sh</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$DIR/stdout.log</string>
-  <key>StandardErrorPath</key><string>$DIR/stderr.log</string>
-</dict></plist>
-IKPLIST
-# Paper: 4 x 6 in (100 x 150 mm) when the driver offers it
-PSL=$(lpoptions -p "$PRINTER" -l 2>/dev/null | grep -i -E '^(PageSize|media)[/:]' | head -1)
-if [ -n "$PSL" ]; then
-  OPT=$(echo "$PSL" | cut -d/ -f1 | cut -d: -f1)
-  VAL=$(echo "$PSL" | cut -d: -f2- | tr ' ' '\n' | sed 's/^\\*//' | grep -i -E '100x150|100\\*150|4x6|w288h432|101\\.6x152|100mmx150mm|w283h425' | head -1)
-  if [ -n "$VAL" ]; then lpoptions -p "$PRINTER" -o "$OPT=$VAL" >/dev/null 2>&1 && echo "Paper size: $VAL"; fi
-fi
-# A Bluetooth printer: the driver prints to 127.0.0.1:9100 and a small relay hands each job to the printer's Bluetooth port
-URI=$(lpstat -v "$PRINTER" 2>/dev/null | sed -n 's/^device for [^:]*: //p')
-case "$URI" in
-  socket://127.0.0.1*|socket://localhost*)
-    PORTS=$(ls /dev/cu.* 2>/dev/null | grep -i -v -E 'incoming|debug|wlan|airpod|buds|modem')
-    BT=$(echo "$PORTS" | grep -i -E "$BTHINT" | head -1)
-    [ -z "$BT" ] && BT=$(echo "$PORTS" | head -1)
-    if [ -z "$BT" ]; then
-      echo "Bluetooth: no printer port found. Switch the printer on, connect it in System Settings > Bluetooth, then run this setup again."
-    else
-      cat > "$DIR/ik-bt-rfcomm.js" <<'IKJXA'
-// Ink Kulture: sends one label file to the Bluetooth printer through macOS's own Bluetooth framework (RFCOMM),
-// the way the printer's phone app does. Run by osascript from the Terminal link window (Terminal has Bluetooth access).
-// osascript -l JavaScript ik-bt-rfcomm.js <printer name> <file>     prints OK ... or ERR ...
-// osascript -l JavaScript ik-bt-rfcomm.js <printer name> list       lists paired devices
-ObjC.import('Foundation');
-ObjC.import('IOBluetooth');
-function str(x) { try { return ObjC.unwrap(x) || ''; } catch (e) { return ''; } }
-/* JXA: reading a no-argument method as a property calls it (ObjC objects look like functions, so never call them) */
-function prop(o, k) { return o[k]; }
-function nap(s) { $.NSThread.sleepForTimeInterval(s); }
-function run(argv) {
-  var hint = String(argv[0] || 'CD410').toLowerCase(), file = String(argv[1] || '');
-  var list = prop($.IOBluetoothDevice, 'pairedDevices'), n = list ? prop(list, 'count') : 0, dev = null, names = [];
-  for (var i = 0; i < n; i++) {
-    var d = list.objectAtIndex(i), nm = str(prop(d, 'name'));
-    names.push(nm + ' [' + str(prop(d, 'addressString')) + ']');
-    if (!dev && nm.toLowerCase().indexOf(hint) >= 0) dev = d;
-  }
-  if (file === 'list') return 'paired: ' + names.join(', ');
-  if (!dev) {
-    for (var j = 0; j < n && !dev; j++) { var d2 = list.objectAtIndex(j); if (/cd4|print|pos|label|thermal/i.test(str(prop(d2, 'name')))) dev = d2; }
-  }
-  if (!dev) return 'ERR printer "' + hint + '" is not paired with this Mac (paired: ' + names.join(', ') + ')';
-  var data = $.NSData.dataWithContentsOfFile(file);
-  if (!data || data.isNil()) return 'ERR cannot read ' + file;
-  var total = prop(data, 'length');
-  /* the printer's serial service and its channel (usually 1) */
-  var chans = [];
-  try {
-    var rec = dev.getServiceRecordForUUID($.IOBluetoothSDPUUID.uuid16(0x1101));
-    if (rec && !rec.isNil()) { var r = Ref(); if (rec.getRFCOMMChannelID(r) === 0 && r[0]) chans.push(Number(r[0])); }
-  } catch (e) { /* use the usual channels */ }
-  [1, 2, 3, 4, 5, 6].forEach(function (c) { if (chans.indexOf(c) < 0) chans.push(c); });
-  try { dev.openConnection; } catch (e) { /* the channel opens the link itself */ }
-  var ch = null, used = 0, codes = [];
-  for (var k = 0; k < chans.length && !ch; k++) {
-    var ref = Ref();
-    var rv = dev.openRFCOMMChannelSyncWithChannelIDDelegate(ref, chans[k], null);
-    codes.push(chans[k] + ':' + rv);
-    if (rv === 0 && ref[0] && !ref[0].isNil()) { ch = ref[0]; used = chans[k]; }
-  }
-  if (!ch) { try { dev.closeConnection; } catch (e) {} return 'ERR could not open the printer channel (' + codes.join(' ') + '). Is the printer on and close to the Mac?'; }
-  var mtu = Number(prop(ch, 'getMTU')) || 127, step = Math.max(32, Math.min(mtu, 512)), off = 0, err = 0;
-  while (off < total) {
-    var len = Math.min(step, total - off);
-    var part = data.subdataWithRange($.NSMakeRange(off, len));
-    var w = ch.writeSyncLength(prop(part, 'bytes'), len);
-    if (w !== 0) { err = w; break; }
-    off += len;
-    if (off % 8192 < step) nap(0.02);
-  }
-  nap(0.5);
-  try { ch.closeChannel; } catch (e) {}
-  try { dev.closeConnection; } catch (e) {}
-  if (err) return 'ERR write stopped at ' + off + ' of ' + total + ' bytes (code ' + err + ')';
-  return 'OK sent ' + total + ' bytes on channel ' + used + ' (mtu ' + mtu + ')';
-}
-IKJXA
-      cat > "$DIR/ik-bt-writer.pl" <<'IKPERL'
-#!/usr/bin/perl
-# Ink Kulture: sends queued label jobs to the Bluetooth printer, one at a time, through ik-bt-rfcomm.js
-# (macOS's Bluetooth framework; the printer's /dev/cu serial port is not used: on new macOS opening it hangs).
-use strict; use warnings;
-my ($hint, $spool, $log, $jxa) = @ARGV;
-my %tries;
-sub lg { if (open(my $l, '>>', $log)) { my @t = localtime; printf $l "%02d %s %02d:%02d:%02d %s\\n", $t[3], (qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec))[$t[4]], $t[2], $t[1], $t[0], join(' ', @_); close $l; } }
-sub jxa {
-  my @a = @_; my ($out, $pid) = ('', 0);
-  eval {
-    local $SIG{ALRM} = sub { die "timeout\\n" };
-    alarm 150;
-    $pid = open(my $o, '-|', '/usr/bin/osascript', '-l', 'JavaScript', $jxa, @a) or die "osascript: $!\\n";
-    local $/; $out = <$o>; close $o;
-    alarm 0;
-  };
-  alarm 0;
-  if ($@) { kill 9, $pid if $pid; $out = "ERR $@"; }
-  $out = '' unless defined $out; $out =~ s/\\s+$//; return $out;
-}
-lg("writer started for $hint");
-lg(jxa($hint, 'list'));
-while (1) {
-  my @jobs = ();
-  if (opendir(my $d, $spool)) { @jobs = sort grep { /\\.prn$/ } readdir $d; closedir $d; }
-  for my $f (@jobs) {
-    my $p = "$spool/$f";
-    my $size = -s $p;
-    if (!$size) { unlink $p; next; }
-    lg("label $f ($size bytes): sending");
-    my $r = jxa($hint, $p);
-    lg($r || 'ERR no answer from osascript');
-    if ($r =~ /^OK/ || ++$tries{$f} >= 3) { lg("dropped $f after 3 tries") unless $r =~ /^OK/; unlink $p; delete $tries{$f}; }
-    else { sleep 5; last; }
-  }
-  sleep 1;
-}
-IKPERL
-      cat > "$DIR/ik-bt-relay.sh" <<'IKRELAY'
-#!/bin/bash
-# Ink Kulture: the printer driver sends each label to 127.0.0.1:9100; it is queued here and the writer
-# (ik-bt-writer.pl) sends it to the Bluetooth printer over one open connection.
-DIR="$HOME/Library/Application Support/IKPrinter"
-BT="$(cat "$DIR/bt-port")"
-SP="$DIR/spool"; mkdir -p "$SP"
-( while true; do
-    F="$SP/$(date +%s)-$$-$RANDOM.prn"
-    if nc -l 127.0.0.1 9100 > "$F.part"; then mv "$F.part" "$F"; else rm -f "$F.part"; sleep 2; fi
-  done ) &
-HINT="$(basename "$BT" | sed 's/^cu\\.//')"
-while true; do /usr/bin/perl "$DIR/ik-bt-writer.pl" "$HINT" "$SP" "$DIR/relay.log" "$DIR/ik-bt-rfcomm.js"; sleep 3; done
-IKRELAY
-      echo "$BT" > "$DIR/bt-port"
-      chmod +x "$DIR/ik-bt-relay.sh"
-      # macOS lets only an app the user allowed (Terminal) use Bluetooth, not a background program: a background
-      # relay waits forever to reach the printer. So the link runs in a small Terminal window, opened at login.
-      CMDF="$DIR/IK Printer Bluetooth.command"
-      cat > "$CMDF" <<IKCMD
-#!/bin/bash
-printf '\\033]0;IK Printer Bluetooth link\\007'
-echo "Ink Kulture: Bluetooth link to the label printer ($BT)."
-echo "Keep this window open (you can minimise it). It opens by itself after a restart."
-for HP in \\$(pgrep -f 'ik-bt-writer.pl'); do kill -9 "\\$HP" 2>/dev/null; done
-exec /bin/bash "$DIR/ik-bt-relay.sh"
-IKCMD
-      chmod +x "$CMDF"
-      RPL="$HOME/Library/LaunchAgents/in.inkkulture.btrelay.plist"
-      launchctl unload "$RPL" >/dev/null 2>&1 || true
-      cat > "$RPL" <<IKRP
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>in.inkkulture.btrelay</string>
-  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>-a</string><string>Terminal</string><string>$CMDF</string></array>
-  <key>RunAtLoad</key><true/>
-</dict></plist>
-IKRP
-      sleep 1
-      # the old background relay and any stuck send are stopped (they can never reach the printer)
-      for HP in $(lsof -t "$BT" 2>/dev/null) $(pgrep -f 'IKPrinter/ik-bt' 2>/dev/null) $(pgrep -f 'ik-bt-writer' 2>/dev/null) $(pgrep -f 'IKPrinter/spool' 2>/dev/null) $(pgrep -f 'nc -l 127.0.0.1 9100' 2>/dev/null); do
-        [ "$HP" != "$$" ] && [ "$HP" != "$PPID" ] && kill -9 "$HP" 2>/dev/null
-      done
-      sleep 1
-      echo "$(date '+%d %b %H:%M:%S') setup: link moved to a Terminal window" >> "$DIR/relay.log"
-      launchctl load -w "$RPL"
-      echo "Bluetooth: a small 'IK Printer Bluetooth link' Terminal window opens. Keep it open (minimise is fine)."
-      echo "If macOS asks whether Terminal may use Bluetooth, click Allow."
-      echo "Bluetooth: labels go to $BT"
-    fi;;
-  *)
-    # a USB / network printer: no Bluetooth relay needed (an older one is removed)
-    RPL="$HOME/Library/LaunchAgents/in.inkkulture.btrelay.plist"
-    if [ -f "$RPL" ]; then
-      launchctl unload "$RPL" >/dev/null 2>&1 || true
-      rm -f "$RPL"
-      for HP in $(pgrep -f 'IKPrinter/ik-bt' 2>/dev/null); do [ "$HP" != "$$" ] && kill -9 "$HP" 2>/dev/null; done
-      echo "Bluetooth relay removed (this printer is on $URI)"
-    fi;;
-esac
-launchctl unload "$PLIST" >/dev/null 2>&1 || true
-launchctl load -w "$PLIST"
-curl -s -m 15 -X POST "$URL/api/print/test" --data-urlencode "k=$KEY" --data-urlencode "printer=$PRINTER" >/dev/null || true
-echo ""
-echo "Checking (30 seconds)..."
-sleep 30
-echo "-- print queue:"; lpstat -o "$PRINTER" 2>/dev/null | head -5; echo "(end)"
-[ -f "$DIR/relay.log" ] && { echo "-- relay:"; tail -n 4 "$DIR/relay.log"; }
-[ -f "$DIR/agent.log" ] && { echo "-- agent:"; tail -n 3 "$DIR/agent.log"; }
-[ -f "$DIR/bt-port" ] && { echo "-- port:"; lsof "$(cat "$DIR/bt-port")" 2>/dev/null | tail -n +2 | awk '{print $1, $2}' | head -3; echo "(end)"; }
-echo ""
-echo "Done. Labels will print on: $PRINTER"
-echo "A test label is on its way (a few seconds). This keeps running in the background and starts by itself when you log in."
-echo "To remove it later: launchctl unload \\"$PLIST\\" && rm \\"$PLIST\\""
-`;
-}
+/** Changes whenever the Mac's agent or setup changes: the agent updates itself when it differs. */
+export const macVersion = (base, key) => createHash('sha1').update(agentScript(base, key) + setupScript(base, key, '', '', true)).digest('hex').slice(0, 12);
 
 /* ---------------- HTTP: /api/print/{setup,next,done,test} ---------------- */
 
@@ -434,7 +181,10 @@ export async function handlePrint(req, env) {
   const key = get('k');
   if (!st.key || !/^[a-f0-9]{40}$/.test(key) || key !== st.key) return text('not allowed', 401);
   const base = String(env.WORKER_URL || url.origin).replace(/\/$/, '');
-  if (op === 'setup') return text(setupScript(base, st.key, get('p'), get('bt')));
+  if (op === 'setup') return text(setupScript(base, st.key, get('p'), get('bt'), get('u') === '1'));
+  if (op === 'agent') return text(agentScript(base, st.key));
+  if (op === 'version') return text(macVersion(base, st.key));
+  if (op === 'settings') return new Response(JSON.stringify(await printTune(env)), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   if (op === 'next') {
     /* check-in: who is printing, on what (written at most every 30 s) */
     const host = get('host').slice(0, 60) || st.seen.host || '', printer = get('printer').slice(0, 80) || st.seen.printer || '';

@@ -429,7 +429,7 @@ const ACTIONS = {
     const P = await import('./print-agent.js');
     const s = await P.printerState(env);
     const base = String(env.WORKER_URL || '').replace(/\/$/, '');
-    return { ok: true, auto: s.auto, ready: !!(s.key || s.stationOn), online: s.online, seen: s.seen, station: s.stationOn ? s.station : null, command: s.key && base ? P.setupCommand(base, s.key) : '', jobs: await P.recentJobs(env) };
+    return { ok: true, auto: s.auto, tune: await P.printTune(env), ready: !!(s.key || s.stationOn), online: s.online, seen: s.seen, station: s.stationOn ? s.station : null, command: s.key && base ? P.setupCommand(base, s.key) : '', jobs: await P.recentJobs(env) };
   },
   /** Make (or with fresh, replace) the agent key and return the setup command. */
   async printer_setup(env, b) {
@@ -440,6 +440,8 @@ const ACTIONS = {
     return { ok: true, command: P.setupCommand(base, key) };
   },
   async printer_auto(env, b) { const P = await import('./print-agent.js'); await P.setAuto(env, !!b.on); return { ok: true }; },
+  /** Bluetooth print quality (darkness, speed, size, direction): the packing Mac picks it up within 10 minutes. */
+  async printer_tune(env, b) { const P = await import('./print-agent.js'); return { ok: true, tune: await P.setTune(env, b || {}) }; },
   /** Send labels to the printer now (order drawer / Shipments bar / reprint). */
   async print_labels(env, b) {
     const P = await import('./print-agent.js');
