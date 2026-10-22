@@ -223,38 +223,68 @@ case "$URI" in
     if [ -z "$BT" ]; then
       echo "Bluetooth: no printer port found. Switch the printer on, connect it in System Settings > Bluetooth, then run this setup again."
     else
+      cat > "$DIR/ik-bt-writer.pl" <<'IKPERL'
+#!/usr/bin/perl
+# Ink Kulture: sends queued label jobs to the Bluetooth printer port. Opens the port without waiting for a carrier
+# signal (Bluetooth printers never raise one), keeps one connection open like the phone app does, retries on errors.
+use strict; use warnings; use Fcntl; use POSIX qw(:termios_h);
+my ($port, $spool, $log) = @ARGV;
+my $fh; my %tries;
+sub lg { if (open(my $l, '>>', $log)) { my @t = localtime; printf $l "%02d %s %02d:%02d:%02d %s\\n", $t[3], (qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec))[$t[4]], $t[2], $t[1], $t[0], join(' ', @_); close $l; } }
+sub opn {
+  my $h;
+  unless (sysopen($h, $port, O_RDWR | O_NOCTTY | O_NONBLOCK)) { lg("could not open $port: $!"); return 0; }
+  my $t = POSIX::Termios->new;
+  if ($t->getattr(fileno $h)) {
+    $t->setcflag((($t->getcflag) & ~(PARENB | CSTOPB | CSIZE)) | CS8 | CLOCAL | CREAD);
+    $t->setlflag(0); $t->setoflag(0); $t->setiflag(0);
+    $t->setattr(fileno $h, TCSANOW);
+  }
+  my $fl = fcntl($h, F_GETFL, 0); fcntl($h, F_SETFL, $fl & ~O_NONBLOCK);
+  binmode $h; $fh = $h; lg("port open: $port"); return 1;
+}
+sub cls { if ($fh) { close $fh; $fh = undef; } }
+lg("writer started for $port");
+while (1) {
+  my @jobs = ();
+  if (opendir(my $d, $spool)) { @jobs = sort grep { /\\.prn$/ } readdir $d; closedir $d; }
+  for my $f (@jobs) {
+    my $p = "$spool/$f"; my $data;
+    { open(my $i, '<:raw', $p) or next; local $/; $data = <$i>; close $i; }
+    if (!defined $data || !length $data) { unlink $p; next; }
+    unless ($fh) { opn() or do { sleep 3; last; }; }
+    my ($off, $ok, $t0) = (0, 1, time);
+    eval {
+      local $SIG{ALRM} = sub { die "timeout\\n" };
+      alarm 120;
+      while ($off < length $data) {
+        my $w = syswrite($fh, $data, 4096, $off);
+        die "write: $!\\n" unless defined $w;
+        $off += $w;
+      }
+      alarm 0;
+    };
+    alarm 0;
+    if ($@) { $ok = 0; lg("send failed after $off of " . length($data) . " bytes: $@"); cls(); }
+    else { lg("sent " . length($data) . " bytes in " . (time - $t0) . "s"); }
+    if ($ok || ++$tries{$f} >= 3) { unlink $p; delete $tries{$f}; lg("dropped $f after 3 tries") unless $ok; }
+    else { sleep 3; last; }
+  }
+  sleep 1;
+}
+IKPERL
       cat > "$DIR/ik-bt-relay.sh" <<'IKRELAY'
 #!/bin/bash
-# Ink Kulture: takes print jobs from 127.0.0.1:9100 (the printer driver) and sends them to the Bluetooth printer.
-# Jobs are queued first, so the driver never waits on the printer; each one is sent with the port in raw mode and
-# a time limit, so one stuck send can never block the next label.
+# Ink Kulture: the printer driver sends each label to 127.0.0.1:9100; it is queued here and the writer
+# (ik-bt-writer.pl) sends it to the Bluetooth printer over one open connection.
 DIR="$HOME/Library/Application Support/IKPrinter"
 BT="$(cat "$DIR/bt-port")"
 SP="$DIR/spool"; mkdir -p "$SP"
-log() { echo "$(date '+%d %b %H:%M:%S') $*" >> "$DIR/relay.log"; tail -n 200 "$DIR/relay.log" > "$DIR/relay.tmp" && mv "$DIR/relay.tmp" "$DIR/relay.log"; }
 ( while true; do
     F="$SP/$(date +%s)-$$-$RANDOM.prn"
     if nc -l 127.0.0.1 9100 > "$F.part"; then mv "$F.part" "$F"; else rm -f "$F.part"; sleep 2; fi
   done ) &
-LISTENER=$!
-trap 'kill $LISTENER 2>/dev/null; exit 0' TERM INT
-while true; do
-  for F in "$SP"/*.prn; do
-    [ -e "$F" ] || break
-    if [ -s "$F" ]; then
-      N=$(wc -c < "$F" | tr -d ' ')
-      ( log "job $N bytes: opening $BT"; exec 3>"$BT" || { log "could not open $BT"; exit 9; }; log "opened, sending"; cat "$F" >&3; R=$?; log "sent rc=$R"; sleep 1 ) &
-      P=$!
-      ( sleep 120; kill -9 $P 2>/dev/null ) &
-      K=$!
-      wait $P; RC=$?
-      kill $K 2>/dev/null
-      [ "$RC" = "137" ] && log "gave up after 2 minutes (the printer did not take the data)"
-    fi
-    rm -f "$F"
-  done
-  sleep 1
-done
+exec /usr/bin/perl "$DIR/ik-bt-writer.pl" "$BT" "$SP" "$DIR/relay.log"
 IKRELAY
       echo "$BT" > "$DIR/bt-port"
       chmod +x "$DIR/ik-bt-relay.sh"
@@ -272,8 +302,10 @@ IKRELAY
 IKRP
       launchctl unload "$RPL" >/dev/null 2>&1 || true
       sleep 1
-      # anything still holding the Bluetooth port (an old stuck send) is stopped, or the printer stays busy
-      for HP in $(lsof -t "$BT" 2>/dev/null); do kill -9 "$HP" 2>/dev/null; done
+      # an older relay or a stuck send (even one still waiting to open the port) is stopped, or the printer stays busy
+      for HP in $(lsof -t "$BT" 2>/dev/null) $(pgrep -f 'IKPrinter/ik-bt' 2>/dev/null) $(pgrep -f 'IKPrinter/spool' 2>/dev/null); do
+        [ "$HP" != "$$" ] && [ "$HP" != "$PPID" ] && kill -9 "$HP" 2>/dev/null
+      done
       launchctl load -w "$RPL"
       echo "Bluetooth: labels go to $BT"
     fi;;
