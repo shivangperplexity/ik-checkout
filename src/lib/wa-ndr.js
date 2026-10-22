@@ -21,6 +21,8 @@ export async function signNdr(env, orderId) { const s = secret(env); return s ? 
 export async function verifyNdr(env, orderId, sig) { const want = await signNdr(env, orderId); return !!want && safeEqual(want, String(sig || '')); }
 /** The link that goes into the ship_failed message. '' when links cannot be signed. */
 export async function ndrLink(env, orderId) { const sig = await signNdr(env, orderId); return sig && base(env) ? `${base(env)}/api/wa/ndr?o=${orderId}&s=${sig}` : ''; }
+/** The same link as one value, for a template's dynamic URL button (https://…/api/wa/ndr?k={{1}}). */
+export async function ndrKey(env, orderId) { const sig = await signNdr(env, orderId); return sig ? `${orderId}.${sig}` : ''; }
 
 /** The live booking that is sitting in NDR for this order (or this phone's newest one). */
 export async function ndrShipment(env, { orderId, phone }) {
@@ -36,17 +38,17 @@ const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= istToday() && d <= n
  * Apply the customer's choice. what: 'reattempt' | 'return'; date: optional YYYY-MM-DD for the re-attempt.
  * Returns a short status: 'reattempt' | 'return' | 'no-shipment' | 'already'.
  */
-export async function customerNdr(env, { orderId, phone, what, date = '', via = 'link', address1 = '', address2 = '', altPhone = '' }) {
+export async function customerNdr(env, { orderId, phone, what, date = '', via = 'link', address1 = '', address2 = '', altPhone = '', note = '', force = false }) {
   const rec = await ndrShipment(env, { orderId, phone });
   if (!rec) return { status: 'no-shipment' };
   const key = what === 'return' ? 'return' : 'reattempt';
-  const fix = key === 'reattempt' && (address1 || address2 || altPhone);
-  if (!fix && rec.ndr_choice === key && now() - Number(rec.ndr_choice_at || 0) < 48 * 3600 && rec.ndr_by !== 'auto') return { status: 'already', rec };
+  const fix = key === 'reattempt' && (address1 || address2 || altPhone || (date && date !== rec.ndr_date));
+  if (!fix && !force && rec.ndr_choice === key && now() - Number(rec.ndr_choice_at || 0) < 48 * 3600 && rec.ndr_by !== 'auto') return { status: 'already', rec };
   const a1 = String(address1 || '').trim().slice(0, 200), a2 = String(address2 || '').trim().slice(0, 200);
   const ph = /^[6-9]\d{9}$/.test(String(altPhone || '').replace(/\D/g, '').slice(-10)) ? String(altPhone).replace(/\D/g, '').slice(-10) : '';
   const notes = [okDate(date) ? 'on ' + date : '', a1 || a2 ? 'new address: ' + [a1, a2].filter(Boolean).join(', ') : '', ph ? 'call ' + ph : ''].filter(Boolean).join('; ');
   await ndrAction(env, { awb: rec.awb, action: key === 'return' ? 'return' : 're-attempt', deferred_date: okDate(date) ? date : '', address1: a1, address2: a2, phone: ph,
-    comments: key === 'return' ? 'Customer asked for return on WhatsApp' : 'Customer asked for re-attempt on WhatsApp' + (notes ? ' (' + notes + ')' : '') });
+    comments: (key === 'return' ? 'Customer asked for return on WhatsApp' : 'Customer asked for re-attempt on WhatsApp' + (notes ? ' (' + notes + ')' : '')) + (note ? '. ' + note : '') });
   await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, updated_at=? WHERE order_id=?').bind(key, now(), okDate(date) ? date : null, 'customer', now(), String(rec.order_id)).run().catch(() => {});
   /* keep Shopify's copy of the address in step (best effort: the courier already has the new one) */
   if (a1 || a2) await updateShopifyAddress(env, rec.order_id, { address1: a1, address2: a2 }).catch((e) => console.error('ndr address', e.message));
@@ -71,7 +73,9 @@ const REASON_TEXT = { not_available: 'nobody was available to receive it', phone
 /** GET: the choice page. POST d=r[&date=YYYY-MM-DD][&address1&address2&phone] or d=x: apply it. */
 export async function handleNdr(req, env0) {
   const url = new URL(req.url);
-  const orderId = String(url.searchParams.get('o') || ''), sig = String(url.searchParams.get('s') || '');
+  /* ?k=<orderId>.<sig> comes from a template's dynamic URL button; ?o=&s= from the message body */
+  const kk = /^(\d{1,25})\.([a-f0-9]{12})$/.exec(String(url.searchParams.get('k') || ''));
+  const orderId = kk ? kk[1] : String(url.searchParams.get('o') || ''), sig = kk ? kk[2] : String(url.searchParams.get('s') || '');
   if (!/^\d{1,25}$/.test(orderId) || !/^[a-f0-9]{12}$/.test(sig) || !(await verifyNdr(env0, orderId, sig))) return page('Link not valid', 'Please use the link from your WhatsApp message.');
   const { withSettings } = await import('./settings.js');
   const env = await withSettings(env0);

@@ -100,6 +100,13 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_reason TEXT`,
   /* when the refused-delivery question went out (lib/ndr-ask.js); a yes / no after it answers it */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_asked_at BIGINT`,
+  /* NDR autopilot (lib/ndr-pilot.js): nudge sent / re-attempt announced per failed attempt; the one "before you cancel" message */
+  `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS nudged_at BIGINT`,
+  `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS told_at BIGINT`,
+  `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS pilot_note TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_save_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_commit_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_fake INT`,
   /* WhatsApp chats a person has to answer (assistant handed off, or the team took over) */
   `CREATE TABLE IF NOT EXISTS wa_handoff (phone TEXT PRIMARY KEY, state TEXT, reason TEXT, opened_at BIGINT, replied_at BIGINT, resolved_at BIGINT, ai_paused_until BIGINT, seen_at BIGINT)`,
   `ALTER TABLE wa_handoff ADD COLUMN IF NOT EXISTS seen_id BIGINT`,

@@ -186,7 +186,7 @@ export function pickModel(ids, provider = 'groq') {
 
 const MODEL_GONE = /model.*(does not exist|not found|not exist|decommission|deprecat|no access|do not have access|unsupported|invalid model)|model_not_found|unknown model/i;
 
-async function callModel(c, P, system, merged) {
+export async function callModel(c, P, system, merged) {
   let r, j, out;
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 20000);
   try {

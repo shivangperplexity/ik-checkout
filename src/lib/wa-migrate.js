@@ -94,5 +94,6 @@ export async function createTemplate(env, { waba, appId, tpl, sampleImage }) {
   }
   const body = { name: tpl.name, language: tpl.language || 'en', category: tpl.category || 'MARKETING', components };
   if (tpl.parameter_format) body.parameter_format = tpl.parameter_format;
+  if (tpl.allow_category_change) body.allow_category_change = true;
   return g(env, `${waba}/message_templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }

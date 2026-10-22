@@ -125,6 +125,9 @@ export async function processInbound(env0, msgs) {
       await sendText(env, '91' + m.from, 'Done, you are subscribed to Ink Kulture updates again.');
       continue;
     }
+    /* a parcel in a failed-delivery episode: the NDR autopilot reads the reply, whatever the wording, and acts (lib/ndr-pilot.js) */
+    try { const { handleNdrMessage } = await import('./ndr-pilot.js'); if (await handleNdrMessage(env, m.from, m.text, action)) continue; }
+    catch (e) { console.error('ndr-pilot', e.message); await logMsg(env, { direction: 'out', phone: m.from, trigger: 'ndr-pilot', status: 'failed', error: String(e.message || e) }).catch(() => {}); }
     if (!action) {
       /* plain text: the assistant answers from the store knowledge + this customer's orders (lib/wa-ai.js), when switched on */
       try { const { aiReply } = await import('./wa-ai.js'); await aiReply(env, m.from, m.text, { msgId: Number(inId) || 0 }); } catch (e) { console.error('wa-ai', e.message); }

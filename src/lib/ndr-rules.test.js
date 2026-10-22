@@ -40,9 +40,21 @@ test('ask first, then act after the wait; a customer / team choice wins', () => 
   assert.equal(planNdr(cfg, nd, { first_seen: T, action: 'reattempt' }, {}, false, T + 9 * 3600).act, 'none');
 });
 
-test('courier-side reasons re-attempt at once; refused waits then comes to you', () => {
+test('courier-side reasons re-attempt at once; refused: one more try, refused again -> return', () => {
   assert.equal(planNdr(cfg, { reason: 'ODA location' }, { first_seen: T }, {}, false, T).act, 'reattempt');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused' }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'manual');
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 1 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'reattempt');
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'return');
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, {}, true, T + 13 * 3600).act, 'manual', 'prepaid never returned');
+  /* the customer said yes after the second refusal: their choice wins */
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, { ndr_choice: 'reattempt', ndr_choice_at: T + 60 }, false, T + 13 * 3600).act, 'none');
+});
+
+test('rules saved before the autopilot are upgraded; a deliberate v2 choice is kept', () => {
+  const old = ndrCfg({ SETTINGS: { ndr: { mode: 'on', after_max: 'manual', rules: { refused: { first: 'ask', wait: 12, then: 'manual' }, phone: { first: 'manual', wait: 6, then: 'reattempt' } } } } });
+  assert.equal(old.after_max, 'return'); assert.equal(old.rules.refused.then, 'reattempt'); assert.equal(old.rules.phone.first, 'ask');
+  assert.equal(old.pilot.on, true); assert.equal(old.pilot.nudge_h, 3); assert.equal(old.v, 2);
+  const v2 = ndrCfg({ SETTINGS: { ndr: { v: 2, after_max: 'manual', rules: { refused: { first: 'ask', wait: 12, then: 'manual' } }, pilot: { on: false, nudge_h: 99 } } } });
+  assert.equal(v2.after_max, 'manual'); assert.equal(v2.rules.refused.then, 'manual'); assert.equal(v2.pilot.on, false); assert.equal(v2.pilot.nudge_h, 24);
 });
 
 test('attempt limit, prepaid never returned automatically, off does nothing', () => {

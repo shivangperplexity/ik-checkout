@@ -41,9 +41,10 @@ export function classifyNdr(reason) {
 }
 
 export const NDR_DEFAULTS = {
+  v: 2,                  // 2 = autopilot defaults (nothing ends at "leave to me"); older saved rules are upgraded in ndrCfg
   mode: 'on',            // on | off (off = nothing automatic; the WhatsApp link still works)
   max_attempts: 3,       // failed attempts after which no more re-attempts are asked for
-  after_max: 'manual',   // manual | return
+  after_max: 'return',   // manual | return
   protect_paid: true,    // never return prepaid / partial-COD parcels automatically
   rules: {
     not_available: { first: 'ask', wait: 6, then: 'reattempt' },
@@ -51,27 +52,37 @@ export const NDR_DEFAULTS = {
     address: { first: 'ask', wait: 8, then: 'reattempt' },
     cash: { first: 'ask', wait: 6, then: 'reattempt' },
     future: { first: 'ask', wait: 6, then: 'reattempt' },
-    refused: { first: 'ask', wait: 12, then: 'manual' },
+    /* refused + no answer: one more try (couriers often mark "refused" without reaching anyone); refused again -> return */
+    refused: { first: 'ask', wait: 12, then: 'reattempt' },
     courier: { first: 'reattempt', wait: 0, then: 'reattempt' },
     other: { first: 'ask', wait: 8, then: 'reattempt' },
   },
+  /* WhatsApp autopilot (lib/ndr-pilot.js): reads replies, nudges, books re-attempts, one save before a cancel */
+  pilot: { on: true, nudge_h: 3, save: true, quiet: true },
 };
 const FIRST = ['ask', 'reattempt', 'return', 'manual'];
 const THEN = ['reattempt', 'return', 'manual'];
 
 export function ndrCfg(env) {
   const s = env.SETTINGS?.ndr || {};
+  /* rules saved before the autopilot (v < 2) ended in "leave to me": those steps now run themselves */
+  const old = Number(s.v || 0) < 2;
   const rules = {};
   for (const k of Object.keys(CATEGORIES)) {
     const d = NDR_DEFAULTS.rules[k], r = { ...d, ...(s.rules?.[k] || {}) };
+    if (old && r.first === 'manual') r.first = d.first;
+    if (old && r.then === 'manual') r.then = d.then;
     rules[k] = { first: FIRST.includes(r.first) ? r.first : d.first, wait: Math.max(0, Math.min(72, Number(r.wait) || 0)), then: THEN.includes(r.then) ? r.then : d.then };
   }
+  const p = { ...NDR_DEFAULTS.pilot, ...(s.pilot || {}) };
   return {
+    v: 2,
     mode: s.mode === 'off' ? 'off' : 'on',
     max_attempts: Math.max(1, Math.min(5, Number(s.max_attempts) || NDR_DEFAULTS.max_attempts)),
-    after_max: s.after_max === 'return' ? 'return' : 'manual',
+    after_max: old ? 'return' : s.after_max === 'manual' ? 'manual' : 'return',
     protect_paid: s.protect_paid !== false,
     rules,
+    pilot: { on: p.on !== false, nudge_h: Math.max(1, Math.min(24, Number(p.nudge_h) || 3)), save: p.save !== false, quiet: p.quiet !== false },
   };
 }
 
@@ -123,9 +134,11 @@ export function planNdr(cfg, nd, st, ship, paid, t = now()) {
   if (rule.first === 'reattempt') return { act: 'reattempt', why: CATEGORIES[category].label, category };
   if (rule.first === 'return') return { act: noReturn('return'), why: CATEGORIES[category].label, category };
   if (rule.first === 'manual') return { act: 'manual', why: CATEGORIES[category].label, category };
+  /* refused at the door a second time and still no "yes" from the customer: stop and bring it back */
+  const then = category === 'refused' && rule.then === 'reattempt' && Number(nd.attempts) >= 2 ? 'return' : rule.then;
   const due = firstSeen + rule.wait * 3600;
-  if (t < due) return { act: 'wait', why: 'waiting for the customer', category, due, then: noReturn(rule.then) };
-  return { act: noReturn(rule.then), why: `no answer from the customer in ${rule.wait} h`, category };
+  if (t < due) return { act: 'wait', why: 'waiting for the customer', category, due, then: noReturn(then) };
+  return { act: noReturn(then), why: then === rule.then ? `no answer from the customer in ${rule.wait} h` : `refused again (attempt ${nd.attempts}) and no answer in ${rule.wait} h`, category };
 }
 
 /** Run the rules over Shiprocket's open NDRs. Returns a summary for the cron log. */
@@ -135,7 +148,7 @@ export async function autoNdr(env, { dry = false } = {}) {
   if (cfg.mode === 'off') return { skipped: 'off' };
   let list;
   try { list = await ndrList(env); } catch (e) { return { error: String(e.message || e) }; }
-  if (!list.length) return { open: 0 };
+  if (!list.length) return dry ? { open: 0 } : { open: 0, pilot: await sweep(env, cfg) };
   const awbs = list.map((x) => x.awb);
   const ships = Object.fromEntries((await env.DB.prepare(`SELECT s.awb, s.order_id, s.order_name, s.ndr_choice, s.ndr_choice_at, s.ndr_by, s.stage,
       s.ndr_asked_at, o.method, o.phone, o.first_name, o.advance_paise, o.converted_at, o.status AS order_status
@@ -179,14 +192,22 @@ export async function autoNdr(env, { dry = false } = {}) {
       await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, ndr_attempt=?, updated_at=? WHERE awb=?')
         .bind(p.act, t, date || null, 'auto', nd.attempts || null, t, nd.awb).run();
       out[p.act]++;
-      await tellCustomer(env, s, p.act, date).catch(() => {});
+      /* a re-attempt is announced by the autopilot sweep below (WhatsApp template, daytime only); a return only in-chat */
+      if (p.act === 'return') await tellCustomer(env, s, p.act, date).catch(() => {});
     } catch (e) {
       out.failed++;
       await env.DB.prepare('UPDATE ndr_auto SET error=? WHERE awb=? AND k=?').bind(String(e.message || e).slice(0, 300), nd.awb, k).run().catch(() => {});
       await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: p.act, status: 'failed', orderName: s.order_name, error: String(e.message || e) });
     }
   }
+  if (!dry) out.pilot = await sweep(env, cfg);
   return out;
+}
+
+/* WhatsApp autopilot: nudges for customers who have not answered, "delivery booked again" / final-attempt messages */
+async function sweep(env, cfg) {
+  if (!cfg.pilot?.on) return { skipped: 'pilot off' };
+  try { const { pilotSweep } = await import('./ndr-pilot.js'); return await pilotSweep(env, cfg); } catch (e) { console.error('pilotSweep', e); return { error: String(e.message || e) }; }
 }
 
 /* A short WhatsApp note after an automatic action, only inside the 24 h window (free text needs the customer to have written). */

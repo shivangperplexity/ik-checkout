@@ -1069,13 +1069,44 @@ const ACTIONS = {
     stats.rto = log.filter((r) => r.outcome === 'rto').length;
     let refusedTpl = { status: 'UNKNOWN' };
     try { const { withSettings } = await import('./settings.js'); const { metaTemplate } = await import('./whatsapp.js'); const t = await metaTemplate(await withSettings(f), 'ndr_refused_check'); refusedTpl = t ? { status: t.status } : { status: 'MISSING' }; } catch (e) { refusedTpl = { status: 'UNKNOWN', error: String(e.message || e).slice(0, 120) }; }
-    return { ok: true, cfg: ndrCfg(f), categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])), log, stats, ship_failed_on: triggerConfig(f, 'ship_failed').enabled, refused_on: triggerConfig(f, 'ndr_refused').enabled, refused_tpl: refusedTpl };
+    /* autopilot: its templates, and what it did over the same 14 days */
+    const { PILOT_TEMPLATE_NAMES } = await import('./ndr-pilot.js');
+    const pilotTpls = [];
+    try { const { withSettings } = await import('./settings.js'); const { metaTemplate } = await import('./whatsapp.js'); const e2 = await withSettings(f); for (const n of PILOT_TEMPLATE_NAMES) { const t = await metaTemplate(e2, n).catch(() => undefined); pilotTpls.push({ name: n, status: t === undefined ? 'UNKNOWN' : t ? t.status : 'MISSING', category: t?.category || '' }); } } catch { /* shown as unknown */ }
+    const since = now() - 14 * 86400;
+    const pc = async (sql, ...a) => num((await env.DB.prepare(sql).bind(...a).first().catch(() => null))?.n);
+    stats.pilot = {
+      nudged: await pc("SELECT COUNT(*) AS n FROM ndr_auto WHERE nudged_at>? AND COALESCE(pilot_note,'') NOT LIKE 'no nudge%' AND COALESCE(pilot_note,'') NOT LIKE 'nudge failed%'", since),
+      told: await pc("SELECT COUNT(*) AS n FROM ndr_auto WHERE told_at>? AND COALESCE(pilot_note,'') NOT LIKE 'announcement failed%'", since),
+      replies: await pc("SELECT COUNT(*) AS n FROM messages WHERE ts>? AND direction='out' AND template LIKE 'ndr-%' AND trigger='ai'", since),
+      booked: await pc("SELECT COUNT(*) AS n FROM messages WHERE ts>? AND direction='in' AND trigger LIKE 'ndr-pilot-%' AND template='REATTEMPT'", since),
+      saves: await pc("SELECT COUNT(*) AS n FROM shipments WHERE ndr_save_at>?", since),
+      saved: await pc("SELECT COUNT(*) AS n FROM shipments WHERE ndr_save_at>? AND (stage='delivered' OR delivered_at IS NOT NULL)", since),
+      committed: await pc("SELECT COUNT(*) AS n FROM shipments WHERE ndr_commit_at>?", since),
+      fake: await pc("SELECT COUNT(*) AS n FROM shipments WHERE ndr_fake>0 AND ndr_commit_at>?", since),
+    };
+    return { ok: true, pilot_tpls: pilotTpls, ai_on: !!(f.SETTINGS?.ai?.enabled && (f.SETTINGS?.ai?.key || env.GROQ_API_KEY || env.CEREBRAS_API_KEY || env.OPENROUTER_API_KEY || env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY)), cfg: ndrCfg(f), categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])), log, stats, ship_failed_on: triggerConfig(f, 'ship_failed').enabled, refused_on: triggerConfig(f, 'ndr_refused').enabled, refused_tpl: refusedTpl };
   },
   /** Submit ndr_refused_check ("Do you still want it?" with Yes / Cancel buttons) to Meta. */
   async ndr_template(env) {
     const { REFUSED_TEMPLATE } = await import('./ndr-ask.js');
     const r = await ACTIONS.wa_create_templates(env, { templates: [REFUSED_TEMPLATE] });
     const { clearMetaCache } = await import('./whatsapp.js'); clearMetaCache();
+    return { ok: true, ...r };
+  },
+  /** Submit the NDR autopilot templates (nudge, booked again, final attempt) that are not in WhatsApp Manager yet. */
+  async ndr_pilot_templates(env, b) {
+    const { pilotTemplates, PILOT_TEMPLATE_NAMES } = await import('./ndr-pilot.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const base = String(env.WORKER_URL || '').replace(/\/$/, '');
+    if (!/^https:\/\//.test(base)) throw new Error('WORKER_URL (this app\'s https address) is not set, so the template button has nowhere to point');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const want = [];
+    for (const t of pilotTemplates(base)) { const have = await metaTemplate(e2, t.name).catch(() => null); if (!have || have.status === 'REJECTED' || b?.force) want.push(t); }
+    if (!want.length) return { ok: true, created: PILOT_TEMPLATE_NAMES.map((n) => ({ name: n, status: 'EXISTS' })) };
+    const r = await ACTIONS.wa_create_templates(env, { templates: want });
+    clearMetaCache();
     return { ok: true, ...r };
   },
   async save_ndr(env, b) {

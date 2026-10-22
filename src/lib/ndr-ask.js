@@ -69,6 +69,20 @@ export async function pendingAsk(env, phone) {
 
 /** yes = deliver again, no = cancel (return to us). via: 'button' | 'reply'. Replies to the customer. Never throws. */
 export async function answerRefused(env, phone, orderId, yes, via = 'button') {
+  /* NDR autopilot on: Yes = book / confirm the re-attempt, No = one save message first, a second No returns it */
+  try {
+    const { ndrCfg } = await import('./ndr-rules.js');
+    const c = ndrCfg(env);
+    if (c.mode !== 'off' && c.pilot.on) {
+      const P = await import('./ndr-pilot.js');
+      const ctx = await P.ndrContext(env, { orderId });
+      if (ctx && String(ctx.phone) === String(phone)) {
+        if (via === 'button') await logMsg(env, { direction: 'in', phone, trigger: 'reply', template: yes ? 'NDR_YES' : 'NDR_NO', status: 'received', orderName: ctx.order_name, preview: yes ? '[Yes, deliver it]' : '[No, cancel order]' });
+        if (yes) await P.deliverAgain(env, ctx, { via }); else await P.refuseOrSave(env, ctx, { via });
+        return true;
+      }
+    }
+  } catch (e) { console.error('ndr pilot button', e.message); }
   const row = await env.DB.prepare('SELECT o.order_id, o.order_name, o.first_name, o.method, o.total_paise, o.advance_paise, o.converted_at FROM orders o WHERE o.order_id=? AND o.phone=?').bind(String(orderId), String(phone)).first();
   if (!row) return false;
   try {
