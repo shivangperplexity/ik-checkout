@@ -252,7 +252,8 @@ case "$URI" in
 ObjC.import('Foundation');
 ObjC.import('IOBluetooth');
 function str(x) { try { return ObjC.unwrap(x) || ''; } catch (e) { return ''; } }
-function prop(o, k) { var v = o[k]; return typeof v === 'function' ? v.call(o) : v; }
+/* JXA: reading a no-argument method as a property calls it (ObjC objects look like functions, so never call them) */
+function prop(o, k) { return o[k]; }
 function nap(s) { $.NSThread.sleepForTimeInterval(s); }
 function run(argv) {
   var hint = String(argv[0] || 'CD410').toLowerCase(), file = String(argv[1] || '');
