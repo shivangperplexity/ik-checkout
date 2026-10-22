@@ -429,7 +429,7 @@ const ACTIONS = {
     const P = await import('./print-agent.js');
     const s = await P.printerState(env);
     const base = String(env.WORKER_URL || '').replace(/\/$/, '');
-    return { ok: true, auto: s.auto, ready: !!s.key, online: s.online, seen: s.seen, command: s.key && base ? P.setupCommand(base, s.key) : '', jobs: await P.recentJobs(env) };
+    return { ok: true, auto: s.auto, ready: !!(s.key || s.stationOn), online: s.online, seen: s.seen, station: s.stationOn ? s.station : null, command: s.key && base ? P.setupCommand(base, s.key) : '', jobs: await P.recentJobs(env) };
   },
   /** Make (or with fresh, replace) the agent key and return the setup command. */
   async printer_setup(env, b) {
@@ -444,16 +444,26 @@ const ACTIONS = {
   async print_labels(env, b) {
     const P = await import('./print-agent.js');
     const s = await P.printerState(env);
-    if (!s.key) throw new Error('Set up the label printer first (Settings, Label printer)');
+    if (!s.key && !s.stationOn) throw new Error('Set up the label printer first (Settings, Label printer)');
     const n = await P.enqueuePrint(env, b.ids, 'manual');
-    return { ok: true, queued: n, online: s.online };
+    return { ok: true, queued: n, online: s.online || s.stationOn };
   },
   async printer_test(env) {
     const P = await import('./print-agent.js');
     const s = await P.printerState(env);
-    if (!s.key) throw new Error('Set up the label printer first');
+    if (!s.key && !s.stationOn) throw new Error('Set up the label printer first');
     await env.DB.prepare('INSERT INTO print_jobs (order_id, order_name, reason, created_at, tries) VALUES (?,?,?,?,0)').bind('', 'test', 'Test from the dashboard', now()).run();
-    return { ok: true, online: s.online };
+    return { ok: true, online: s.online || s.stationOn };
+  },
+  /** Print station (a phone / computer with the Bluetooth printer): report the last label, check in, take the next one. */
+  async print_station(env, b) {
+    const P = await import('./print-agent.js');
+    if (b.done) await P.jobDone(env, b.done, !!b.ok, b.msg);
+    await P.stationBeat(env, String(b.name || 'Bluetooth printer'), !!b.off);
+    if (b.off) return { ok: true, job: null };
+    const job = await P.nextJob(env);
+    if (!job) return { ok: true, job: null };
+    return { ok: true, job: { id: job.id, order: job.order, pdf: Buffer.from(job.pdf).toString('base64') } };
   },
   /** Which Shopify app the dashboard token belongs to, and the scopes it really has (so a missing one can be named). */
   async shopify_scopes(env) {

@@ -49,6 +49,19 @@
     var c = cfg(); c.last = S.name; save(c);
     return S.name;
   }
+  /* after a page reload: the printer this site was allowed to use before, without the picker (Chrome; Bluefy if it supports it) */
+  async function restore() {
+    if (S.dev || !available() || !navigator.bluetooth.getDevices) return false;
+    try {
+      var list = await navigator.bluetooth.getDevices(), last = cfg().last, d = null;
+      for (var i = 0; i < list.length; i++) if (!d || list[i].name === last) d = list[i];
+      if (!d) return false;
+      S.dev = d; S.name = d.name || 'printer';
+      d.addEventListener('gattserverdisconnected', function () { S.ch = null; });
+      await attach();
+      return true;
+    } catch (e) { S.ch = null; return !!S.dev; }
+  }
   async function ensure() {
     if (S.ch && S.dev && S.dev.gatt.connected) return;
     if (S.dev) { await attach(); return; }
@@ -181,7 +194,7 @@
   }
 
   root.IKBT = {
-    available: available, connect: connect, printPdf: printPdf, printTest: printTest, cfg: cfg, save: save,
+    available: available, connect: connect, restore: restore, known: function () { return !!S.dev; }, printPdf: printPdf, printTest: printTest, cfg: cfg, save: save,
     connected: function () { return !!(S.ch && S.dev && S.dev.gatt && S.dev.gatt.connected); },
     name: function () { return S.name || cfg().last || ''; },
     busy: function () { return S.busy; },

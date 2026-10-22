@@ -30,7 +30,22 @@ export async function printerState(env) {
   const seen = (await row('printer_seen')) || {};
   /* PRINT_AGENT_KEY (Vercel env) works until a key is made in the dashboard */
   const envKey = /^[a-f0-9]{40}$/.test(String(env.PRINT_AGENT_KEY || '')) ? String(env.PRINT_AGENT_KEY) : '';
-  return { auto: cfg.auto !== false, key: cfg.key || envKey, seen, online: Number(seen.at || 0) > now() - 90 };
+  const station = (await row('print_station')) || {};
+  return { auto: cfg.auto !== false, key: cfg.key || envKey, seen, online: Number(seen.at || 0) > now() - 90, station, stationOn: stationFresh(station) };
+}
+/* Print station: a phone or computer holding the Bluetooth printer, with the dashboard open and "Print station" on.
+   It asks for queued labels every few seconds (admin action print_station) and prints them over Bluetooth. While it is
+   checking in, the Mac agent gets no jobs, so one label never goes to two printers. */
+const STATION_FRESH = 45;
+const stationFresh = (st) => Number((st && st.at) || 0) > now() - STATION_FRESH;
+/** Check-in from the print station (written at most every 15 s; off = hand jobs back to the Mac right away). */
+export async function stationBeat(env, name, off = false) {
+  const r = await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind('print_station').first().catch(() => null);
+  let cur = {}; try { cur = r ? JSON.parse(r.v) : {}; } catch { /* none */ }
+  if (!off && Number(cur.at || 0) > now() - 15 && cur.name === name) return cur;
+  const v = { at: off ? 0 : now(), name: String(name || '').slice(0, 60) };
+  await env.DB.prepare('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v').bind('print_station', JSON.stringify(v)).run();
+  return v;
 }
 async function saveCfg(env, patch) {
   const s = await printerState(env);
@@ -61,7 +76,7 @@ export async function enqueuePrint(env, ids, reason = 'manual') {
 /** "Mark packed" with auto-print on: the orders that were marked packed go to the printer. */
 export async function onPacked(env, results) {
   const s = await printerState(env).catch(() => null);
-  if (!s || !s.auto || !s.key) return 0;
+  if (!s || !s.auto || !(s.key || s.stationOn)) return 0;
   return enqueuePrint(env, (results || []).filter((r) => r.ok).map((r) => r.id), 'packed');
 }
 
@@ -358,6 +373,7 @@ export async function handlePrint(req, env) {
       await env.DB.prepare('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v')
         .bind('printer_seen', JSON.stringify({ at: now(), host, printer })).run().catch(() => {});
     }
+    if (st.stationOn) return new Response(null, { status: 204 });   /* the Bluetooth print station is printing */
     const job = await nextJob(env);
     if (!job) return new Response(null, { status: 204 });
     return new Response(job.pdf, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'X-Job-Id': String(job.id), 'X-Order': String(job.order).replace(/[^\w#-]/g, '') } });

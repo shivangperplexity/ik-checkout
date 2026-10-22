@@ -114,6 +114,24 @@ function btPrint(ids){ids=(ids||[]).filter(Boolean);
  ids.forEach(function(id){BTQ=BTQ.then(function(){var o=(S.rows&&S.rows[id])||(SH.rows&&SH.rows[id])||{};var nm=o.name||o.order_name||id;toast('Printing '+nm+' over Bluetooth…');
   return btLabelPdf(id).then(function(pdf){return IKBT.printPdf(pdf)}).then(function(){toast(nm+' printed')}).catch(function(e){toast(nm+': '+e.message)})})});
  return BTQ}
+/* Print station: this device takes the labels queued from any device and prints them over Bluetooth (rpc print_station) */
+var ST={t:null,run:false,done:null,last:'',wl:null};
+function stationText(){return !IKBT.known()?'<b style="color:var(--warn)">Connect the printer above to start</b>':ST.last?esc(ST.last):'<b style="color:var(--ok)">Waiting for labels</b> · checks every 5 seconds'}
+function stationShow(m){ST.last=m;var x=$('#bt_stx');if(x)x.innerHTML=stationText()}
+function stationAwake(){try{if(navigator.wakeLock&&!ST.wl&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){ST.wl=l;l.addEventListener('release',function(){ST.wl=null})}).catch(function(){})}catch(e){}}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&window.IKBT&&IKBT.cfg().station){stationAwake();stationLoop()}});
+function stationOff(){clearTimeout(ST.t);try{if(ST.wl)ST.wl.release()}catch(e){}var d=ST.done;ST.done=null;if(token)rpc('print_station',Object.assign({off:true},d||{})).catch(function(){})}
+function stationLoop(){clearTimeout(ST.t);if(!window.IKBT||!IKBT.cfg().station||!token)return;
+ if(ST.run){ST.t=setTimeout(stationLoop,3000);return}
+ if(!IKBT.known()){IKBT.restore().then(function(ok){if(ok){btCard()}ST.t=setTimeout(stationLoop,ok?500:5000)});return}
+ stationAwake();ST.run=true;var d=ST.done;ST.done=null;
+ rpc('print_station',Object.assign({name:IKBT.name()},d||{})).then(function(r){
+  if(!r.job)return 5000;
+  var j=r.job;stationShow('Printing '+j.order+'…');toast('Printing '+j.order+' (sent from another device)…');
+  var bin=atob(j.pdf),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+  return (BTQ=BTQ.then(function(){return IKBT.printPdf(u)})).then(function(){ST.done={done:j.id,ok:true};stationShow(j.order+' printed at '+new Date().toLocaleTimeString('en-IN'));return 500},
+   function(e){stationShow(j.order+': '+e.message+' (tries again)');return 8000});
+ }).catch(function(e){if(ST.done==null&&d)ST.done=d;stationShow('Not reaching the server: '+e.message);return 10000}).then(function(ms){ST.run=false;ST.t=setTimeout(stationLoop,ms)})}
 function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 
 /* ---- login ---- */
@@ -122,7 +140,7 @@ $('#lf').addEventListener('submit',function(e){e.preventDefault();$('#le').textC
   $('#lb').disabled=false;if(!j.ok){$('#le').textContent=j.error||'Sign in failed';return}
   token=j.token;ls('ik_admin_tok',token);ls('ik_admin_email',j.email);start()}).catch(function(){$('#lb').disabled=false;$('#le').textContent='Network error'})});
 $('#out').onclick=logout;
-function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');$('#who').textContent=ls('ik_admin_email')||'';
+function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');setTimeout(function(){if(window.IKBT&&IKBT.cfg().station)stationLoop()},1500);$('#who').textContent=ls('ik_admin_email')||'';
  $('#nav').innerHTML=TABS.map(function(t){return '<button data-t="'+t[0]+'">'+t[1]+(t[0]==='live'?'<span class="dot" id="livedot">0</span>':t[0]==='chats'?'<span class="dot hide" id="chatdot" style="background:var(--bad)">0</span>':'')+'</button>'}).join('');
  $('#nav').onclick=function(e){var b=e.target.closest('button');if(b)go(b.dataset.t)};go(tab);setTimeout(tick,1500);setTimeout(chatCount,700);
  clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;tick();if(tab==='live')loadLive(true);else if((tab==='orders'||tab==='unshipped')&&!$('#ov').innerHTML)loadOrders(true);else if(tab==='ship'&&!shSel().length&&!SH.report&&(SH.tick=(SH.tick||0)+1)%6===0)loadShip(true);else if(tab==='chats'&&!$('#ov').innerHTML&&(CH.tick=(CH.tick||0)+1)%2===0)loadChats(true);if((CH.ct=(CH.ct||0)+1)%6===1)chatCount()},5000);
@@ -202,10 +220,13 @@ function btCard(){var c=$('#bt_card');if(!c)return;
   +'<div class="grid two"><label class="f">Printer mode<select id="bt_md"><option value="tspl"'+(g.mode==='tspl'?' selected':'')+'>Label mode (TSPL)</option><option value="escpos"'+(g.mode==='escpos'?' selected':'')+'>Receipt mode (ESC/POS)</option></select></label>'
   +'<label class="f">Label size (mm)<span class="row" style="margin:0;gap:6px"><input type="number" id="bt_w" value="'+g.w+'" style="width:70px"> × <input type="number" id="bt_h" value="'+g.h+'" style="width:70px"> gap <input type="number" id="bt_g" value="'+g.gap+'" style="width:55px"></span></label></div>'
   +'<label class="row small"><input type="checkbox" id="bt_au"'+(g.auto?' checked':'')+'> Print automatically when I mark orders packed on this device</label>'
-  +'<label class="row small"><input type="checkbox" id="bt_iv"'+(g.invert?' checked':'')+'> Invert black and white (only if the test comes out as a black block)</label>';
+  +'<label class="row small"><input type="checkbox" id="bt_iv"'+(g.invert?' checked':'')+'> Invert black and white (only if the test comes out as a black block)</label>'
+  +'<label class="row small"><input type="checkbox" id="bt_st"'+(g.station?' checked':'')+'> <b>Print station:</b> this device prints every label sent to the printer from any phone or computer (Mark packed, Print label). Keep this page open here with the screen on.</label>'
+  +(g.station?'<div class="small" id="bt_stx">'+stationText()+'</div>':'');
  c.innerHTML=h;
  function keep(){var x=IKBT.cfg();x.mode=$('#bt_md').value;x.w=+$('#bt_w').value||100;x.h=+$('#bt_h').value||150;x.gap=+$('#bt_g').value||0;x.auto=$('#bt_au').checked;x.invert=$('#bt_iv').checked;IKBT.save(x)}
  ['#bt_md','#bt_w','#bt_h','#bt_g','#bt_au','#bt_iv'].forEach(function(k){$(k).onchange=function(){keep();toast('Saved on this device')}});
+ $('#bt_st').onchange=function(){var x=IKBT.cfg();x.station=this.checked;IKBT.save(x);if(x.station){toast('Print station on: labels from any device print here');stationLoop()}else{stationOff()}btCard()};
  $('#bt_cn').onclick=function(){var b=this;b.disabled=true;IKBT.connect().then(function(n){toast('Connected to '+n);btCard()}).catch(function(e){b.disabled=false;toast(/cancel/i.test(e.message)?'No printer chosen':e.message)})};
  $('#bt_ts').onclick=function(){var b=this;b.disabled=true;b.textContent='Printing…';keep();IKBT.printTest().then(function(){toast('Test sent. Did it print?')}).catch(function(e){toast(e.message)}).then(function(){b.disabled=false;b.textContent='Print test'})};
 }
@@ -213,7 +234,7 @@ function printerCard(){btCard();var c=$('#pr_card');if(!c)return;rpc('printer_in
  var st=r.online?'<b style="color:var(--ok)">Online</b> · '+esc(r.seen.printer||'default printer')+' on '+esc(r.seen.host||'the Mac')+' · checked '+ago(r.seen.at):r.seen&&r.seen.at?'<b style="color:var(--warn)">Offline</b> since '+ago(r.seen.at)+' (the Mac is asleep, off, or not logged in)':'<b class="mut">Not set up yet</b>';
  var JS={true:'printed',false:'failed'};
  var h='<h3>Label printer</h3><p class="small mut" style="margin:0">Prints the 6×4 in label on the thermal printer plugged into your packing Mac, from any device: phone, laptop or the packing scan. A small background program on that Mac picks labels up within about 5 seconds.</p>'
-  +'<div class="small">'+st+'</div>'
+  +'<div class="small">'+st+'</div>'+(r.station?'<div class="small"><b style="color:var(--ok)">Print station on</b> · '+esc(r.station.name||'Bluetooth printer')+': labels go there (not to the Mac) while it is on</div>':'')
   +'<label class="row small"><input type="checkbox" id="pr_auto"'+(r.auto?' checked':'')+'> <b>Print the label automatically when an order is marked packed</b> (orders not booked yet print the moment they are booked)</label>';
  if(r.command)h+='<div class="small"><b>Set up a Mac</b> (once): open Terminal on the Mac the printer is plugged into, paste this, press Return and pick the printer:</div><div class="row" style="margin:0"><input id="pr_cmd" readonly value="'+esc(r.command)+'" style="flex:1;font:12px ui-monospace,Menlo,monospace"><button class="btn sm" id="pr_cp" type="button">Copy</button></div>';
  else h+='<button class="btn sm" id="pr_mk" type="button">Set up a Mac</button>';
