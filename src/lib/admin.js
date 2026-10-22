@@ -759,7 +759,7 @@ const ACTIONS = {
     const r = await bookShipment(fresh, order, row, { pickOption });
     /* the AWB exists in Shiprocket either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
-    return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil };
+    return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil, note: r.note || '' };
   },
   async sr_docs(env, b) {
     const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();

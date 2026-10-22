@@ -55,6 +55,26 @@ export async function sr(env, method, path, body) {
 }
 
 /* ---------- pickup locations ---------- */
+/**
+ * Why an AWB was not given. Shiprocket passes the courier's own reply through (Delhivery: packages[].remarks /
+ * status / serviceable); this pulls the readable part out instead of a truncated JSON dump.
+ */
+export function awbFailReason(a) {
+  const rd = a?.response?.data || a?.data || {};
+  const bits = [];
+  const add = (x) => { if (x === undefined || x === null || x === '') return; if (Array.isArray(x)) x.forEach(add); else if (typeof x === 'object') Object.values(x).forEach(add); else bits.push(String(x)); };
+  add(rd.awb_assign_error);
+  for (const p of Array.isArray(rd.packages) ? rd.packages : []) {
+    if (p.remarks && (!Array.isArray(p.remarks) || p.remarks.length)) add(p.remarks);
+    else if (p.status && !/success/i.test(p.status)) add(p.status);
+    if (p.serviceable === false) bits.push('PIN not serviceable by this courier');
+  }
+  add(rd.rmk); add(rd.error); add(rd.message);
+  add(a?.errors); if (a?.message && !/^Shiprocket courier\/assign/.test(a.message)) add(a.message);
+  return [...new Set(bits.map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean))].join(' · ').slice(0, 300);
+}
+const WALLET = /wallet|recharge|insufficient (balance|fund)|low balance|balance (is )?(low|insufficient)/i;
+
 /** Shiprocket wallet balance in rupees (cached 5 min; null when it cannot be read). */
 let walletCache = { at: 0, v: null };
 export async function srWallet(env, fresh = false) {
@@ -252,12 +272,34 @@ export async function bookShipment(env, order, row, { pickOption }) {
     await save({ courier: plan.pick.courier, courier_id: plan.pick.id, charge_paise: Math.round((plan.pick.charge || 0) * 100) });
     rec.courier = plan.pick.courier; rec.courier_id = plan.pick.id;
   }
-  const a = await sr(env, 'POST', 'courier/assign/awb', { shipment_id: rec.sr_shipment_id, courier_id: String(rec.courier_id || plan.pick.id) });
-  const rd = a.response?.data || a.data || {};
-  const awb = rd.awb_code || a.awb_code;
-  if (!awb) throw new Error('Shiprocket did not give an AWB: ' + (rd.awb_assign_error || a.message || JSON.stringify(a).slice(0, 240)) + '. Check your Shiprocket wallet balance.');
-  const courier = rd.courier_name || rec.courier || plan.pick.courier;
-  await save({ awb: String(awb), courier, status: 'booked' });
+  /* A courier can refuse a parcel Shiprocket listed (its own PIN / COD / pickup rules): the next cheapest one is
+     tried, up to 3 couriers. Only a wallet problem stops at once (another courier would not help). */
+  let cur = { id: String(rec.courier_id || plan.pick.id), courier: rec.courier || plan.pick.courier, charge: Number(rec.charge_paise || 0) / 100 || plan.pick.charge };
+  const tried = new Set(), reasons = [];
+  let awb = '', rd = {};
+  for (let i = 0; i < 3 && !awb; i++) {
+    let a;
+    try { a = await sr(env, 'POST', 'courier/assign/awb', { shipment_id: rec.sr_shipment_id, courier_id: cur.id }); }
+    catch (e) { if (e.status === 401 || e.status === 403) throw e; a = { ...(e.body || {}), message: e.body?.message || e.message }; }
+    rd = a.response?.data || a.data || {};
+    awb = rd.awb_code || a.awb_code || '';
+    if (awb) break;
+    const why = awbFailReason(a) || 'no reason given';
+    reasons.push(`${cur.courier}: ${why}`);
+    tried.add(cur.id);
+    if (WALLET.test(why)) break;
+    const next = plan.options.find((o) => o.id && !tried.has(String(o.id)));
+    if (!next) break;
+    cur = { id: String(next.id), courier: next.courier, charge: next.charge };
+    await save({ courier: cur.courier, courier_id: cur.id, charge_paise: Math.round((cur.charge || 0) * 100) });
+  }
+  if (!awb) {
+    let hint = '';
+    try { const bal = await srWallet(env, true); if (bal !== null && bal < (cur.charge || 0) + 1) hint = ` Your Shiprocket wallet has ₹${bal}, less than this shipment's ₹${cur.charge}: recharge it.`; } catch { /* balance unknown */ }
+    throw new Error(`Shiprocket could not assign an AWB. ${reasons.join(' | ')}.${hint}`);
+  }
+  const courier = rd.courier_name || cur.courier;
+  await save({ awb: String(awb), courier, courier_id: cur.id, charge_paise: Math.round((cur.charge || 0) * 100), status: 'booked' });
 
   /* 3. pickup + label (a failure here does not undo the AWB; they can be retried from the dashboard) */
   let pickupNote = '', label = '';
@@ -266,7 +308,7 @@ export async function bookShipment(env, order, row, { pickOption }) {
   try { const l = await sr(env, 'POST', 'courier/generate/label', { shipment_id: [Number(rec.sr_shipment_id)] }); label = l.label_url || ''; } catch { /* label can be fetched later */ }
   await save({ pickup: pickupNote, label_url: label });
   rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
-  return { ok: true, shipment: publicRec(rec), pack: plan.pack };
+  return { ok: true, shipment: publicRec(rec), pack: plan.pack, note: reasons.length ? `Booked with ${rec.courier} (${reasons.join(' | ')})`.slice(0, 300) : '' };
 }
 
 /** What Shiprocket has on its order: { total (₹), cod (bool) } — the total is the amount a COD courier collects. */

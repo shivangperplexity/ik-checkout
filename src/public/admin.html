@@ -249,7 +249,7 @@ function bulkShip(){var ids=selIds();if(!ids.length)return;
  function step(){if(i>=ids.length)return finish();
   if(go){go.disabled=true;go.textContent='Shipping '+(i+1)+' of '+ids.length+'…'}
   var id=ids[i],nm=S.rows[id].name;
-  rpc('ship_book',{id:id}).then(function(b){res.push({id:id,name:nm,ok:true,courier:b.shipment.courier,awb:b.shipment.awb,warn:b.fulfilment_error||''})})
+  rpc('ship_book',{id:id}).then(function(b){res.push({id:id,name:nm,ok:true,courier:b.shipment.courier,awb:b.shipment.awb,warn:[b.note||'',b.fulfilment_error||''].filter(Boolean).join(' · ')})})
    .catch(function(er){res.push({id:id,name:nm,ok:false,err:er.message})}).then(function(){i++;step()})}
  step()}
 var COURIERS=['Delhivery','DTDC','Xpressbees','Ecom Express','Shadowfax','India Post','Amazon Shipping','Other'];
@@ -285,7 +285,7 @@ function shipPanel(id,o){
   var g=$('#sr_go');if(g)g.onclick=function(){
    if(!confirm('Book '+(pk?pk.courier:'the cheapest courier')+' for '+o.name+'? This creates the AWB, asks for pickup and charges your Shiprocket wallet.'))return;
    g.disabled=true;g.textContent='Booking…';
-   rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped');el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
+   rpc('ship_book',{id:id}).then(function(b){toast((b.note?b.note+'. ':'')+(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped'));el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
  }
  function wireDone(sp){
   var d=$('#sr_dc'),c=$('#sr_cx'),f=$('#sr_ff');
