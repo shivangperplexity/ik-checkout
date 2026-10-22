@@ -237,7 +237,7 @@ while true; do
     [ -e "$F" ] || break
     if [ -s "$F" ]; then
       N=$(wc -c < "$F" | tr -d ' ')
-      ( exec 3<>"$BT" || exit 9; stty -f "$BT" raw -echo -opost 2>/dev/null; cat "$F" >&3; sleep 2 ) &
+      ( cat "$F" > "$BT" ) &
       P=$!
       ( sleep 120; kill -9 $P 2>/dev/null ) &
       K=$!
@@ -265,6 +265,9 @@ IKRELAY
 </dict></plist>
 IKRP
       launchctl unload "$RPL" >/dev/null 2>&1 || true
+      sleep 1
+      # anything still holding the Bluetooth port (an old stuck send) is stopped, or the printer stays busy
+      for HP in $(lsof -t "$BT" 2>/dev/null); do kill -9 "$HP" 2>/dev/null; done
       launchctl load -w "$RPL"
       echo "Bluetooth: labels go to $BT"
     fi;;
@@ -272,6 +275,13 @@ esac
 launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load -w "$PLIST"
 curl -s -m 15 -X POST "$URL/api/print/test" --data-urlencode "k=$KEY" --data-urlencode "printer=$PRINTER" >/dev/null || true
+echo ""
+echo "Checking (20 seconds)..."
+sleep 20
+echo "-- print queue:"; lpstat -o "$PRINTER" 2>/dev/null | head -5; echo "(end)"
+[ -f "$DIR/relay.log" ] && { echo "-- relay:"; tail -n 4 "$DIR/relay.log"; }
+[ -f "$DIR/agent.log" ] && { echo "-- agent:"; tail -n 3 "$DIR/agent.log"; }
+[ -f "$DIR/bt-port" ] && { echo "-- port:"; lsof "$(cat "$DIR/bt-port")" 2>/dev/null | tail -n +2 | awk '{print $1, $2}' | head -3; echo "(end)"; }
 echo ""
 echo "Done. Labels will print on: $PRINTER"
 echo "A test label is on its way (a few seconds). This keeps running in the background and starts by itself when you log in."
