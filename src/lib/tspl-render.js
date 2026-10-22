@@ -22,7 +22,8 @@ async function pdfjs() {
   PDFJS = lib;
   return lib;
 }
-const fontDir = () => path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts') + path.sep;
+/* pdfjs-dist/legacy/build/pdf.mjs -> pdfjs-dist/standard_fonts/ (package.json is not exported, so resolve the build file) */
+const fontDir = () => path.join(path.dirname(require.resolve('pdfjs-dist/legacy/build/pdf.mjs')), '..', '..', 'standard_fonts') + path.sep;
 
 const ascii = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 255);
 const concat = (list) => { const out = new Uint8Array(list.reduce((n, x) => n + x.length, 0)); let o = 0; for (const x of list) { out.set(x, o); o += x.length; } return out; };
