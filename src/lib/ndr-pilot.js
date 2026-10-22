@@ -389,6 +389,46 @@ const SWEEP_SQL = `SELECT n.awb, n.k, n.attempt, n.category, n.first_seen, n.act
   FROM ndr_auto n JOIN shipments s ON s.awb = n.awb JOIN orders o ON o.order_id = s.order_id`;
 const ENDED = (r) => ['delivered', 'rto', 'lost', 'cancelled'].includes(String(r.stage || '')) || r.order_status === 'cancelled';
 
+/**
+ * Is this trigger's template approved in WhatsApp Manager? Checked before sending so a template still in review is
+ * held quietly (no "failed" line in the message log every hour). Unknown (Go4WhatsUp, no WABA id): let the send try.
+ */
+async function templateReady(env, key) {
+  if (viaG4w(env) || !env.WA_WABA_ID) return { ok: true };
+  try {
+    const { triggerConfig } = await import('./settings.js');
+    const { metaTemplate } = await import('./whatsapp.js');
+    const name = triggerConfig(env, key).name;
+    const t = await metaTemplate(env, name);
+    return t && t.status === 'APPROVED' ? { ok: true } : { ok: false, error: `template "${name}" not found or not approved (status ${t ? t.status : 'MISSING'})` };
+  } catch { return { ok: true }; }
+}
+
+/**
+ * Templates this app needs that are not in WhatsApp Manager yet are submitted by the server itself (no dashboard
+ * login needed): the three NDR ones and the 30-minute pay-online offer. At most every 6 hours.
+ */
+export async function submitMissingTemplates(env) {
+  const t = now();
+  const last = await env.DB.prepare("SELECT v FROM settings WHERE k='tpl_autosubmit_at'").first().catch(() => null);
+  if (Number(String(last?.v || '0').replace(/"/g, '')) > t - 6 * 3600) return { skipped: 'submitted recently' };
+  await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('tpl_autosubmit_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(t)).run();
+  const out = {};
+  try {
+    const { action } = await import('./admin.js');
+    const r = await action('ndr_pilot_templates')(env, {});
+    out.ndr = (r.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    clearMetaCache();
+    if (!(await metaTemplate(env, 'cod_prepaid_offer_v2').catch(() => undefined))) {
+      const c = await action('convert_template')(env, {});
+      out.offer = (c.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);
+    }
+  } catch (e) { out.error = String(e.message || e).slice(0, 200); }
+  console.log('templates auto-submitted', JSON.stringify(out));
+  return out;
+}
+
 async function nudge(env, r) {
   const items = itemsOf(r);
   if (await lastIn(env, r.phone) > now() - WINDOW) {
@@ -397,6 +437,8 @@ async function nudge(env, r) {
     const res = await say(env, r, text, 'ndr-nudge', [{ id: `NDR_YES:${r.order_id}`, title: 'Deliver it to me' }], 'ndr-pilot');
     return res.ok ? { ok: true } : { ok: false, error: res.error };
   }
+  const ready = await templateReady(env, 'ndr_nudge');
+  if (!ready.ok) return ready;
   return fireTrigger(env, 'ndr_nudge', { to: r.phone, vars: { name: r.first_name || 'there', order: r.order_name, items, ndrkey: await ndrKey(env, r.order_id) }, orderId: String(r.order_id), orderName: r.order_name });
 }
 
@@ -409,6 +451,8 @@ async function tell(env, r, last) {
     const res = await say(env, r, text, last ? 'ndr-last' : 'ndr-booked', [{ id: `NDR_YES:${r.order_id}`, title: "Yes, I'll receive it" }], 'ndr-pilot');
     return res.ok ? { ok: true } : { ok: false, error: res.error };
   }
+  const ready = await templateReady(env, last ? 'ndr_last_attempt' : 'ndr_rescheduled');
+  if (!ready.ok) return ready;
   return fireTrigger(env, last ? 'ndr_last_attempt' : 'ndr_rescheduled', { to: r.phone, vars: { name: r.first_name || 'there', order: r.order_name, when, amount, ndrkey: await ndrKey(env, r.order_id) }, orderId: String(r.order_id), orderName: r.order_name });
 }
 
@@ -452,6 +496,8 @@ export async function pilotSweep(env, cfg = ndrCfg(env)) {
     await mark(r, 'told_at', res.ok ? '' : 'announcement failed: ' + String(res.error || res.skipped || '').slice(0, 120));
     if (res.ok) out.told++; else out.failed++;
   }
+  /* something is waiting for a template that Meta does not have yet: submit it */
+  if (out.pending) out.templates = await submitMissingTemplates(env).catch((e) => ({ error: e.message }));
   return out;
 }
 
