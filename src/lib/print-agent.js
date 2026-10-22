@@ -195,6 +195,18 @@ export async function handlePrint(req, env) {
     if (st.stationOn) return new Response(null, { status: 204 });   /* the Bluetooth print station is printing */
     const job = await nextJob(env);
     if (!job) return new Response(null, { status: 204 });
+    const head = { 'Cache-Control': 'no-store', 'X-Job-Id': String(job.id), 'X-Order': String(job.order).replace(/[^\w#-]/g, '') };
+    if (get('fmt') === 'tspl') {
+      /* Bluetooth link on the Mac: ready printer commands, drawn here at the printer's resolution (sharpest print) */
+      try {
+        const { pdfToTspl } = await import('./tspl-render.js');
+        const r = await pdfToTspl(job.pdf, await printTune(env));
+        return new Response(r.bytes, { status: 200, headers: { ...head, 'Content-Type': 'application/octet-stream', 'X-Format': 'tspl', 'X-Pages': String(r.pages) } });
+      } catch (e) {
+        console.error('print render', job.order, e.message);
+        return new Response(job.pdf, { status: 200, headers: { ...head, 'Content-Type': 'application/pdf', 'X-Format': 'pdf', 'X-Render-Error': String(e.message || e).replace(/[^\x20-\x7e]/g, '').slice(0, 150) } });
+      }
+    }
     return new Response(job.pdf, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'X-Job-Id': String(job.id), 'X-Order': String(job.order).replace(/[^\w#-]/g, '') } });
   }
   if (op === 'log') { console.log('print-log', get('host').slice(0, 40), '\n' + get('log').slice(0, 4000)); return text('ok'); }

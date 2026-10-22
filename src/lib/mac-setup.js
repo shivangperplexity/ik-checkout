@@ -31,22 +31,23 @@ while true; do
   H=$(date +%H); H=$((10#$H))
   if [ "$H" -ge 8 ] && [ "$H" -lt 23 ]; then WAIT=5; else WAIT=30; fi
   P="$PRINTER"; [ -z "$P" ] && P=$(lpstat -d 2>/dev/null | sed -n 's/^system default destination: //p')
-  CODE=$(curl -s -m 25 -o "$DIR/job.pdf" -D "$DIR/head.txt" -w '%{http_code}' -G "$URL/api/print/next" --data-urlencode "k=$KEY" --data-urlencode "host=$(hostname -s)" --data-urlencode "printer=$P")
+  FMT=pdf; [ -f "$DIR/direct" ] && FMT=tspl
+  CODE=$(curl -s -m 40 -o "$DIR/job.bin" -D "$DIR/head.txt" -w '%{http_code}' -G "$URL/api/print/next" --data-urlencode "k=$KEY" --data-urlencode "fmt=$FMT" --data-urlencode "host=$(hostname -s)" --data-urlencode "printer=$P")
   if [ "$CODE" = "200" ]; then
     ID=$(grep -i '^x-job-id:' "$DIR/head.txt" | tr -d '\r' | awk '{print $2}')
     ORD=$(grep -i '^x-order:' "$DIR/head.txt" | tr -d '\r' | cut -d' ' -f2-)
-    if [ -f "$DIR/direct" ]; then
-      # Bluetooth link: it draws the label itself at the printer's resolution (sharpest print)
-      F="$(date +%s)-job$ID.pdf"
-      cp "$DIR/job.pdf" "$SP/$F.part" && mv "$SP/$F.part" "$SP/$F"
+    XF=$(grep -i '^x-format:' "$DIR/head.txt" | tr -d '\r' | awk '{print $2}')
+    if [ "$XF" = "tspl" ] && [ -f "$DIR/direct" ]; then
+      # ready printer commands (drawn by the server at the printer's resolution): the Bluetooth link sends them
+      F="$(date +%s)-job$ID.prn"
+      cp "$DIR/job.bin" "$SP/$F.part" && mv "$SP/$F.part" "$SP/$F"
       W=0; while [ -f "$SP/$F" ] && [ $W -lt 150 ]; do sleep 1; W=$((W+1)); done
-      if [ -f "$SP/failed/$F.err" ]; then
-        # the link could not draw / send it: print it the older way (through the Mac's printer driver) so the label still comes out
-        ERR="$(cat "$SP/failed/$F.err")"
-        if OUT=$(lp -d "$P" -o fit-to-page "$DIR/job.pdf" 2>&1); then ST=1; OUT="sent through the Mac's printer driver (link: $ERR)"; else ST=0; OUT="$ERR / $OUT"; fi
+      if [ -f "$SP/failed/$F.err" ]; then ST=0; OUT="$(cat "$SP/failed/$F.err")"
       elif [ -f "$SP/$F" ]; then ST=0; OUT="printer not reachable yet: the label prints as soon as it connects"
       else ST=1; OUT="printed over Bluetooth"; fi
     else
+      [ "$XF" = "pdf" ] && [ "$FMT" = "tspl" ] && lg "server could not draw $ORD: $(grep -i '^x-render-error:' "$DIR/head.txt" | tr -d '\r' | cut -d' ' -f2-)"
+      cp "$DIR/job.bin" "$DIR/job.pdf"
       if OUT=$(lp -d "$P" -o fit-to-page "$DIR/job.pdf" 2>&1); then ST=1; else ST=0; fi
     fi
     curl -s -m 15 -X POST "$URL/api/print/done" --data-urlencode "k=$KEY" --data-urlencode "id=$ID" --data-urlencode "ok=$ST" --data-urlencode "msg=$OUT" >/dev/null
@@ -175,9 +176,18 @@ HINT="$(cat "$DIR/bt-name" 2>/dev/null)"; [ -z "$HINT" ] && HINT="CD410"
     F="$SP/$(date +%s)-$$-$RANDOM.prn"
     if nc -l 127.0.0.1 9100 > "$F.part"; then [ -s "$F.part" ] && mv "$F.part" "$F" || rm -f "$F.part"; else rm -f "$F.part"; sleep 2; fi
   done ) &
+CR=0; LASTF=""
 while true; do
-  /usr/bin/osascript -l JavaScript "$DIR/ik-bt-link.js" serve "$HINT" "$SP" "$DIR/relay.log" "$DIR/settings.json"
-  echo "$(date '+%d %b %H:%M:%S') link restarted" >> "$DIR/relay.log"; sleep 3
+  FIRST=$(ls "$SP" 2>/dev/null | grep -E '\.prn$' | sort | head -1)
+  /usr/bin/osascript -l JavaScript "$DIR/ik-bt-link.js" serve "$HINT" "$SP" "" "$DIR/settings.json" 2>> "$DIR/relay.log"
+  RC=$?
+  echo "$(date '+%d %b %H:%M:%S') link stopped (code $RC), restarting" >> "$DIR/relay.log"
+  # a label the link keeps failing on is set aside so the others still print
+  if [ -n "$FIRST" ] && [ -f "$SP/$FIRST" ]; then
+    if [ "$FIRST" = "$LASTF" ]; then CR=$((CR+1)); else CR=1; LASTF="$FIRST"; fi
+    if [ $CR -ge 2 ]; then mkdir -p "$SP/failed"; mv "$SP/$FIRST" "$SP/failed/"; echo "the Bluetooth link stopped (code $RC) while sending this label" > "$SP/failed/$FIRST.err"; CR=0; fi
+  fi
+  sleep 3
 done
 IKRELAY
     chmod +x "$DIR/ik-bt-relay.sh"
@@ -200,6 +210,7 @@ IKCMD
 </dict></plist>
 IKRP
     stop_link
+    rm -f "$DIR/spool/"*.pdf
     sleep 1
     touch "$DIR/direct"
     echo "$(date '+%d %b %H:%M:%S') setup: Bluetooth link for $HINT (labels drawn at the printer's resolution)" >> "$DIR/relay.log"

@@ -10,8 +10,10 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.13",
     "@neondatabase/serverless": "^1.0.0",
     "@vercel/functions": "^2.0.0",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
   }
 }
