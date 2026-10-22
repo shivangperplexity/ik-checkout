@@ -43,7 +43,7 @@ export default {
       /* WhatsApp shipment updates from Shiprocket tracking. */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { shipUpdates } = await import('../lib/wa-ship.js'); return shipUpdates(await withSettings(env)); })().catch((e) => console.error('shipUpdates', e));
       /* automatic NDR rules: re-attempt / return / wait for the customer (lib/ndr-rules.js) */
-      await (async () => { const { withSettings } = await import('../lib/settings.js'); const { autoNdr } = await import('../lib/ndr-rules.js'); const r = await autoNdr(await withSettings(env)); const pl = r.pilot || {}; if (r.actions?.length || r.failed || r.error || pl.nudged || pl.told || pl.failed || pl.error || pl.pending) console.log('autoNdr', JSON.stringify(r)); })().catch((e) => console.error('autoNdr', e));
+      await (async () => { const { withSettings } = await import('../lib/settings.js'); const { autoNdr } = await import('../lib/ndr-rules.js'); const r = await autoNdr(await withSettings(env)); const pl = r.pilot || {}; if (r.actions?.length || r.failed || r.error || pl.nudged || pl.told || pl.failed || pl.error || pl.pending || pl.templates) console.log('autoNdr', JSON.stringify(r)); })().catch((e) => console.error('autoNdr', e));
     }
     return handle(req, env, ctx);
   },

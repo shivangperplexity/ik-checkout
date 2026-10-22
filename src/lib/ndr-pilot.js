@@ -462,6 +462,7 @@ export async function pilotSweep(env, cfg = ndrCfg(env)) {
   const out = { nudged: 0, told: 0, failed: 0 };
   if (!cfg.pilot.on) return { ...out, skipped: 'off' };
   if (cfg.pilot.quiet && !daytime(t)) return { ...out, quiet: true };
+  /* (templates are checked below even when nothing is due) */
   const mark = (r, col, note = '') => env.DB.prepare(`UPDATE ndr_auto SET ${col}=?, pilot_note=? WHERE awb=? AND k=?`).bind(t, note || null, r.awb, r.k).run();
   /* sends that failed only because the template was not approved yet are tried again (hourly) */
   const RETRY_SQL = "LIKE '%not found or not approved%'";
@@ -496,8 +497,9 @@ export async function pilotSweep(env, cfg = ndrCfg(env)) {
     await mark(r, 'told_at', res.ok ? '' : 'announcement failed: ' + String(res.error || res.skipped || '').slice(0, 120));
     if (res.ok) out.told++; else out.failed++;
   }
-  /* something is waiting for a template that Meta does not have yet: submit it */
-  if (out.pending) out.templates = await submitMissingTemplates(env).catch((e) => ({ error: e.message }));
+  /* templates Meta does not have yet are submitted ahead of need (checked at most every 6 h) */
+  const sub = await submitMissingTemplates(env).catch((e) => ({ error: e.message }));
+  if (!sub.skipped) out.templates = sub;
   return out;
 }
 
