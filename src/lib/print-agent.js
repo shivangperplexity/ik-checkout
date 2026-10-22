@@ -149,6 +149,12 @@ while true; do
     continue
   fi
   [ "$CODE" = "401" ] && WAIT=300
+  M="$(stat -f %m "$DIR/relay.log" 2>/dev/null)-$(stat -f %m "$DIR/agent.log" 2>/dev/null)"
+  if [ "$M" != "$LASTM" ]; then
+    LASTM="$M"
+    { echo "relay:"; tail -n 15 "$DIR/relay.log" 2>/dev/null; echo "agent:"; tail -n 5 "$DIR/agent.log" 2>/dev/null; echo "port: $(cat "$DIR/bt-port" 2>/dev/null) $(ls -l "$(cat "$DIR/bt-port" 2>/dev/null)" 2>&1 | awk '{print $1}')"; echo "queue:"; lpstat -o "$P" 2>/dev/null | head -3; } > "$DIR/upload.txt" 2>&1
+    curl -s -m 15 -X POST "$URL/api/print/log" --data-urlencode "k=$KEY" --data-urlencode "host=$(hostname -s)" --data-urlencode "log@$DIR/upload.txt" >/dev/null
+  fi
   sleep $WAIT
 done
 `;
@@ -237,13 +243,13 @@ while true; do
     [ -e "$F" ] || break
     if [ -s "$F" ]; then
       N=$(wc -c < "$F" | tr -d ' ')
-      ( cat "$F" > "$BT" ) &
+      ( log "job $N bytes: opening $BT"; exec 3>"$BT" || { log "could not open $BT"; exit 9; }; log "opened, sending"; cat "$F" >&3; R=$?; log "sent rc=$R"; sleep 1 ) &
       P=$!
       ( sleep 120; kill -9 $P 2>/dev/null ) &
       K=$!
       wait $P; RC=$?
       kill $K 2>/dev/null
-      log "sent $N bytes to $BT rc=$RC"
+      [ "$RC" = "137" ] && log "gave up after 2 minutes (the printer did not take the data)"
     fi
     rm -f "$F"
   done
@@ -315,6 +321,7 @@ export async function handlePrint(req, env) {
     if (!job) return new Response(null, { status: 204 });
     return new Response(job.pdf, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'X-Job-Id': String(job.id), 'X-Order': String(job.order).replace(/[^\w#-]/g, '') } });
   }
+  if (op === 'log') { console.log('print-log', get('host').slice(0, 40), '\n' + get('log').slice(0, 4000)); return text('ok'); }
   if (op === 'done') { await jobDone(env, get('id'), get('ok') === '1', get('msg')); return text('ok'); }
   if (op === 'test') {
     await env.DB.prepare('INSERT INTO print_jobs (order_id, order_name, reason, created_at, tries) VALUES (?,?,?,?,0)').bind('', 'test', 'Printer: ' + get('printer').slice(0, 40), now()).run();
