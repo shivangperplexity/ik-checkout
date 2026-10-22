@@ -126,7 +126,7 @@ const shq = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'";
 export const setupCommand = (base, key) => `bash -c "$(curl -fsSL '${base}/api/print/setup?k=${key}')"`;
 
 /** The setup script (bash 3.2, as on every Mac): pick the printer, install the agent, start it at login, print a test. */
-export function setupScript(base, key, preset = '') {
+export function setupScript(base, key, preset = '', bthint = '') {
   const agent = `#!/bin/bash
 # Ink Kulture label printer: prints labels from the IK dashboard queue on this Mac.
 URL=${shq(base)}
@@ -172,8 +172,10 @@ i=0
 for p in $LIST; do i=$((i+1)); if [ "$p" = "$DEF" ]; then echo "  $i) $p   (default)"; else echo "  $i) $p"; fi; done
 echo ""
 PRESET=${shq(String(preset).replace(/[^\w.@-]/g, ''))}
-if [ -n "$PRESET" ] && echo "$LIST" | grep -qx "$PRESET"; then
-  PRINTER="$PRESET"
+BTHINT=${shq(String(bthint || 'CD410|print|label|thermal|pos|xp|tsc|sp4').replace(/[^\w|.-]/g, ''))}
+PMATCH=$( [ -n "$PRESET" ] && { echo "$LIST" | grep -x "$PRESET" || echo "$LIST" | grep -i "$PRESET"; } | head -1 )
+if [ -n "$PMATCH" ]; then
+  PRINTER="$PMATCH"
   echo "Label printer: $PRINTER"
 else
   printf "Which one is the label printer? Type its number and press Return: "
@@ -198,6 +200,52 @@ cat > "$PLIST" <<IKPLIST
   <key>StandardErrorPath</key><string>$DIR/stderr.log</string>
 </dict></plist>
 IKPLIST
+# Paper: 4 x 6 in (100 x 150 mm) when the driver offers it
+PSL=$(lpoptions -p "$PRINTER" -l 2>/dev/null | grep -i -E '^(PageSize|media)[/:]' | head -1)
+if [ -n "$PSL" ]; then
+  OPT=$(echo "$PSL" | cut -d/ -f1 | cut -d: -f1)
+  VAL=$(echo "$PSL" | cut -d: -f2- | tr ' ' '\n' | sed 's/^\\*//' | grep -i -E '100x150|100\\*150|4x6|w288h432|101\\.6x152|100mmx150mm|w283h425' | head -1)
+  if [ -n "$VAL" ]; then lpoptions -p "$PRINTER" -o "$OPT=$VAL" >/dev/null 2>&1 && echo "Paper size: $VAL"; fi
+fi
+# A Bluetooth printer: the driver prints to 127.0.0.1:9100 and a small relay hands each job to the printer's Bluetooth port
+URI=$(lpstat -v "$PRINTER" 2>/dev/null | sed -n 's/^device for [^:]*: //p')
+case "$URI" in
+  socket://127.0.0.1*|socket://localhost*)
+    PORTS=$(ls /dev/cu.* 2>/dev/null | grep -i -v -E 'incoming|debug|wlan|airpod|buds|modem')
+    BT=$(echo "$PORTS" | grep -i -E "$BTHINT" | head -1)
+    [ -z "$BT" ] && BT=$(echo "$PORTS" | head -1)
+    if [ -z "$BT" ]; then
+      echo "Bluetooth: no printer port found. Switch the printer on, connect it in System Settings > Bluetooth, then run this setup again."
+    else
+      cat > "$DIR/ik-bt-relay.sh" <<IKRELAY
+#!/bin/bash
+# Ink Kulture: hands print jobs from 127.0.0.1:9100 to the Bluetooth printer ($BT)
+while true; do
+  if nc -l 127.0.0.1 9100 > "$DIR/bt-job.bin"; then
+    [ -s "$DIR/bt-job.bin" ] && cat "$DIR/bt-job.bin" > "$BT" || sleep 3
+  else
+    sleep 3
+  fi
+done
+IKRELAY
+      chmod +x "$DIR/ik-bt-relay.sh"
+      RPL="$HOME/Library/LaunchAgents/in.inkkulture.btrelay.plist"
+      cat > "$RPL" <<IKRP
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>in.inkkulture.btrelay</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$DIR/ik-bt-relay.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>$DIR/relay.log</string>
+</dict></plist>
+IKRP
+      launchctl unload "$RPL" >/dev/null 2>&1 || true
+      launchctl load -w "$RPL"
+      echo "Bluetooth: labels go to $BT"
+    fi;;
+esac
 launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load -w "$PLIST"
 curl -s -m 15 -X POST "$URL/api/print/test" --data-urlencode "k=$KEY" --data-urlencode "printer=$PRINTER" >/dev/null || true
@@ -222,7 +270,7 @@ export async function handlePrint(req, env) {
   const key = get('k');
   if (!st.key || !/^[a-f0-9]{40}$/.test(key) || key !== st.key) return text('not allowed', 401);
   const base = String(env.WORKER_URL || url.origin).replace(/\/$/, '');
-  if (op === 'setup') return text(setupScript(base, st.key, get('p')));
+  if (op === 'setup') return text(setupScript(base, st.key, get('p'), get('bt')));
   if (op === 'next') {
     /* check-in: who is printing, on what (written at most every 30 s) */
     const host = get('host').slice(0, 60) || st.seen.host || '', printer = get('printer').slice(0, 80) || st.seen.printer || '';
