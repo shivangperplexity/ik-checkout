@@ -149,6 +149,7 @@ KEY=${shq(key)}
 DIR="$HOME/Library/Application Support/IKPrinter"
 PRINTER="$(cat "$DIR/printer" 2>/dev/null)"
 mkdir -p "$DIR"
+N=0
 while true; do
   H=$(date +%H); H=\${H#0}
   if [ "$H" -ge 8 ] && [ "$H" -lt 23 ]; then WAIT=5; else WAIT=30; fi
@@ -164,6 +165,11 @@ while true; do
     continue
   fi
   [ "$CODE" = "401" ] && WAIT=300
+  # Bluetooth link: it runs in a Terminal window (macOS lets Terminal use Bluetooth, not background programs); reopen it if closed
+  N=$((N+1))
+  if [ $((N % 12)) = 1 ] && [ -f "$DIR/IK Printer Bluetooth.command" ] && ! pgrep -f 'ik-bt-writer.pl' >/dev/null 2>&1; then
+    open -g -a Terminal "$DIR/IK Printer Bluetooth.command" >/dev/null 2>&1 && echo "$(date '+%d %b %H:%M:%S') Bluetooth link window reopened" >> "$DIR/relay.log"
+  fi
   M="$(stat -f %m "$DIR/relay.log" 2>/dev/null)-$(stat -f %m "$DIR/agent.log" 2>/dev/null)"
   if [ "$M" != "$LASTM" ]; then
     LASTM="$M"
@@ -247,8 +253,12 @@ my ($port, $spool, $log) = @ARGV;
 my $fh; my %tries;
 sub lg { if (open(my $l, '>>', $log)) { my @t = localtime; printf $l "%02d %s %02d:%02d:%02d %s\\n", $t[3], (qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec))[$t[4]], $t[2], $t[1], $t[0], join(' ', @_); close $l; } }
 sub opn {
-  my $h;
-  unless (sysopen($h, $port, O_RDWR | O_NOCTTY | O_NONBLOCK)) { lg("could not open $port: $!"); return 0; }
+  my $h; my $okk = 0;
+  lg("connecting to $port");
+  eval { local $SIG{ALRM} = sub { die "timeout\\n" }; alarm 30; $okk = sysopen($h, $port, O_RDWR | O_NOCTTY | O_NONBLOCK); alarm 0; };
+  alarm 0;
+  if ($@) { lg("no answer from the printer in 30 s: is it on and paired, and is Terminal allowed to use Bluetooth?"); return 0; }
+  unless ($okk) { lg("could not open $port: $!"); return 0; }
   my $t = POSIX::Termios->new;
   if ($t->getattr(fileno $h)) {
     $t->setcflag((($t->getcflag) & ~(PARENB | CSTOPB | CSIZE)) | CS8 | CLOCAL | CREAD);
@@ -299,29 +309,43 @@ SP="$DIR/spool"; mkdir -p "$SP"
     F="$SP/$(date +%s)-$$-$RANDOM.prn"
     if nc -l 127.0.0.1 9100 > "$F.part"; then mv "$F.part" "$F"; else rm -f "$F.part"; sleep 2; fi
   done ) &
-exec /usr/bin/perl "$DIR/ik-bt-writer.pl" "$BT" "$SP" "$DIR/relay.log"
+while true; do /usr/bin/perl "$DIR/ik-bt-writer.pl" "$BT" "$SP" "$DIR/relay.log"; sleep 3; done
 IKRELAY
       echo "$BT" > "$DIR/bt-port"
       chmod +x "$DIR/ik-bt-relay.sh"
+      # macOS lets only an app the user allowed (Terminal) use Bluetooth, not a background program: a background
+      # relay waits forever to reach the printer. So the link runs in a small Terminal window, opened at login.
+      CMDF="$DIR/IK Printer Bluetooth.command"
+      cat > "$CMDF" <<IKCMD
+#!/bin/bash
+printf '\\033]0;IK Printer Bluetooth link\\007'
+echo "Ink Kulture: Bluetooth link to the label printer ($BT)."
+echo "Keep this window open (you can minimise it). It opens by itself after a restart."
+for HP in \\$(pgrep -f 'ik-bt-writer.pl'); do kill -9 "\\$HP" 2>/dev/null; done
+exec /bin/bash "$DIR/ik-bt-relay.sh"
+IKCMD
+      chmod +x "$CMDF"
       RPL="$HOME/Library/LaunchAgents/in.inkkulture.btrelay.plist"
+      launchctl unload "$RPL" >/dev/null 2>&1 || true
       cat > "$RPL" <<IKRP
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>in.inkkulture.btrelay</string>
-  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$DIR/ik-bt-relay.sh</string></array>
+  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>-a</string><string>Terminal</string><string>$CMDF</string></array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardErrorPath</key><string>$DIR/relay.log</string>
 </dict></plist>
 IKRP
-      launchctl unload "$RPL" >/dev/null 2>&1 || true
       sleep 1
-      # an older relay or a stuck send (even one still waiting to open the port) is stopped, or the printer stays busy
-      for HP in $(lsof -t "$BT" 2>/dev/null) $(pgrep -f 'IKPrinter/ik-bt' 2>/dev/null) $(pgrep -f 'IKPrinter/spool' 2>/dev/null); do
+      # the old background relay and any stuck send are stopped (they can never reach the printer)
+      for HP in $(lsof -t "$BT" 2>/dev/null) $(pgrep -f 'IKPrinter/ik-bt' 2>/dev/null) $(pgrep -f 'ik-bt-writer' 2>/dev/null) $(pgrep -f 'IKPrinter/spool' 2>/dev/null) $(pgrep -f 'nc -l 127.0.0.1 9100' 2>/dev/null); do
         [ "$HP" != "$$" ] && [ "$HP" != "$PPID" ] && kill -9 "$HP" 2>/dev/null
       done
+      sleep 1
+      echo "$(date '+%d %b %H:%M:%S') setup: link moved to a Terminal window" >> "$DIR/relay.log"
       launchctl load -w "$RPL"
+      echo "Bluetooth: a small 'IK Printer Bluetooth link' Terminal window opens. Keep it open (minimise is fine)."
+      echo "If macOS asks whether Terminal may use Bluetooth, click Allow."
       echo "Bluetooth: labels go to $BT"
     fi;;
   *)
@@ -338,8 +362,8 @@ launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load -w "$PLIST"
 curl -s -m 15 -X POST "$URL/api/print/test" --data-urlencode "k=$KEY" --data-urlencode "printer=$PRINTER" >/dev/null || true
 echo ""
-echo "Checking (20 seconds)..."
-sleep 20
+echo "Checking (30 seconds)..."
+sleep 30
 echo "-- print queue:"; lpstat -o "$PRINTER" 2>/dev/null | head -5; echo "(end)"
 [ -f "$DIR/relay.log" ] && { echo "-- relay:"; tail -n 4 "$DIR/relay.log"; }
 [ -f "$DIR/agent.log" ] && { echo "-- agent:"; tail -n 3 "$DIR/agent.log"; }
