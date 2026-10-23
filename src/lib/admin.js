@@ -864,15 +864,18 @@ const ACTIONS = {
         cod_amt: r.cod_paise != null ? num(r.cod_paise) / 100 : codDue({ ...r, status: r.order_status }) / 100 };
     });
     const inRange = all.filter((x) => x.booked_at >= from && x.booked_at < to);
+    /* a search narrows the stage chips' counts too, so a chip's number always matches the list it opens */
+    const q = String(b.q || '').toLowerCase().trim(), q0 = q.replace(/\s+/g, '');
+    const hit = (x) => { if (!q) return true; const h = `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase(); return h.includes(q) || h.replace(/\s+/g, '').includes(q0); };
+    const inQ = q ? inRange.filter(hit) : inRange, allQ = q ? all.filter(hit) : all;
     const counts = Object.fromEntries(Object.keys(STAGE_LABEL).map((k) => [k, 0]));
-    inRange.forEach((x) => { counts[x.stage] = (counts[x.stage] || 0) + 1; });
+    inQ.forEach((x) => { counts[x.stage] = (counts[x.stage] || 0) + 1; });
     const toPack = (x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at;   // "To pack": booked, courier not here yet, not packed
-    counts.to_pack = inRange.filter(toPack).length;
+    counts.to_pack = inQ.filter(toPack).length;
     const todayIso = new Date((today0 + 19800) * 1000).toISOString().slice(0, 10);
     const dueToday = (x) => ['transit', 'ofd', 'ndr'].includes(x.stage) && x.edd === todayIso;   // courier's own estimate says today
-    counts.due_today = all.filter(dueToday).length;
-    let list = b.stage === 'to_pack' ? inRange.filter(toPack).sort((a, c) => a.booked_at - c.booked_at) : b.stage === 'due_today' ? all.filter(dueToday) : b.stage && b.stage !== 'all' ? inRange.filter((x) => x.stage === b.stage) : inRange;
-    if (b.q) { const q = String(b.q).toLowerCase().trim(); const q0 = q.replace(/\s+/g, ''); list = list.filter((x) => { const h = `${x.order_name} ${x.awb} ${x.customer} ${x.phone} ${x.pincode} ${x.courier}`.toLowerCase(); return h.includes(q) || h.replace(/\s+/g, '').includes(q0); }); }
+    counts.due_today = allQ.filter(dueToday).length;
+    let list = b.stage === 'to_pack' ? inQ.filter(toPack).sort((a, c) => a.booked_at - c.booked_at) : b.stage === 'due_today' ? allQ.filter(dueToday) : b.stage && b.stage !== 'all' ? inQ.filter((x) => x.stage === b.stage) : inQ;
     const live = all.filter((x) => x.stage !== 'cancelled');
     const liveR = inRange.filter((x) => x.stage !== 'cancelled'), rto = liveR.filter((x) => x.stage === 'rto');
     /* expected profit for the parcels in range (same assumptions as Orders > Shipped): total - items x product cost - CAC - courier charge */
@@ -901,7 +904,7 @@ const ACTIONS = {
     let wallet = null, walletErr = '';
     try { wallet = await srWallet(await withSettingsFresh(env), !!b.fresh_wallet); } catch (e) { walletErr = String(e.message || e).slice(0, 120); }
     const pubList = list.slice(0, 500).map(({ contents_json, total_paise, ...x }) => x);
-    return { ok: true, range, shipments: pubList, total: list.length, counts, all_in_range: inRange.length, wallet, wallet_error: walletErr,
+    return { ok: true, range, shipments: pubList, total: list.length, counts, all_in_range: inQ.length, searching: q, wallet, wallet_error: walletErr,
       attention: {
         pickup_failed: live.filter((x) => x.stage === 'pickup_failed').length,
         pickup_late: live.filter((x) => x.stage === 'pickup_pending' && x.booked_at < t - DAY).length,

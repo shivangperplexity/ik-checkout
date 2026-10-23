@@ -775,6 +775,7 @@ function loadShip(quiet){
   if(at.pending_pickups)att.push('<button class="chip" id="sh_vfy" style="border-color:var(--ink);font-weight:700" title="Scan the barcode on each packed parcel to check it is the right, current label">Verify parcels · '+(at.unverified||0)+' not scanned</button>');
   if(at.pending_pickups)att.push('<span class="grow"></span><button class="btn bad sm" id="sh_cxall">Cancel all pending pickups · '+at.pending_pickups+'</button>');
   h+='<div class="row" style="margin-bottom:10px"><b class="small">Needs action (any date):</b>'+att.join('')+'</div>';
+  if(SH.q)h+='<div class="row small" style="margin:0 0 6px;gap:8px"><span class="pill warn">Search: '+esc(SH.q)+'</span><span class="mut">counts and list show only matching parcels</span><button class="btn ghost sm" id="sh_qx" type="button">Clear search</button></div>';
   h+='<div class="chips">'+STG.map(function(f){var k=f[0]==='all'?j.all_in_range:(c[f[0]]||0);if(f[0]!=='all'&&f[0]!=='to_pack'&&f[0]!=='due_today'&&!k&&SH.stage!==f[0])return '';return '<button class="chip'+(SH.stage===f[0]?' on':'')+(f[0]==='to_pack'&&k?' tp':'')+'" data-f="'+f[0]+'">'+f[1]+' · '+k+'</button>'}).join('')
    +(SH.stage==='to_pack'&&j.shipments.length?'<span class="grow"></span><button class="btn sm" data-pack="list">Start packing these · '+j.shipments.length+'</button>':'')+'</div>';
   h+=SH.report||'';
@@ -804,7 +805,7 @@ function loadShip(quiet){
    :'<p class="mut">'+(SH.stage==='to_pack'?'Nothing left to pack'+(SH.range==='today'?' from today':'')+'.':'No shipments here'+(SH.range==='today'?' today':'')+'. Book orders from the Orders tab and they appear here.')+'</p>';
   if(quiet&&document.activeElement&&document.activeElement.id==='sh_q')return;
   $('#main').innerHTML=h;shBar();
-  var q=$('#sh_q');q.onkeydown=function(e){if(e.key==='Enter'){SH.q=q.value.trim();loadShip()}};
+  var q=$('#sh_q');q.onkeydown=function(e){if(e.key==='Enter'){SH.q=q.value.trim();loadShip()}};var qx=$('#sh_qx');if(qx)qx.onclick=function(){SH.q='';loadShip()};q.onsearch=function(){if(!q.value&&SH.q){SH.q='';loadShip()}};
   $('#main').onclick=function(e){var t=e.target;
    var r=t.closest('[data-r]');if(r){SH.range=r.dataset.r;SH.sel={};loadShip();return}
    var f=t.closest('[data-f]');if(f){SH.stage=f.dataset.f;SH.sel={};loadShip();return}
