@@ -287,9 +287,14 @@ async function cancelOne(env, id) {
   const gid = `gid://shopify/Order/${id}`;
   const stop = await stopShipment(env, id, 'Cancelled from the dashboard');
   if (stop.state === 'picked') throw new Error('The courier has already picked this parcel up, so it cannot be cancelled here. Ask Shiprocket for RTO.');
-  if (stop.state === 'error') throw new Error('The Shiprocket shipment could not be cancelled yet (' + stop.note + '). Nothing was changed; try again in a minute.');
+  if (stop.state === 'error') {
+    /* Shiprocket is down: remember it; the cron (every few minutes) cancels the pickup and then the Shopify order */
+    await env.DB.prepare("UPDATE shipments SET cancel_state='queued', cancel_note=?, updated_at=? WHERE order_id=? AND COALESCE(status,'')<>'cancelled'").bind('Cancel queued: ' + String(stop.note || '').slice(0, 300), now(), String(id)).run();
+    return { queued: true, note: 'Queued: Shiprocket is not responding right now, so the pickup and then the order are cancelled automatically within a few minutes' };
+  }
   await cancelOrder(env, gid, 'Cancelled from Ink Kulture dashboard');
   await env.DB.prepare("UPDATE orders SET status='cancelled', packed_at=NULL WHERE order_id=?").bind(String(id)).run();
+  return { queued: false };
 }
 
 /** Live (not cancelled) shipment rows for these order ids. */
@@ -653,7 +658,7 @@ const ACTIONS = {
     await env.DB.prepare('UPDATE orders SET confirmed_at=?, addr_tagged_at=? WHERE order_id=?').bind(now(), now(), String(b.id)).run();
     return { ok: true };
   },
-  async cancel(env, b) { await cancelOne(await withSettingsFresh(env), b.id); return { ok: true }; },
+  async cancel(env, b) { const c = await cancelOne(await withSettingsFresh(env), b.id); return { ok: true, queued: !!c?.queued, note: c?.note || '' }; },
   /** Shipments tab: cancel these orders (Shiprocket pickup first, then Shopify). Per-order results, nothing stops the batch. */
   async cancel_orders(env, b) {
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 100);
@@ -664,7 +669,7 @@ const ACTIONS = {
       const name = o?.order_name || id;
       if (!o) { results.push({ id, name, ok: false, note: 'Order not found' }); continue; }
       if (o.status === 'cancelled') { results.push({ id, name, ok: false, note: 'Already cancelled' }); continue; }
-      try { await cancelOne(fresh, id); results.push({ id, name, ok: true, note: 'Cancelled' }); }
+      try { const c = await cancelOne(fresh, id); results.push({ id, name, ok: true, queued: !!c?.queued, note: c?.queued ? c.note : 'Cancelled' }); }
       catch (e) { results.push({ id, name, ok: false, note: String(e.message || e).slice(0, 200) }); }
     }
     return { ok: true, results };

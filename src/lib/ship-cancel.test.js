@@ -18,7 +18,7 @@ function world({ shipments = {}, orders = {}, track = {}, shop = {} } = {}) {
         return null;
       },
       all: async () => {
-        if (/FROM shipments s LEFT JOIN orders o/.test(q)) return { results: Object.values(shipments).filter((s) => s.awb && s.status !== 'cancelled' && !['picked', 'cancelled'].includes(s.cancel_state)).map((s) => ({ order_id: s.order_id, order_name: s.order_name, order_status: orders[s.order_id]?.status })) };
+        if (/FROM shipments s LEFT JOIN orders o/.test(q)) return { results: Object.values(shipments).filter((s) => s.awb && s.status !== 'cancelled' && !['picked', 'cancelled'].includes(s.cancel_state)).map((s) => ({ order_id: s.order_id, order_name: s.order_name, cancel_state: s.cancel_state, order_status: orders[s.order_id]?.status })) };
         return { results: [] };
       },
       run: async () => {
@@ -38,7 +38,8 @@ function world({ shipments = {}, orders = {}, track = {}, shop = {} } = {}) {
       if (/auth\/login/.test(url)) return ok({ token: 't' });
       const m = /track\/awb\/([^?]+)/.exec(url);
       if (m) { calls.push('track ' + m[1]); const t = track[m[1]]; return t === 'down' ? new Response('{}', { status: 503 }) : ok(t || PENDING); }
-      if (/orders\/cancel/.test(url)) { calls.push('sr-cancel ' + JSON.parse(o.body).ids.join(',')); return ok({ message: 'cancelled' }); }
+      if (/orders\/cancel\/shipment\/awbs/.test(url)) { calls.push('sr-cancel-awb ' + JSON.parse(o.body).awbs.join(',')); return globalThis.__srDown === 'all' ? new Response('{}', { status: 503 }) : ok({ message: 'cancelled' }); }
+      if (/orders\/cancel/.test(url)) { calls.push('sr-cancel ' + JSON.parse(o.body).ids.join(',')); return globalThis.__srDown ? new Response('{"message":"503 Service Unavailable"}', { status: 503 }) : ok({ message: 'cancelled' }); }
       return ok({});
     }
     const body = JSON.parse(o?.body || '{}'), q = body.query || '', v = body.variables || {};
@@ -162,4 +163,21 @@ test('orders Shopify shows as fulfilled (another app / by hand) are marked shipp
     assert.equal(st[3].shipped_at, null, 'unfulfilled stays to ship');
     assert.equal(st[4].tracking, 'x', 'already shipped here: untouched');
   } finally { globalThis.fetch = real; }
+});
+
+test('Shiprocket down: a dashboard cancel is queued and the cron finishes it; the AWB cancel is the fallback', async () => {
+  const w = world({ shipments: { 7: ship('7', 'A7') }, orders: { 7: order('7') } });
+  try {
+    globalThis.__srDown = 'all';
+    const r1 = await stopShipment(w.env, '7', 'test');
+    assert.equal(r1.state, 'error');
+    assert.equal(w.calls.filter((c) => c === 'sr-cancel 907').length, 3, 'retried twice');
+    w.shipments[7].cancel_state = 'queued';                     /* what cancelOne records */
+    const r2 = await sweepCancelled(w.env);                     /* still down: stays queued */
+    assert.equal(r2.retry, 1); assert.equal(w.shipments[7].cancel_state, 'queued');
+    globalThis.__srDown = 'order';                              /* order cancel down, AWB cancel works */
+    const r3 = await sweepCancelled(w.env);
+    assert.equal(r3.stopped, 1); assert.ok(w.calls.includes('sr-cancel-awb A7'));
+    assert.ok(w.calls.includes('shopify-cancel 7')); assert.equal(w.orders[7].status, 'cancelled');
+  } finally { delete globalThis.__srDown; w.done(); }
 });

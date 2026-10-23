@@ -39,7 +39,7 @@ export async function stopShipment(env, orderId, why = 'Order cancelled') {
   /* 1. has the courier already got it? (tracking first: never cancel blind) */
   let c;
   try { c = classify(await srTrack(env, rec.awb)); }
-  catch (e) { const note = 'Could not check tracking, will retry: ' + String(e.message || e).slice(0, 200); await setState(env, id, 'error', note).catch(() => {}); return { state: 'error', note }; }
+  catch (e) { const note = 'Could not check tracking, will retry: ' + String(e.message || e).slice(0, 200); await setState(env, id, rec.cancel_state === 'queued' ? 'queued' : 'error', note).catch(() => {}); return { state: 'error', note }; }
   if (c.stage !== 'pending') {
     const note = `${why}, but the courier already has the parcel (${c.stage}). Ask Shiprocket for RTO.`;
     await setState(env, id, 'picked', note).catch(() => {});
@@ -54,7 +54,7 @@ export async function stopShipment(env, orderId, why = 'Order cancelled') {
   } catch (e) {
     if (!/already\s+cancel/i.test(String(e.message))) {
       const note = 'Shiprocket cancel failed, will retry: ' + String(e.message || e).slice(0, 200);
-      await setState(env, id, 'error', note).catch(() => {});
+      await setState(env, id, rec.cancel_state === 'queued' ? 'queued' : 'error', note).catch(() => {});
       return { state: 'error', note };
     }
   }
@@ -107,7 +107,7 @@ export async function syncFulfilledOrders(env, ids) {
  */
 export async function sweepCancelled(env, { maxStops = 10 } = {}) {
   const out = { checked: 0, stopped: 0, late: 0, retry: 0 };
-  const rows = (await env.DB.prepare(`SELECT s.order_id, s.order_name, o.status AS order_status FROM shipments s LEFT JOIN orders o ON o.order_id = s.order_id
+  const rows = (await env.DB.prepare(`SELECT s.order_id, s.order_name, s.cancel_state, o.status AS order_status FROM shipments s LEFT JOIN orders o ON o.order_id = s.order_id
       WHERE s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND COALESCE(s.cancel_state,'') NOT IN ('picked','cancelled')
         AND COALESCE(s.rto, FALSE) = FALSE AND LOWER(COALESCE(s.status,'')) NOT IN ('delivered','rto_initiated') AND s.created_at > ?
       ORDER BY s.created_at DESC LIMIT 150`).bind(now() - 30 * 86400).all()).results;
@@ -118,9 +118,10 @@ export async function sweepCancelled(env, { maxStops = 10 } = {}) {
   for (const r of rows) {
     const id = String(r.order_id), s = shop[id] || { cancelled: false, tags: [] };
     const tag = s.tags.find((x) => CANCEL_TAG.test(x));
-    if (!(r.order_status === 'cancelled' || s.cancelled || tag)) continue;
+    const queued = r.cancel_state === 'queued';   /* cancelled from the dashboard while Shiprocket was down */
+    if (!(queued || r.order_status === 'cancelled' || s.cancelled || tag)) continue;
     if (stops++ >= maxStops) break;
-    const why = s.cancelled ? 'Order cancelled in Shopify' : r.order_status === 'cancelled' ? 'Order cancelled' : `Customer cancelled (tag "${tag}")`;
+    const why = queued ? 'Cancelled from the dashboard' : s.cancelled ? 'Order cancelled in Shopify' : r.order_status === 'cancelled' ? 'Order cancelled' : `Customer cancelled (tag "${tag}")`;
     const res = await stopShipment(env, id, why);
     if (res.state === 'picked') out.late++;
     else if (res.state === 'error') out.retry++;

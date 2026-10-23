@@ -38,7 +38,20 @@ async function srToken(c, force) {
 }
 
 /** Authenticated Shiprocket call. path like 'courier/track/awb/123'. Retries once with a fresh token on 401. */
+const SAFE_RETRY = (method, path) => method === 'GET' || /^orders\/cancel/.test(path);
 export async function sr(env, method, path, body) {
+  /* Shiprocket's own hiccups (502/503/504, timeouts): reads and cancels are retried twice, a second apart then three.
+     Bookings are not: a retried AWB request could book twice. */
+  for (let n = 0; ; n++) {
+    try { return await sr1(env, method, path, body); }
+    catch (e) {
+      const transient = (e.status >= 500 && e.status < 600) || /timeout|aborted|fetch failed|ECONNRESET/i.test(String(e.message || e.name));
+      if (!transient || !SAFE_RETRY(method, path) || n >= 2) throw e;
+      await new Promise((ok) => setTimeout(ok, 1000 * (n + 1)));
+    }
+  }
+}
+async function sr1(env, method, path, body) {
   const c = cfg(env);
   for (let attempt = 0; attempt < 2; attempt++) {
     const t = await srToken(c, attempt > 0);
@@ -367,7 +380,13 @@ export function publicRec(r) {
 
 export async function cancelShipment(env, rec) {
   if (!rec?.sr_order_id) throw new Error('No Shiprocket order to cancel');
-  await sr(env, 'POST', 'orders/cancel', { ids: [Number(rec.sr_order_id)] });
+  try { await sr(env, 'POST', 'orders/cancel', { ids: [Number(rec.sr_order_id)] }); }
+  catch (e) {
+    /* order cancel down: cancelling the AWB itself also takes it off the pickup */
+    if (!(e.status >= 500) || !rec.awb) throw e;
+    try { await sr(env, 'POST', 'orders/cancel/shipment/awbs', { awbs: [String(rec.awb)] }); }
+    catch (e2) { throw /already\s+cancel/i.test(String(e2.message)) ? e2 : e; }
+  }
 }
 
 /** Label only (no pickup request). Returns the stored label URL, or asks Shiprocket for a fresh one when there is none or `force` is set. */
