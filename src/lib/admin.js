@@ -1266,6 +1266,17 @@ const ACTIONS = {
     }
     return { ok: true, video, text: A.APPLY_TEXT, template: A.APPLY_TEMPLATE, status: tpl ? tpl.status : (created?.[0]?.status || 'NOT SUBMITTED'), created, test, on: triggerConfig(e2, 'ship_delivered').enabled };
   },
+  /** The "confirm or it is cancelled" reminder template (lib/cod-warning.js). */
+  async cod_warning_template(env, b) {
+    const W = await import('./cod-warning.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const have = await metaTemplate(await withSettings(await withSettingsFresh(env)), W.WARN_TEMPLATE).catch(() => null);
+    if (have && have.status !== 'REJECTED' && !b?.force) return { ok: true, created: [{ name: W.WARN_TEMPLATE, status: have.status }] };
+    const r = await ACTIONS.wa_create_templates(env, { templates: [W.warningTemplate()] });
+    clearMetaCache();
+    return { ok: true, ...r };
+  },
   /** Submit the NDR autopilot templates (nudge, booked again, final attempt) that are not in WhatsApp Manager yet. */
   async ndr_pilot_templates(env, b) {
     const { pilotTemplates, PILOT_TEMPLATE_NAMES } = await import('./ndr-pilot.js');

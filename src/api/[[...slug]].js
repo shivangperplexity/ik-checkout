@@ -49,6 +49,8 @@ export default {
     if (path === '/api/cron' && env.CRON_SECRET && req.headers.get('Authorization') === `Bearer ${env.CRON_SECRET}`) {
       await offerPrepaidConversion(env).catch((e) => console.error('offerPrepaidConversion', e));
       await autoCancelStale(env).catch((e) => console.error('autoCancelStale', e));
+      /* one hour after an unconfirmed COD order: "confirm or it is cancelled in 48 h" (lib/cod-warning.js) */
+      await (async () => { const { withSettings } = await import('../lib/settings.js'); const { codWarnings } = await import('../lib/cod-warning.js'); const r = await codWarnings(await withSettings(env)); if (r.sent || r.failed) console.log('cod warnings', JSON.stringify(r)); })().catch((e) => console.error('codWarnings', e.message));
       /* WhatsApp shipment updates from Shiprocket tracking. */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { shipUpdates } = await import('../lib/wa-ship.js'); return shipUpdates(await withSettings(env)); })().catch((e) => console.error('shipUpdates', e));
       /* "Address confirmed" tag on confirmed COD orders in Shopify (lib/order-tags.js) */
