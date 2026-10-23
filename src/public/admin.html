@@ -69,6 +69,12 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .pkgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin:12px 0}.pkc{border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff;position:relative;display:grid;gap:4px}.pkc img{width:100%;aspect-ratio:1;object-fit:contain;background:var(--cream);border-radius:8px}.pkc .qty{position:absolute;top:12px;right:12px;background:var(--ink);color:#fff;font-weight:800;border-radius:99px;padding:3px 11px;font-size:15px}.pkc .qty.many{background:var(--warn)}.pkc b{font-size:13px;line-height:1.25}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;z-index:99;font-weight:600}
 @media(max-width:640px){.bars .r{grid-template-columns:110px 1fr 56px}.hdrname{display:none}}
+.tiles{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:12px}.tile{display:grid;gap:2px;align-content:start}.tile .big{font-size:28px;font-weight:800;line-height:1.15}.tile.warn{border-color:#f1c9a4}
+.asst{display:grid;gap:4px}.asmsgs{max-height:56vh;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:8px 2px}
+.asb{max-width:92%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;line-height:1.4}.asb.u{align-self:flex-end;background:var(--ink);color:#fff}.asb.a{align-self:flex-start;background:var(--cream);border:1px solid var(--line)}.asb.bad{background:#fdecea}
+.asb .prop{white-space:normal;margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px}.asb .prop td,.asb .prop th{padding:6px}
+.morelist{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}.moreit{display:grid;gap:4px;text-align:left;cursor:pointer;font:inherit}.moreit:hover{border-color:var(--ink)}
+@media(max-width:640px){.asb{max-width:100%}.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:12px}.tile:first-child{grid-column:1/-1}.tile .big{font-size:22px}.tile .small.mut{font-size:11.5px}nav button{padding:10px 8px;font-size:13px}.asb .prop{padding:4px}.asb .prop td{padding:6px 4px}}
 </style><script src="/btprint.js" defer></script></head><body>
 <div id="login"><form class="card login-card" id="lf">
   <img src="https://www.inkkulture.in/cdn/shop/t/40/assets/ikl-logo-black.svg" alt="Ink Kulture" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:'INK KULTURE'}))">
@@ -87,8 +93,8 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 <script>
 (function(){
 'use strict';
-var TABS=[['live','Live'],['unshipped','Unshipped'],['ship','Shipments'],['orders','Orders'],['chats','Chats'],['wa','WhatsApp'],['reviews','Reviews'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['settings','Settings']];
-var tab='live',token='',timer=null,S={filter:'all',days:7,msgTab:false,sel:{},rows:{},report:''},BULK=false;
+var TABS=[['home','Home'],['unshipped','To ship'],['ship','Shipments'],['orders','Orders'],['chats','Chats'],['more','More']];
+var tab='home',token='',timer=null,S={filter:'all',days:7,msgTab:false,sel:{},rows:{},report:''},BULK=false;
 function $(s,r){return (r||document).querySelector(s)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function inr(n){return '₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}
@@ -202,6 +208,93 @@ function loadReviews(){rpc('reviews',{status:RV.status,stars:RV.stars,q:RV.q}).t
 }).catch(fail)}
 function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 
+/* ---- Home: today's to-dos + the assistant (lib/assistant.js). The assistant prepares lists; only Confirm books. ---- */
+var AS={msgs:[],busy:false,props:{}};
+try{AS.msgs=JSON.parse(ls('ik_as_msgs')||'[]').slice(-20)}catch(e){AS.msgs=[]}
+function asSave(){ls('ik_as_msgs',JSON.stringify(AS.msgs.slice(-20).map(function(m){return {role:m.role,content:m.content}})))}
+var MORE=[['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
+function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
+function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
+ $('#main').onclick=function(e){var b=e.target.closest('[data-go]');if(b)go(b.dataset.go)};
+ rpc('home').then(function(h){var d=$('#livedot2');if(d)d.textContent=h.live}).catch(function(){})}
+function tile(title,big,sub,btns,warn){return '<div class="card tile'+(warn?' warn':'')+'"><span class="small mut" style="font-weight:600">'+title+'</span><b class="big">'+big+'</b>'+(sub?'<span class="small mut">'+sub+'</span>':'')+(btns?'<div class="row" style="margin-top:8px">'+btns+'</div>':'')+'</div>'}
+function loadHome(quiet){rpc('home').then(function(h){if(tab!=='home')return;
+ var ready=h.prepaid+h.confirmed;
+ var top='<div class="small mut" style="margin:0 0 10px">Today: <b style="color:var(--ink)">'+h.today.orders+' order'+(h.today.orders===1?'':'s')+' · '+inr(h.today.revenue)+'</b>'+(h.live?' · '+h.live+' on the store now':'')+(h.reviews?' · <a href="#" data-go="reviews">'+h.reviews+' new review'+(h.reviews===1?'':'s')+'</a>':'')+'</div>';
+ var tiles='<div class="grid tiles">'
+  +tile('Ready to ship',ready,h.prepaid+' prepaid · '+h.confirmed+' confirmed COD'+(h.packed_waiting?' · '+h.packed_waiting+' packed':''),(h.prepaid?'<button class="btn sm" data-ask="Ship prepaid orders">Ship prepaid ('+h.prepaid+')</button>':'')+(h.confirmed?'<button class="btn sm" data-ask="Ship address confirmed orders">Ship confirmed COD ('+h.confirmed+')</button>':'')+(!ready?'<span class="small ok">All shipped</span>':''))
+  +tile('Waiting for COD confirmation',h.unconfirmed,'Customers who have not replied YES yet',h.unconfirmed?'<button class="btn ghost sm" data-go="unshipped">See them</button>':'')
+  +tile('Failed deliveries (NDR)',h.ndr,'Not handled in the last 2 days',h.ndr?'<button class="btn sm" data-ask="Handle NDR">Handle NDR</button>':'',h.ndr>0)
+  +tile('Chats to answer',h.chats,'WhatsApp messages waiting for you',h.chats?'<button class="btn ghost sm" data-go="chats">Open chats</button>':'',h.chats>0)
+  +'</div>';
+ if(quiet&&$('#home_tiles')){$('#home_top').innerHTML=top;$('#home_tiles').innerHTML=tiles;return}
+ $('#main').innerHTML='<div id="home_top">'+top+'</div><div id="home_tiles">'+tiles+'</div>'
+  +'<div class="card asst"><div class="row" style="justify-content:space-between"><b>Assistant</b><span class="row"><span class="small mut">Prepares the list, you tap Confirm. Never packs.</span>'+(AS.msgs.length?'<button class="btn ghost sm" id="as_clear">Clear</button>':'')+'</span></div>'
+  +'<div class="asmsgs" id="as_msgs"></div>'
+  +'<div class="chips" style="margin:8px 0 6px">'+['Ship prepaid orders','Ship address confirmed orders','Handle NDR','How did we do this week?','Suggest checkout improvements'].map(function(x){return '<button class="chip" data-ask="'+esc(x)+'">'+esc(x)+'</button>'}).join('')+'</div>'
+  +'<form id="as_f" class="row" style="flex-wrap:nowrap"><input type="text" id="as_in" placeholder="Ask or tell me what to do… e.g. prepaid orders ship kardo" autocomplete="off" style="flex:1"><button class="btn" id="as_go">Send</button></form></div>';
+ asDraw();
+ $('#as_f').onsubmit=function(e){e.preventDefault();var v=$('#as_in').value.trim();if(v){$('#as_in').value='';asAsk(v)}};
+ var cl=$('#as_clear');if(cl)cl.onclick=function(){AS.msgs=[];AS.props={};asSave();loadHome()};
+ $('#main').onclick=homeClick;
+ }).catch(fail)}
+function homeClick(e){var a=e.target.closest('[data-ask]');if(a){e.preventDefault();asAsk(a.dataset.ask);return}
+ var g=e.target.closest('[data-go]');if(g){e.preventDefault();go(g.dataset.go);return}
+ var c=e.target.closest('[data-pconf]');if(c){asRun(c.dataset.pconf);return}
+ var x=e.target.closest('[data-pcancel]');if(x){var p=AS.props[x.dataset.pcancel];if(p){p.state='cancelled';asDraw()}return}
+ var l=e.target.closest('[data-plbl]');if(l){dlLabels(l.dataset.plbl.split(','),l);return}}
+function asAsk(text){if(AS.busy)return;AS.msgs.push({role:'user',content:text});AS.busy=true;asDraw();
+ var hist=AS.msgs.slice(0,-1).slice(-8).map(function(m){return {role:m.role,content:m.content}});
+ rpc('assistant',{text:text,history:hist}).then(function(r){var m={role:'assistant',content:r.reply||''};
+  if(r.proposal){var id='p'+Date.now();r.proposal.id=id;r.proposal.state='open';r.proposal.sel={};(r.proposal.rows||[]).forEach(function(x,i){x.i=i;if(r.proposal.kind==='ship')r.proposal.sel[i]=!x.error;else r.proposal.sel[i]=!!x.preselect});AS.props[id]=r.proposal;m.prop=id}
+  AS.msgs.push(m)}).catch(function(er){AS.msgs.push({role:'assistant',content:'Error: '+er.message,err:true})}).then(function(){AS.busy=false;asSave();asDraw()})}
+function asDraw(){var box=$('#as_msgs');if(!box)return;
+ box.innerHTML=(AS.msgs.length?'':'<p class="small mut" style="margin:6px 2px">Try "prepaid orders ship kardo", "address confirmed orders ship karo", "NDR handle karo", "is hafte ki sales?" or "checkout mein kya improve karein?"</p>')
+  +AS.msgs.map(function(m){return '<div class="asb '+(m.role==='user'?'u':'a')+(m.err?' bad':'')+'">'+esc(m.content)+(m.prop&&AS.props[m.prop]?asProp(AS.props[m.prop]):'')+'</div>'}).join('')
+  +(AS.busy?'<div class="asb a mut">Thinking… (checking live orders and Shiprocket)</div>':'');
+ box.scrollTop=box.scrollHeight;
+ [].forEach.call(box.querySelectorAll('[data-psel]'),function(cb){cb.onchange=function(){var p=AS.props[cb.dataset.psel];p.sel[cb.dataset.i]=cb.checked;asDraw()}});
+ [].forEach.call(box.querySelectorAll('[data-pact]'),function(s){s.onchange=function(){var p=AS.props[s.dataset.pact];p.rows[s.dataset.i].act=s.value;p.sel[s.dataset.i]=s.value!=='skip';asDraw()}})}
+function asProp(p){var open=p.state==='open',rows=p.rows||[],h='<div class="prop">';
+ var chosen=rows.filter(function(r){return p.sel[r.i]});
+ if(p.kind==='ship'){
+  h+='<div class="tw"><table><tr><th></th><th>Order</th><th>Courier</th><th style="text-align:right">Est.</th></tr>'+rows.map(function(r){
+   var st=r.res?(r.res.ok?'<span class="ok">AWB '+esc(r.res.awb)+'</span>':'<span class="err">'+esc(r.res.err)+'</span>'):r.error?'<span class="err small">'+esc(r.error)+'</span>':esc(r.courier||'cheapest')+(r.edd?' <span class="mut small">· '+esc(r.edd)+'</span>':'');
+   return '<tr><td style="width:28px"><input type="checkbox" data-psel="'+p.id+'" data-i="'+r.i+'"'+(p.sel[r.i]?' checked':'')+(open&&!r.error?'':' disabled')+'></td><td><b>'+esc(r.name)+'</b> <span class="small">'+esc(r.customer)+'</span><div class="small mut">'+esc(r.pay)+' '+inr(r.total)+' · '+esc(r.city)+' '+esc(r.pincode)+' · '+r.age_h+'h ago'+(r.packed?' · packed':'')+'</div></td><td>'+st+'</td><td style="text-align:right;white-space:nowrap">'+(r.charge?rup(r.charge):'')+'</td></tr>'}).join('')+'</table></div>';
+  var est=chosen.reduce(function(s,r){return s+(Number(r.charge)||0)},0);
+  if(open)h+='<div class="row" style="margin-top:8px"><button class="btn sm" data-pconf="'+p.id+'"'+(chosen.length?'':' disabled')+'>Confirm: book '+chosen.length+' with Shiprocket</button><button class="btn ghost sm" data-pcancel="'+p.id+'">Cancel</button><span class="small mut">Est. '+rup(est)+(p.unpriced?' + '+p.unpriced+' unpriced':'')+' from your Shiprocket wallet · not packed</span></div>';
+ }else{
+  h+='<div class="tw"><table><tr><th>Order</th><th>Courier\'s reason</th><th>Do</th></tr>'+rows.map(function(r){
+   var st=r.res?(r.res.ok?'<span class="ok">'+(r.act==='return'?'Return requested':'Re-attempt requested')+'</span>':'<span class="err">'+esc(r.res.err)+'</span>'):'<select data-pact="'+p.id+'" data-i="'+r.i+'" style="width:auto;min-height:32px"'+(open?'':' disabled')+'><option value="reattempt"'+(p.sel[r.i]&&r.act==='reattempt'?' selected':'')+'>Re-attempt</option><option value="return"'+(p.sel[r.i]&&r.act==='return'?' selected':'')+'>Return (RTO)</option><option value="skip"'+(p.sel[r.i]?'':' selected')+'>Leave</option></select>';
+   return '<tr><td><b>'+esc(r.name)+'</b><div class="small mut">'+esc(r.category)+(r.attempts?' · attempt '+r.attempts:'')+(r.paid?' · prepaid':'')+'</div></td><td class="small">'+esc(r.reason)+(r.why?'<div class="mut">Rule: '+esc(r.why)+'</div>':'')+'</td><td>'+st+'</td></tr>'}).join('')+'</table></div>';
+  if(open)h+='<div class="row" style="margin-top:8px"><button class="btn sm" data-pconf="'+p.id+'"'+(chosen.length?'':' disabled')+'>Confirm: send '+chosen.length+' to Shiprocket</button><button class="btn ghost sm" data-pcancel="'+p.id+'">Cancel</button></div>';
+ }
+ if(p.state==='running')h+='<div class="small" style="margin-top:8px"><b>'+esc(p.progress||'Working…')+'</b></div>';
+ if(p.state==='cancelled')h+='<div class="small mut" style="margin-top:8px">Cancelled. Nothing was booked.</div>';
+ if(p.state==='done'){var okIds=rows.filter(function(r){return r.res&&r.res.ok}).map(function(r){return r.id});h+='<div class="row small" style="margin-top:8px"><b>'+esc(p.summary)+'</b>'+(p.kind==='ship'&&okIds.length?'<button class="btn sm" data-plbl="'+okIds.join(',')+'">Download these labels (6×4 in)</button>':'')+'</div>'}
+ return h+'</div>'}
+function asRun(id){var p=AS.props[id];if(!p||p.state!=='open')return;var todo=p.rows.filter(function(r){return p.sel[r.i]});if(!todo.length)return;
+ p.state='running';var i=0;asDraw();
+ function step(){if(i>=todo.length){var ok=todo.filter(function(r){return r.res.ok}).length;
+   p.summary=p.kind==='ship'?'Booked '+ok+' of '+todo.length+(ok<todo.length?' · '+(todo.length-ok)+' failed (see the list)':''):'Sent '+ok+' of '+todo.length+' to Shiprocket';
+   p.state='done';AS.msgs.push({role:'assistant',content:p.summary+(p.kind==='ship'&&ok?'. Customers get the WhatsApp tracking message once the courier picks up. Packing is yours.':'.')});asSave();asDraw();loadHome(true);return}
+  var r=todo[i];p.progress=(p.kind==='ship'?'Booking ':'Sending ')+(i+1)+' of '+todo.length+': '+r.name+'…';asDraw();
+  var call=p.kind==='ship'?rpc('ship_book',{id:r.id}).then(function(b){r.res={ok:true,awb:b.shipment.awb,courier:b.shipment.courier}}):rpc('ndr_do',{awb:r.awb,action_type:r.act==='return'?'return':'reattempt',attempts:r.attempts}).then(function(){r.res={ok:true}});
+  call.catch(function(er){r.res={ok:false,err:er.message}}).then(function(){i++;step()})}
+ step()}
+/* How-to-apply video card (WhatsApp tab; lib/apply-guide.js) */
+function applyCard(){var box=document.createElement('div');box.className='card';box.id='apply_card';box.style.marginBottom='12px';box.innerHTML='<b>How-to-apply video on delivery</b><p class="small mut" style="margin:6px 0 0">Loading…</p>';$('#main').prepend(box);
+ function draw(j,msg){var pill=j.status==='APPROVED'?'<span class="pill ok">Template approved</span>':j.status==='REJECTED'?'<span class="pill bad">Template rejected</span>':j.status==='NOT SUBMITTED'?'<span class="pill">Template not submitted</span>':'<span class="pill warn">Template '+esc(String(j.status).toLowerCase())+' at Meta</span>';
+  box.innerHTML='<div class="row" style="justify-content:space-between"><b>How-to-apply video on delivery</b>'+pill+'</div>'
+   +'<p class="small mut" style="margin:6px 0 10px">Sent once, as soon as the courier marks a parcel delivered. Video on top, the steps and the "lasts 1-2 weeks" line below it.</p>'
+   +'<div class="row" style="flex-wrap:nowrap"><input type="url" id="ap_v" placeholder="https://… direct link to the .mp4 (under 16 MB)" value="'+esc(j.video||'')+'" style="flex:1"><button class="btn sm" id="ap_s">Save</button></div>'
+   +'<details style="margin-top:8px"><summary class="small">Message text</summary><p class="small" style="white-space:pre-wrap;margin:6px 0 0">'+esc(j.text)+'</p></details>'
+   +'<div class="row" style="margin-top:10px"><input type="tel" id="ap_to" placeholder="Test number 98XXXXXXXX" style="max-width:220px"><button class="btn ghost sm" id="ap_t"'+(j.video&&j.status==='APPROVED'?'':' disabled')+'>Send test</button>'+(j.video&&j.status!=='APPROVED'&&j.status!=='PENDING'?'<button class="btn ghost sm" id="ap_sub">Submit template to Meta</button>':'')+'</div>'
+   +(msg?'<div class="small" style="margin-top:8px">'+msg+'</div>':'');
+  $('#ap_s').onclick=function(){this.disabled=true;rpc('apply_guide',{video:$('#ap_v').value.trim()}).then(function(r){draw(r,'<span class="ok">Saved.</span>'+(r.created?' Template: '+esc(r.created.map(function(x){return x.status+(x.error?' ('+x.error+')':'')}).join(', ')):''))}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})};
+  var t=$('#ap_t');if(t)t.onclick=function(){t.disabled=true;rpc('apply_guide',{test:true,to:$('#ap_to').value}).then(function(r){draw(r,r.test&&r.test.ok?'<span class="ok">Test sent.</span>':'<span class="err">'+esc((r.test&&(r.test.error||r.test.skipped))||'not sent')+'</span>')}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})};
+  var sb=$('#ap_sub');if(sb)sb.onclick=function(){sb.disabled=true;rpc('apply_guide',{submit:true}).then(function(r){draw(r,'Submitted: '+esc((r.created||[]).map(function(x){return x.status+(x.error?' ('+x.error+')':'')}).join(', ')))}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})}}
+ rpc('apply_guide',{}).then(function(j){draw(j)}).catch(function(e){box.innerHTML='<b>How-to-apply video</b><p class="err small">'+esc(e.message)+'</p>'})}
 /* ---- login ---- */
 $('#lf').addEventListener('submit',function(e){e.preventDefault();$('#le').textContent='';$('#lb').disabled=true;
  fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('#em').value,password:$('#pw').value})}).then(function(r){return r.json()}).then(function(j){
@@ -209,20 +302,22 @@ $('#lf').addEventListener('submit',function(e){e.preventDefault();$('#le').textC
   token=j.token;ls('ik_admin_tok',token);ls('ik_admin_email',j.email);start()}).catch(function(){$('#lb').disabled=false;$('#le').textContent='Network error'})});
 $('#out').onclick=logout;
 function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');setTimeout(function(){if(window.IKBT&&IKBT.cfg().station)stationLoop()},1500);$('#who').textContent=ls('ik_admin_email')||'';
- $('#nav').innerHTML=TABS.map(function(t){return '<button data-t="'+t[0]+'">'+t[1]+(t[0]==='live'?'<span class="dot" id="livedot">0</span>':t[0]==='chats'?'<span class="dot hide" id="chatdot" style="background:var(--bad)">0</span>':'')+'</button>'}).join('');
+ $('#nav').innerHTML=TABS.map(function(t){return '<button data-t="'+t[0]+'">'+(t[0]==='more'?'<span id="morelbl">More</span> ▾':t[1])+(t[0]==='chats'?'<span class="dot hide" id="chatdot" style="background:var(--bad)">0</span>':'')+'</button>'}).join('');
  $('#nav').onclick=function(e){var b=e.target.closest('button');if(b)go(b.dataset.t)};go(tab);setTimeout(tick,1500);setTimeout(chatCount,700);
- clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;tick();if(tab==='live')loadLive(true);else if((tab==='orders'||tab==='unshipped')&&!$('#ov').innerHTML)loadOrders(true);else if(tab==='ship'&&!shSel().length&&!SH.report&&(SH.tick=(SH.tick||0)+1)%6===0)loadShip(true);else if(tab==='chats'&&!$('#ov').innerHTML&&(CH.tick=(CH.tick||0)+1)%2===0)loadChats(true);if((CH.ct=(CH.ct||0)+1)%6===1)chatCount()},5000);
+ clearInterval(timer);timer=setInterval(function(){if(document.hidden)return;tick();if(tab==='live')loadLive(true);else if(tab==='home'&&!AS.busy&&!Object.keys(AS.props).some(function(k){return AS.props[k].state==='running'})&&(AS.tick=(AS.tick||0)+1)%6===0)loadHome(true);else if((tab==='orders'||tab==='unshipped')&&!$('#ov').innerHTML)loadOrders(true);else if(tab==='ship'&&!shSel().length&&!SH.report&&(SH.tick=(SH.tick||0)+1)%6===0)loadShip(true);else if(tab==='chats'&&!$('#ov').innerHTML&&(CH.tick=(CH.tick||0)+1)%2===0)loadChats(true);if((CH.ct=(CH.ct||0)+1)%6===1)chatCount()},5000);
  if(/^#chat=\d{10}$/.test(location.hash)){CH.phone=location.hash.slice(6);history.replaceState(null,'',location.pathname);go('chats')}}
-function go(t){tab=t;[].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t)});
+function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){return x[0]===t}))t='home';tab=t;var inMore=t==='more'||!!moreName(t);
+ [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t||(inMore&&b.dataset.t==='more'))});
+ var ml=$('#morelbl');if(ml)ml.textContent=moreName(t)?'More · '+moreName(t):'More';$('#main').onclick=null;
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
+ ({home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */
 var STEPN={cart:'Browsing with cart',open:'Opened checkout',phone:'Entered phone',pin:'Entered PIN',address:'Filled address',pay:'Ready to pay',submit:'Tapped pay',done:'Ordered'};
 var STEPI=['cart','open','phone','pin','address','pay','submit','done'];
 function loadLive(quiet){rpc('live').then(function(j){
- $('#livedot').textContent=j.active;if(tab!=='live')return;
+ if(tab!=='live')return;
  var h='<div class="row" style="margin-bottom:10px"><span class="pulse"></span><b>'+j.active+' shopper'+(j.active===1?'':'s')+' with a cart right now</b><span class="mut small">updates every 5 seconds · last 30 minutes shown</span></div>';
  h+='<div class="live">'+(j.sessions.length?j.sessions.map(function(s){
   var cls=s.ordered?'done':s.active?'act':'old',idx=STEPI.indexOf(s.step);
@@ -577,7 +672,7 @@ function drawWa(){var w=W.wa;
   +'<div class="small tst" style="min-height:18px"></div><div class="grid k4"><label class="f">Template name<input type="text" class="nm" list="tpl_dl" autocomplete="off" value="'+esc(t.name)+'"></label><label class="f">Language<input type="text" class="lg" value="'+esc(t.lang)+'"></label><label class="f" style="grid-column:span 2">Variables in order ({{1}}, {{2}}…)<input type="text" class="vr" value="'+esc(t.vars.join(', '))+'"></label></div>'
   +'<div class="small mut">Available: '+t.allVars.map(function(v){return '<code>'+v+'</code> '+esc(W.var_labels[v]||'')}).join(' · ')+(t.buttons?' · <b>Has Confirm/Cancel buttons</b>':'')+'</div><div class="row"><input type="text" class="tt" placeholder="Test number (10 digits)" style="max-width:200px"><button class="btn ghost sm tb">Send test</button></div></div>'}).join('')
  +'</div><div class="row" style="margin-top:12px"><button class="btn" id="t_sv">Save templates</button></div>';
- $('#main').innerHTML=h;bindWaTabs();loadTplMeta();
+ $('#main').innerHTML=h;bindWaTabs();loadTplMeta();applyCard();
  if($('#tr_go'))$('#tr_go').onclick=function(){var b=this;b.disabled=true;$('#tr_out').textContent='Sending…';rpc('wa_try_template',{name:$('#tr_n').value,id:$('#tr_i').value,to:$('#tr_t').value,noimage:$('#tr_ni').checked,plain:$('#tr_pl').checked}).then(function(j){$('#tr_out').innerHTML=(j.sent?'<span class="ok"><b>Sent ✓</b> Go4WhatsUp accepted it. Check WhatsApp on that number.</span>':'<span class="err"><b>Not sent:</b> '+esc(j.error)+'</span>')+'<div class="mut">'+(j.api?'API: '+esc(j.api)+' · ':'')+'ID used: '+esc(j.used_id)+' · variables: '+esc(JSON.stringify(j.vars))+(j.image?' · with image':'')+'</div>'+(j.response?'<div class="mut">Reply: '+esc(JSON.stringify(j.response).slice(0,300))+'</div>':'')}).catch(function(e){$('#tr_out').innerHTML='<span class="err">'+esc(e.message)+'</span>'}).then(function(){b.disabled=false})};
  if($('#g_sv'))$('#g_sv').onclick=function(){rpc('save_g4w_ids',{text:$('#g_ids').value}).then(function(j){toast('Saved '+j.count+' template IDs');loadWa()}).catch(function(e){toast(e.message)})};
  $('#w_trs').onclick=function(){rpc('save_wa',{transport:$('#w_tr').value}).then(function(){toast('Saved');loadWa()}).catch(function(e){toast(e.message)})};

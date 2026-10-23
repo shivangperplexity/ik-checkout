@@ -1195,6 +1195,14 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, ...r };
   },
+  /** Home tab: what needs doing today (lib/assistant.js). */
+  async home(env) { const { homeStats } = await import('./assistant.js'); return { ok: true, ...(await homeStats(env, ACTIONS)) }; },
+  /** Dashboard assistant: answers from live numbers, prepares ship / NDR lists that the owner confirms (lib/assistant.js). */
+  async assistant(env, b) {
+    const { assistant } = await import('./assistant.js');
+    const { withSettings } = await import('./settings.js');
+    return { ok: true, ...(await assistant(await withSettings(await withSettingsFresh(env)), ACTIONS, b)) };
+  },
   /** How-to-apply video on delivery (lib/apply-guide.js): status, set the video link, submit the template, send a test. */
   async apply_guide(env, b) {
     const A = await import('./apply-guide.js');

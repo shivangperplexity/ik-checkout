@@ -191,18 +191,18 @@ export function pickModel(ids, provider = 'groq') {
 
 const MODEL_GONE = /model.*(does not exist|not found|not exist|decommission|deprecat|no access|do not have access|unsupported|invalid model)|model_not_found|unknown model/i;
 
-export async function callModel(c, P, system, merged) {
+export async function callModel(c, P, system, merged, o = {}) {
   let r, j, out;
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 20000);
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), o.timeout || 20000);
   try {
     if (c.provider === 'anthropic') {
       r = await fetch(P.url, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', 'x-api-key': c.key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: c.model, max_tokens: 350, temperature: 0.3, system, messages: merged }) });
+        body: JSON.stringify({ model: c.model, max_tokens: o.max_tokens || 350, temperature: 0.3, system, messages: merged }) });
       j = await r.json().catch(() => ({}));
       out = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     } else {
       r = await fetch(P.url, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.key, ...(c.provider === 'openrouter' ? { 'HTTP-Referer': 'https://www.inkkulture.in', 'X-Title': 'Ink Kulture WhatsApp' } : {}) },
-        body: JSON.stringify({ model: c.model, max_tokens: 600, temperature: 0.3, messages: [{ role: 'system', content: system }, ...merged] }) });
+        body: JSON.stringify({ model: c.model, max_tokens: o.max_tokens || 600, temperature: 0.3, messages: [{ role: 'system', content: system }, ...merged] }) });
       j = await r.json().catch(() => ({}));
       out = j.choices?.[0]?.message?.content || '';
       if (j.usage) j.usage = { input_tokens: j.usage.prompt_tokens, output_tokens: j.usage.completion_tokens };
