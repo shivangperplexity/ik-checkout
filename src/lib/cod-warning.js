@@ -22,22 +22,26 @@ export function warningTemplate() {
 /** 9:00 to 21:30 IST */
 export function awake(t = now()) { const m = Math.floor(((t + 19800) % 86400) / 60); return m >= 9 * 60 && m < 21 * 60 + 30; }
 
+/** New templates go to Meta once, straight away (the general auto-submit runs only every 6 hours). */
+export async function ensureTemplates(env) {
+  for (const [flagKey, act, args] of [['cod_warning_tpl', 'cod_warning_template', {}], ['apply_yt_tpl', 'apply_guide', { submit: true }]]) {
+    try {
+      if (await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind(flagKey).first()) continue;
+      const { action } = await import('./admin.js');
+      const r = await action(act)(env, args);
+      await env.DB.prepare('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v').bind(flagKey, JSON.stringify({ at: now(), created: r.created || [], status: r.status || '' })).run();
+      console.log('template submitted', act, JSON.stringify(r.created || r.status || ''));
+    } catch (e) { console.error('template submit', act, e.message); }
+  }
+}
+
 /** Cron. */
 export async function codWarnings(env, { max = 20 } = {}) {
+  await ensureTemplates(env);
   const hours = Number(env.COD_AUTOCANCEL_HOURS || 0), since = Number(env.COD_AUTOCANCEL_SINCE || 0);
   if (!hours || !since) return { skipped: 'auto-cancel off' };
   const { triggerConfig } = await import('./settings.js');
   if (!triggerConfig(env, 'cod_cancel_warning').enabled) return { skipped: 'off' };
-  /* submit the template to Meta once, straight away (the general auto-submit runs only every 6 hours) */
-  try {
-    const flag = await env.DB.prepare("SELECT v FROM settings WHERE k='cod_warning_tpl'").first();
-    if (!flag) {
-      const { action } = await import('./admin.js');
-      const r = await action('cod_warning_template')(env, {});
-      await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cod_warning_tpl', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify({ at: now(), created: r.created || [] })).run();
-      console.log('cod warning template', JSON.stringify(r.created || []));
-    }
-  } catch (e) { console.error('cod warning template', e.message); }
   if (!awake()) return { skipped: 'night' };
   const t = now();
   const rows = (await env.DB.prepare(`SELECT * FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND converted_at IS NULL AND COALESCE(advance_paise,0)=0
