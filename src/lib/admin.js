@@ -1665,7 +1665,12 @@ export async function runAutomations(env) {
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; if (sw.retry || sw.late) console.log('cancel-sweep', JSON.stringify(sw)); } catch (e) { console.error('cancel-sweep', e); }
   /* Shiprocket health in the logs (temporary diagnostics for the cancel 503s) */
-  try { const { srProbe } = await import('./shiprocket.js'); console.log('shiprocket probe', JSON.stringify(await srProbe(env))); } catch (e) { console.error('shiprocket probe', e.message); }
+  try {
+    if (new Date().getUTCMinutes() < 5) {   /* about once an hour; logged only when something is off */
+      const { srProbe } = await import('./shiprocket.js'); const p = await srProbe(env);
+      if (!/^ok/.test(p.wallet) || !/^ok/.test(p.awb_cancel_endpoint) || (p.stuck || []).length) console.log('shiprocket probe', JSON.stringify(p));
+    }
+  } catch (e) { console.error('shiprocket probe', e.message); }
   /* WhatsApp assistant: answer phones queued by the rate limit (spaced, a few per run) */
   try { const { drainQueue, aiOn } = await import('./wa-ai.js'); if (aiOn(env)) out.aiQueue = await drainQueue(env, { max: 6, gapMs: 2500 }); } catch (e) { console.error('ai-queue', e); }
   /* Product order in Bestsellers / All Tattoos / Home page: sold out last, a few bigger designs up top (daily) */
