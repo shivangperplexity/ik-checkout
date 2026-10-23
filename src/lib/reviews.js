@@ -101,9 +101,8 @@ export function shopifyDelivery(o) {
 const ORDERS_Q = `query($q:String!,$after:String){ orders(first:50, after:$after, sortKey:UPDATED_AT, query:$q){
   pageInfo{ hasNextPage endCursor }
   nodes{ legacyResourceId name updatedAt cancelledAt displayFinancialStatus tags phone email
-    customer{ firstName lastName phone }
     shippingAddress{ firstName lastName phone city }
-    billingAddress{ phone }
+    billingAddress{ firstName lastName phone }
     lineItems(first:6){ nodes{ title quantity } }
     fulfillments(first:5){ status displayStatus createdAt updatedAt deliveredAt trackingInfo{ number url company }
       events(first:20, sortKey:HAPPENED_AT){ nodes{ status happenedAt } } } } } }`;
@@ -114,10 +113,10 @@ async function upsertAsk(env, o, cfg) {
   const d = shopifyDelivery(o);
   const tags = (o.tags || []).map((x) => String(x).toLowerCase());
   if (tags.some((x) => /collab|barter|creator|test/.test(x))) { d.state = 'skipped'; d.note = 'collab / test order'; }
-  const phone = cleanPhone(o.shippingAddress?.phone) || cleanPhone(o.phone) || cleanPhone(o.customer?.phone) || cleanPhone(o.billingAddress?.phone);
+  const phone = cleanPhone(o.shippingAddress?.phone) || cleanPhone(o.phone) || cleanPhone(o.billingAddress?.phone);
   if (!phone && d.state !== 'skipped') { d.state = 'skipped'; d.note = 'no phone number'; }
-  const first = o.shippingAddress?.firstName || o.customer?.firstName || '';
-  const last = o.shippingAddress?.lastName || o.customer?.lastName || '';
+  const first = o.shippingAddress?.firstName || o.billingAddress?.firstName || '';
+  const last = o.shippingAddress?.lastName || o.billingAddress?.lastName || '';
   const items = (o.lineItems?.nodes || []).map((l) => String(l.title || '').replace(/\s*[-|]\s*(small|medium|large|\d+\s*(x|×)\s*\d+.*)$/i, '').trim()).filter(Boolean).slice(0, 6).join(' · ').slice(0, 300);
   const cur = await env.DB.prepare('SELECT state, delivered_at, checked_at FROM review_asks WHERE order_id=?').bind(id).first();
   const t = now();
