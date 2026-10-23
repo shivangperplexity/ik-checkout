@@ -131,6 +131,8 @@ export async function processInbound(env0, msgs) {
     if (!action || action === 'CONFIRM') {
       try { const { typedAddressOk } = await import('./wa-address.js'); if (await typedAddressOk(env, m.from, m.text)) continue; } catch (e) { console.error('typed address', e.message); }
     }
+    /* "Hi, I just placed order #1758. Please keep me updated." from the thank-you screen: a fixed instant reply (lib/wa-placed.js) */
+    if (!action) { try { const { handlePlaced } = await import('./wa-placed.js'); if (await handlePlaced(env, m.from, m.text)) continue; } catch (e) { console.error('wa-placed', e.message); } }
     /* a parcel in a failed-delivery episode: the NDR autopilot reads the reply, whatever the wording, and acts (lib/ndr-pilot.js) */
     try { const { handleNdrMessage } = await import('./ndr-pilot.js'); if (await handleNdrMessage(env, m.from, m.text, action)) continue; }
     catch (e) { console.error('ndr-pilot', e.message); await logMsg(env, { direction: 'out', phone: m.from, trigger: 'ndr-pilot', status: 'failed', error: String(e.message || e) }).catch(() => {}); }
