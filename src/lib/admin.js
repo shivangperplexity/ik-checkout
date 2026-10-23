@@ -1671,7 +1671,7 @@ export async function runAutomations(env) {
   try {
     if (true) {   /* TEMP: every run while the 503s are investigated */
       const { srProbe } = await import('./shiprocket.js'); const p = await srProbe(env);
-      if (!/^ok/.test(p.wallet) || !/^ok/.test(p.awb_cancel_endpoint) || (p.stuck || []).length) console.log('shiprocket probe', JSON.stringify(p));
+      console.log('shiprocket probe', JSON.stringify(p));   /* TEMP: always */
     }
   } catch (e) { console.error('shiprocket probe', e.message); }
   /* WhatsApp assistant: answer phones queued by the rate limit (spaced, a few per run) */
