@@ -249,8 +249,8 @@ export async function autoCancelStale(env0) {
   if (!hours || !env0.DB) return { autoCancelled: 0, skipped: 'off' };
   const env = await withSettings(env0);
   const { results } = await env.DB.prepare(
-    "SELECT * FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND converted_at IS NULL AND order_id IS NOT NULL AND created_at<? ORDER BY created_at LIMIT 25",
-  ).bind(now() - hours * 3600).all();
+    "SELECT * FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND converted_at IS NULL AND COALESCE(advance_paise,0)=0 AND order_id IS NOT NULL AND created_at<? AND created_at>=? ORDER BY created_at LIMIT 25",
+  ).bind(now() - hours * 3600, Number(env0.COD_AUTOCANCEL_SINCE || 0)).all();   /* COD_AUTOCANCEL_SINCE: only orders placed after it was switched on */
   let n = 0;
   for (const row of results) {
     try {
