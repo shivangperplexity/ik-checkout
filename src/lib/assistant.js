@@ -17,6 +17,7 @@ const inr = (n) => '₹' + Math.round(num(n)).toLocaleString('en-IN');
 /* ---------- intent: what does the message ask for ---------- */
 const SHIP = /\b(ship|shipping|book|dispatch|bhej|bhejo|bhejdo|bhej ?do|nikal|nikaal|courier|send (?:them |it )?out|awb)\w*/i;
 const NDR = /\b(ndr|undeliver|not delivered|failed deliver|delivery fail|re-?attempt|rto)\w*/i;
+const SHIP_DO = /\b(ship|book|bhej)\w*\s*(kar ?do|kardo|karo|do)\b/i;
 const DOIT = /\b(handle|sambhal|run|kar ?do|kardo|karo|fix|process|clear|do it|take care|solve|resolve|nipta)\w*/i;
 
 export function intent(text) {
@@ -27,6 +28,9 @@ export function intent(text) {
     const which = pre && conf ? 'ready' : pre ? 'prepaid' : conf ? 'confirmed' : all ? 'ready' : '';
     if (which) return { kind: 'ship', which, pack };
   }
+  const dm = t.match(/(\d+)\s*(?:\+\s*)?(?:din|dino|days?|d)\b/);
+  if (dm && /(pending|unship|not ship|ship nahi|ship nhi|nahi gay|nhi gay|nahi hu|nhi hu|shipped nahi|waiting|ruk|pade|pada|stuck|delay|purane)/.test(t) && !SHIP_DO.test(t))
+    return { kind: 'stale', days: Math.min(90, Number(dm[1])), all: /(unconfirm|all|sab|saare|sare|including|bhi)/.test(t) };
   if (NDR.test(t) && (DOIT.test(t) || /\b(ndr)\b/.test(t) && t.split(/\s+/).length <= 3)) return { kind: 'ndr' };
   return { kind: 'ask', pack };
 }
@@ -93,6 +97,30 @@ async function snapshot(env, A) {
     q(`SELECT COALESCE(stage,'booked') stage, COUNT(*) n, SUM(CASE WHEN rto THEN 1 ELSE 0 END) rto FROM shipments WHERE created_at>? AND COALESCE(status,'')<>'cancelled' GROUP BY 1`, t - 30 * DAY).catch(() => []),
     A.ndr_list(env).then((x) => (x.ndr || []).filter((y) => !y.done)).catch(() => []),
   ]);
+  /* shipped by payment type (dashboard bookings), and orders shipped any way; grouped here (a few hundred rows) */
+  const isPre = (r) => r.method !== 'cod' || r.converted_at != null;
+  const sRows = await q(`SELECT o.method, o.converted_at, s.stage, s.created_at FROM shipments s LEFT JOIN orders o ON o.order_id=s.order_id WHERE s.created_at>? AND COALESCE(s.status,'')<>'cancelled'`, t - 30 * DAY).catch(() => []);
+  const oRows = await q(`SELECT o.method, o.converted_at, o.status, o.shipped_at, s.order_id AS booked FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id AND COALESCE(s.status,'')<>'cancelled'
+      WHERE o.created_at>? AND o.status NOT IN ('pending_payment','failed','completing')`, t - 30 * DAY).catch(() => []);
+  const shipByPay = {};
+  for (const r of sRows) {
+    const x = shipByPay[isPre(r) ? 'prepaid' : 'cod'] = shipByPay[isPre(r) ? 'prepaid' : 'cod'] || { total: 0, booked_today: 0, booked_yesterday: 0, booked_last_7_days: 0 };
+    const at = num(r.created_at), stg = r.stage || 'booked';
+    x.total++; x[stg] = (x[stg] || 0) + 1;
+    if (at >= today0) x.booked_today++; else if (at >= today0 - DAY) x.booked_yesterday++;
+    if (at >= today0 - 6 * DAY) x.booked_last_7_days++;
+  }
+  const ord30 = {};
+  for (const r of oRows) {
+    const x = ord30[isPre(r) ? 'prepaid' : 'cod'] = ord30[isPre(r) ? 'prepaid' : 'cod'] || { orders: 0, shipped: 0, cancelled: 0 };
+    x.orders++; if (r.status === 'cancelled') x.cancelled++; else if (r.shipped_at != null || r.booked) x.shipped++;
+  }
+  /* every order not shipped yet, oldest first: "#1801 | COD confirmed | 3.2 days | Pune 411001 | ₹499 | packed" */
+  const unshipped = w ? [...w.prepaid.map((o) => [o, 'prepaid']), ...w.confirmed.map((o) => [o, 'COD confirmed']), ...w.unconfirmed.map((o) => [o, 'COD NOT confirmed'])]
+    .sort((a, b) => a[0].created_at - b[0].created_at)
+    .map(([o, kind]) => `${o.name} | ${kind} | ${((t - o.created_at) / DAY).toFixed(1)} days | ${o.customer || ''} | ${o.city || ''} ${o.pincode || ''} | ₹${Math.round(o.total)}${o.packed_at ? ' | packed' : ''}`) : [];
+  const age = (list, lo, hi) => list.filter((o) => t - o.created_at >= lo * DAY && t - o.created_at < hi * DAY).length;
+  const buckets = (list) => ({ under_1_day: age(list, 0, 1), '1_to_3_days': age(list, 1, 3), '3_to_7_days': age(list, 3, 7), over_7_days: age(list, 7, 1e4) });
   const todayOrders = await q(`SELECT method, COUNT(*) n, COALESCE(SUM(total_paise),0) v FROM orders WHERE created_at>? AND status NOT IN ('pending_payment','failed','completing','cancelled') GROUP BY 1`, today0).catch(() => []);
   const st = Object.fromEntries(ship.map((r) => [r.stage, num(r.n)]));
   const shipped30 = ship.reduce((s, r) => s + num(r.n), 0), rto30 = ship.reduce((s, r) => s + num(r.rto), 0);
@@ -102,7 +130,11 @@ async function snapshot(env, A) {
   return {
     now_ist: new Date((t + IST) * 1000).toISOString().slice(0, 16).replace('T', ' '),
     today: { orders: todayOrders.reduce((s, r) => s + num(r.n), 0), revenue: Math.round(todayOrders.reduce((s, r) => s + num(r.v), 0) / 100), cod: num(todayOrders.find((r) => r.method === 'cod')?.n) },
-    to_ship: w ? { prepaid: w.prepaid.length, confirmed_cod: w.confirmed.length, waiting_cod_confirmation: w.unconfirmed.length, oldest_waiting_hours: Math.max(0, ...[...w.prepaid, ...w.confirmed].map((o) => Math.round((t - o.created_at) / 3600))) } : null,
+    not_shipped_yet: w ? { prepaid: w.prepaid.length, confirmed_cod: w.confirmed.length, cod_not_confirmed: w.unconfirmed.length,
+      ready_by_age: buckets([...w.prepaid, ...w.confirmed]), unconfirmed_by_age: buckets(w.unconfirmed) } : null,
+    not_shipped_orders_oldest_first: unshipped.slice(0, 120),
+    orders_last_30_days_by_payment: ord30,
+    dashboard_bookings_by_payment_30d: shipByPay,
     last_7_days: k(a7), last_30_days: k(a30),
     shipments_30d: { booked: shipped30, by_stage: st, rto: rto30, rto_pct: shipped30 ? Math.round((rto30 * 1000) / shipped30) / 10 : 0 },
     open_ndr: ndr.map((x) => `${x.order_name || x.awb}: ${String(x.reason || '').slice(0, 60)} (attempt ${x.attempts || 1})`).slice(0, 15),
@@ -119,7 +151,8 @@ ACTION: ndr             (open failed deliveries: re-attempt or return)
 Only add an ACTION line when the owner asks for that action. Never claim something was shipped, booked or changed: you only prepare it.
 You never pack orders (the owner packs himself) and never ship COD orders that were not confirmed.
 
-Use only the numbers in STORE DATA. If something is not in it, say you can't see it here. When asked for improvements to the store or checkout, give 3 to 5 specific, prioritised suggestions tied to these numbers (for example where the checkout funnel drops, COD share and RTO, conversion by device or source), each with the expected effect. Be honest: the tattoos are semi-permanent and last 1-2 weeks; never suggest claiming otherwise.
+Reply in the owner's language; for Hindi or Hinglish always use Latin script (Roman Hinglish), never Devanagari.
+Use only STORE DATA, but work it out from there: count, add up and filter the lists yourself (for example orders not shipped for more than N days come from not_shipped_orders_oldest_first, whose third column is the age; prepaid vs COD shipped counts come from dashboard_bookings_by_payment_30d and orders_last_30_days_by_payment). When asked for a list, give the order numbers with their details, one per line. Say you can't see something only when it truly is not in the data. When asked for improvements to the store or checkout, give 3 to 5 specific, prioritised suggestions tied to these numbers (for example where the checkout funnel drops, COD share and RTO, conversion by device or source), each with the expected effect. Be honest: the tattoos are semi-permanent and last 1-2 weeks; never suggest claiming otherwise.
 
 STORE DATA (live):
 ${JSON.stringify(snap)}`;
@@ -135,6 +168,15 @@ export async function assistant(env, A, b) {
     if (!p.rows.length) return { reply: `${packNote}Nothing to ship in "${p.title}" right now.${p.skipped_unconfirmed ? ` ${p.skipped_unconfirmed} COD order${p.skipped_unconfirmed > 1 ? 's are' : ' is'} still waiting for the customer to confirm, so I left ${p.skipped_unconfirmed > 1 ? 'them' : 'it'} out.` : ''}` };
     const bad = p.rows.filter((r) => r.error).length;
     return { reply: `${packNote}${p.rows.length} order${p.rows.length > 1 ? 's' : ''} ready: ${p.title.toLowerCase()}. Shiprocket estimate ${inr(p.total_charge)}${p.unpriced ? ` for the first 20 (${p.unpriced} more at the cheapest courier)` : ''}.${bad ? ` ${bad} can't be booked as is (see the list).` : ''}${p.skipped_unconfirmed && it.which !== 'prepaid' ? ` ${p.skipped_unconfirmed} unconfirmed COD order${p.skipped_unconfirmed > 1 ? 's' : ''} left out.` : ''} Untick any you want to hold, then tap Confirm to book.`, proposal: p };
+  }
+  if (it.kind === 'stale') {
+    const w = await waiting(env, A), t = now(), lim = it.days * DAY;
+    const rows = [...w.prepaid.map((o) => [o, 'Prepaid']), ...w.confirmed.map((o) => [o, 'COD confirmed']), ...(it.all ? w.unconfirmed.map((o) => [o, 'COD not confirmed']) : [])]
+      .filter(([o]) => t - o.created_at >= lim).sort((a, b) => a[0].created_at - b[0].created_at);
+    const unc = it.all ? 0 : w.unconfirmed.filter((o) => t - o.created_at >= lim).length;
+    if (!rows.length) return { reply: `No order ready to ship has been waiting ${it.days}+ days.${unc ? ` (${unc} unconfirmed COD order${unc > 1 ? 's are' : ' is'} that old; ask "including unconfirmed" to see them.)` : ''}` };
+    return { reply: `${rows.length} order${rows.length > 1 ? 's' : ''} not shipped for ${it.days}+ days (oldest first):\n` + rows.slice(0, 60).map(([o, k]) => `${o.name} · ${k} · ${((t - o.created_at) / DAY).toFixed(1)} days · ${o.customer || ''} · ${o.city || ''} ${o.pincode || ''} · ₹${Math.round(o.total)}${o.packed_at ? ' · packed' : ''}`).join('\n')
+      + (rows.length > 60 ? `\n…and ${rows.length - 60} more` : '') + (unc ? `\n\nNot counted: ${unc} COD order${unc > 1 ? 's' : ''} the customer never confirmed (ask "including unconfirmed" to list them).` : '') };
   }
   if (it.kind === 'ndr') {
     const p = await ndrProposal(env, A);
