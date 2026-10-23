@@ -564,7 +564,7 @@ const ACTIONS = {
   async save_profit(env, b) {
     const unit_cost = Number(b.unit_cost), cac = Number(b.cac);
     if (!(unit_cost >= 0 && unit_cost < 100000) || !(cac >= 0 && cac < 100000)) throw new Error('Enter amounts in rupees');
-    await putSetting(env, 'profit', { unit_cost, cac });
+    await putSetting(env, 'profit', { ...((await getSettings(env, true)).profit || {}), unit_cost, cac });
     return { ok: true };
   },
   /** Re-rank the main collections now (lib/ranking.js); also runs daily on the cron. */
@@ -1210,6 +1210,20 @@ const ACTIONS = {
     const { assistant } = await import('./assistant.js');
     const { withSettings } = await import('./settings.js');
     return { ok: true, ...(await assistant(await withSettings(await withSettingsFresh(env)), ACTIONS, b)) };
+  },
+  /** Real revenue (lib/revenue.js): delivered orders' value, RTO losses; the first call starts the Shopify scan. */
+  async revenue(env, b) {
+    const R = await import('./revenue.js');
+    const f = await withSettingsFresh(env);
+    if (b.scan) await R.revenueScan(f, { pages: 8, force: !!b.force });
+    else { const st = await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null); if (!st) await R.revenueScan(f, { pages: 8 }); }
+    return { ok: true, ...(await R.revenueReport(f, { range: ['all', '7d', '30d', 'month'].includes(b.range) ? b.range : 'all' })) };
+  },
+  async revenue_cfg(env, b) {
+    const s = await getSettings(env, true), v = Number(b.nimbus_freight);
+    if (!(v >= 0 && v < 1000)) throw new Error('Enter the average NimbusPost freight per parcel in rupees');
+    await putSetting(env, 'profit', { ...(s.profit || {}), nimbus_freight: v });
+    return { ok: true };
   },
   async assistant_history(env) { const { history } = await import('./assistant.js'); return { ok: true, messages: await history(env, 40) }; },
   async assistant_note(env, b) { const { remember } = await import('./assistant.js'); await remember(env, 'assistant', '[Done from the dashboard] ' + String(b.content || '').slice(0, 4000)); return { ok: true }; },

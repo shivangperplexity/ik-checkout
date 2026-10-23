@@ -221,7 +221,7 @@ function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app'
 var AS={msgs:[],busy:false,props:{},loaded:false};
 function asSave(){}
 function asLoad(){if(AS.loaded)return;AS.loaded=true;ls('ik_as_msgs',null);rpc('assistant_history').then(function(j){if(AS.msgs.length)return;AS.msgs=(j.messages||[]).map(function(m){return {role:m.role,content:String(m.content||'').replace(/\n\[[^\]]*\]$/,'')}});asDraw()}).catch(function(){AS.loaded=false})}
-var MORE=[['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
+var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
 function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
 function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
  $('#main').onclick=function(e){var b=e.target.closest('[data-go]');if(b)go(b.dataset.go)};
@@ -229,13 +229,16 @@ function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(funct
 function tile(title,big,sub,btns,warn){return '<div class="card tile'+(warn?' warn':'')+'"><span class="small mut" style="font-weight:600">'+title+'</span><b class="big">'+big+'</b>'+(sub?'<span class="small mut">'+sub+'</span>':'')+(btns?'<div class="row" style="margin-top:8px">'+btns+'</div>':'')+'</div>'}
 function loadHome(quiet){rpc('home').then(function(h){if(tab!=='home')return;
  var ready=h.prepaid+h.confirmed;
- var top='<div class="small mut" style="margin:0 0 10px">Today: <b style="color:var(--ink)">'+h.today.orders+' order'+(h.today.orders===1?'':'s')+' · '+inr(h.today.revenue)+'</b>'+(h.live?' · '+h.live+' on the store now':'')+(h.reviews?' · <a href="#" data-go="reviews">'+h.reviews+' new review'+(h.reviews===1?'':'s')+'</a>':'')+'</div>';
+ var top='<div class="small mut" style="margin:0 0 10px">Today: <b style="color:var(--ink)">'+h.today.orders+' order'+(h.today.orders===1?'':'s')+' · '+inr(h.today.revenue)+'</b>'+(h.live?' · '+h.live+' on the store now':'')+(h.reviews?' · <a href="#" data-go="reviews">'+h.reviews+' new review'+(h.reviews===1?'':'s')+'</a>':'')+' · <a href="#" data-go="revenue" id="home_rev">Real revenue…</a></div>';
  var tiles='<div class="grid tiles">'
   +tile('Ready to ship',ready,h.prepaid+' prepaid · '+h.confirmed+' confirmed COD'+(h.packed_waiting?' · '+h.packed_waiting+' packed':''),(h.prepaid?'<button class="btn sm" data-ask="Ship prepaid orders">Ship prepaid ('+h.prepaid+')</button>':'')+(h.confirmed?'<button class="btn sm" data-ask="Ship address confirmed orders">Ship confirmed COD ('+h.confirmed+')</button>':'')+(!ready?'<span class="small ok">All shipped</span>':''))
   +tile('Waiting for COD confirmation',h.unconfirmed,'Customers who have not replied YES yet',h.unconfirmed?'<button class="btn ghost sm" data-go="unshipped">See them</button>':'')
   +tile('Failed deliveries (NDR)',h.ndr,'Not handled in the last 2 days',h.ndr?'<button class="btn sm" data-ask="Handle NDR">Handle NDR</button>':'',h.ndr>0)
   +tile('Chats to answer',h.chats,'WhatsApp messages waiting for you',h.chats?'<button class="btn ghost sm" data-go="chats">Open chats</button>':'',h.chats>0)
   +'</div>';
+ var fillRev=function(){if(AS.rev){var a=$('#home_rev');if(a)a.innerHTML='Real revenue <b>'+inr(AS.rev.real_revenue)+'</b> · RTO loss <b style="color:var(--bad)">'+inr(AS.rev.rto.total)+'</b>'}};
+ if(!AS.revAt||Date.now()-AS.revAt>10*60*1000){AS.revAt=Date.now();rpc('revenue',{range:'all'}).then(function(r){AS.rev=r;fillRev()}).catch(function(){AS.revAt=0})}
+ setTimeout(fillRev,0);
  if(quiet&&$('#home_tiles')){$('#home_top').innerHTML=top;$('#home_tiles').innerHTML=tiles;return}
  $('#main').innerHTML='<div id="home_top">'+top+'</div><div id="home_tiles">'+tiles+'</div>'
   +'<div class="card asst"><div class="row" style="justify-content:space-between"><b>Assistant</b><span class="row"><span class="small mut">Prepares the list, you tap Confirm. Never packs.</span>'+'<button class="btn ghost sm" id="as_clear" title="Start a new conversation (the assistant forgets this one)">New chat</button>'+'</span></div>'
@@ -308,6 +311,37 @@ function applyCard(){var box=document.createElement('div');box.className='card';
   var t=$('#ap_t');if(t)t.onclick=function(){t.disabled=true;rpc('apply_guide',{test:true,to:$('#ap_to').value}).then(function(r){draw(r,r.test&&r.test.ok?'<span class="ok">Test sent.</span>':'<span class="err">'+esc((r.test&&(r.test.error||r.test.skipped))||'not sent')+'</span>')}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})};
   var sb=$('#ap_sub');if(sb)sb.onclick=function(){sb.disabled=true;rpc('apply_guide',{submit:true}).then(function(r){draw(r,'Submitted: '+esc((r.created||[]).map(function(x){return x.status+(x.error?' ('+x.error+')':'')}).join(', ')))}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})}}
  rpc('apply_guide',{}).then(function(j){draw(j)}).catch(function(e){box.innerHTML='<b>How-to-apply video</b><p class="err small">'+esc(e.message)+'</p>'})}
+/* ---- Real revenue (lib/revenue.js) ---- */
+var RVN={range:'all'};
+function loadRevenue(scan){$('#main').innerHTML='<p class="mut">'+(scan?'Reading every order from Shopify…':'Loading…')+'</p>';
+ rpc('revenue',{range:RVN.range,scan:!!scan,force:!!scan}).then(function(j){if(tab!=='revenue')return;
+ var dl=j.delivered,rt=j.returned,R=j.rto,c=j.costs,dn=dl.cod.n+dl.prepaid.n;
+ var kpi=function(t,v,sub,col){return '<div class="card kpi"><span>'+t+'</span><b'+(col?' style="color:'+col+'"':'')+'>'+v+'</b>'+(sub?'<div class="small mut" style="margin-top:4px">'+sub+'</div>':'')+'</div>'};
+ var h='<div class="row" style="margin-bottom:10px">'+[['all','All time'],['month','This month'],['30d','30 days'],['7d','7 days']].map(function(x){return '<button class="chip'+(RVN.range===x[0]?' on':'')+'" data-rr="'+x[0]+'">'+x[1]+'</button>'}).join('')
+  +'<span class="grow"></span><span class="small mut">'+(j.scan.running?'Reading orders from Shopify… ':'')+j.scan.orders+' orders'+(j.scan.full_at?' · updated '+ago(j.scan.full_at):'')+'</span><button class="btn ghost sm" id="rv_rf">Refresh from Shopify</button></div>';
+ h+='<div class="grid k4">'
+  +kpi('Real revenue (delivered)',inr(j.real_revenue),dn+' orders delivered · COD '+inr(dl.cod.value)+' ('+dl.cod.n+') · prepaid '+inr(dl.prepaid.value)+' ('+dl.prepaid.n+')','var(--ok)')
+  +kpi('Lost to RTO',inr(R.total),R.n+' parcels came back · '+R.rate_pct+'% of finished deliveries'+(R.value_lost?' · '+inr(R.value_lost)+' COD never collected':''),'var(--bad)')
+  +kpi('Net after costs (est.)',inr(j.net_est),'revenue − freight both ways − product '+inr(c.product)+' − ads '+inr(c.ads))
+  +kpi('Not money yet',inr(j.in_transit.value+j.unknown.value+j.unshipped.value),j.in_transit.n+' on the way'+(j.unknown.n?' · '+j.unknown.n+' no tracking update for 15+ days':'')+' · '+j.unshipped.n+' not shipped')
+  +'</div>';
+ var cars=Object.keys(j.carriers).sort();
+ h+='<div class="grid two" style="margin-top:12px"><div class="card"><h3>By courier</h3><div class="tw"><table><tr><th>Courier</th><th>Delivered</th><th>Returned</th><th>RTO %</th><th>Revenue</th></tr>'
+  +cars.map(function(k){var x=j.carriers[k],f=x.delivered+x.returned;return '<tr><td><b>'+esc({nimbuspost:'NimbusPost',shiprocket:'Shiprocket',other:'Other / manual'}[k]||k)+'</b></td><td>'+x.delivered+'</td><td>'+x.returned+'</td><td>'+(f?Math.round(x.returned*1000/f)/10:0)+'%</td><td>'+inr(x.value)+'</td></tr>'}).join('')+'</table></div>'
+  +'<p class="small mut" style="margin:8px 0 0">Shiprocket parcels: our own tracking. NimbusPost and older parcels: the delivery status Shopify got from the courier.</p></div>';
+ h+='<div class="card"><h3>What the RTOs cost</h3><div class="small" style="line-height:2">'
+  +'Freight to the customer: <b>'+inr(R.freight_out)+'</b><br>Freight back to you (taken as the same): <b>'+inr(R.freight_back)+'</b><br>Ad spend that won these orders ('+inr(j.cac)+' each): <b>'+inr(R.ads)+'</b>'
+  +(R.advance_kept?'<br>Advances kept (₹99 part-COD): <b style="color:var(--ok)">− '+inr(R.advance_kept)+'</b>':'')+'<br><b>Total RTO loss: '+inr(R.total)+'</b></div>'
+  +(R.est_n?'<p class="small" style="margin:8px 0 0;color:var(--warn)">'+R.est_n+' of these were NimbusPost parcels: freight estimated at '+inr(j.nimbus_freight)+' each'+(j.nimbus_freight_set?'':' (your Shiprocket average)')+'.</p>':'')
+  +'<div class="row" style="margin-top:8px"><label class="f" style="max-width:220px">NimbusPost freight per parcel (₹)<input type="number" id="rv_nf" min="0" value="'+(j.nimbus_freight_set?j.nimbus_freight:'')+'" placeholder="'+j.nimbus_freight+'"></label><button class="btn ghost sm" id="rv_nfs" style="align-self:end">Save</button></div></div></div>';
+ h+='<div class="card" style="margin-top:12px"><h3>Returned parcels (RTO)'+(R.list.length?' · newest first':'')+'</h3>'+(R.list.length?'<div class="tw"><table><tr><th>Order</th><th>Courier</th><th>Payment</th><th>Order value</th><th>Freight each way</th><th>Shipped</th></tr>'
+  +R.list.map(function(x){return '<tr><td><b>'+esc(x.name)+'</b></td><td>'+esc({nimbuspost:'NimbusPost',shiprocket:'Shiprocket'}[x.carrier]||x.carrier)+'</td><td>'+(x.pay==='cod'?'COD':'Prepaid')+'</td><td>'+inr(x.value)+'</td><td>'+inr(x.freight)+(x.est?' <span class="mut small">est.</span>':'')+'</td><td class="small mut">'+ist(x.at)+'</td></tr>'}).join('')+'</table></div>':'<p class="small mut">No returned parcels in this range.</p>')+'</div>';
+ h+='<p class="small mut" style="margin-top:10px">Real revenue counts only orders the courier marked delivered, at their final value after any refunds or edits. Orders still on the way, not shipped, cancelled or returned are not counted. Costs use your Settings: product '+inr(j.unit_cost)+' per item, ads '+inr(j.cac)+' per order.</p>';
+ $('#main').innerHTML=h;
+ $('#main').onclick=function(e){var r=e.target.closest('[data-rr]');if(r){RVN.range=r.dataset.rr;loadRevenue()}};
+ $('#rv_rf').onclick=function(){loadRevenue(true)};
+ $('#rv_nfs').onclick=function(){rpc('revenue_cfg',{nimbus_freight:$('#rv_nf').value}).then(function(){toast('Saved');loadRevenue()}).catch(function(e){toast(e.message)})};
+ }).catch(fail)}
 /* ---- login ---- */
 $('#lf').addEventListener('submit',function(e){e.preventDefault();$('#le').textContent='';$('#lb').disabled=true;
  fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('#em').value,password:$('#pw').value})}).then(function(r){return r.json()}).then(function(j){
@@ -323,7 +357,7 @@ function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){r
  [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t||(inMore&&b.dataset.t==='more'))});
  var ml=$('#morelbl');if(ml)ml.textContent=moreName(t)?'More · '+moreName(t):'More';$('#main').onclick=null;
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
+ ({revenue:loadRevenue,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */

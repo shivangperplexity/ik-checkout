@@ -118,6 +118,8 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_payable_paise BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_started_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS addr_tagged_at BIGINT`,
+  /* Real revenue (lib/revenue.js): every Shopify order and how it ended */
+  `CREATE TABLE IF NOT EXISTS rev_orders (order_id TEXT PRIMARY KEY, name TEXT, created_at BIGINT, total_paise BIGINT, refunded_paise BIGINT, pay TEXT, state TEXT, delivered_at BIGINT, shipped_at BIGINT, carrier TEXT, awb TEXT, units INT, tags TEXT, scanned_at BIGINT)`,
   /* Dashboard assistant conversation (lib/assistant.js) */
   `CREATE TABLE IF NOT EXISTS assistant_msgs (id SERIAL PRIMARY KEY, ts BIGINT, role TEXT, content TEXT)`,
   /* Reviews (lib/reviews.js): one ask per delivered order, the reviews, their photos (JPEG base64) */

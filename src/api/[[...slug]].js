@@ -55,6 +55,8 @@ export default {
       await (async () => { const { tagConfirmedSweep } = await import('../lib/order-tags.js'); const r = await tagConfirmedSweep(env); if (r.tagged || r.failed) console.log('address tags', JSON.stringify(r)); })().catch((e) => console.error('address tags', e));
       /* reviews: find delivered orders (Shopify + tracking), ask 3 days after delivery (lib/reviews.js) */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { reviewsTick } = await import('../lib/reviews.js'); const r = await reviewsTick(await withSettings(env)); if (r.track?.delivered || r.send?.sent || r.send?.failed || r.send?.held || r.scan?.error || r.track?.error || r.send?.error) console.log('reviews', JSON.stringify(r)); })().catch((e) => console.error('reviews', e));
+      /* real revenue: keep every Shopify order's outcome current (lib/revenue.js) */
+      await (async () => { const { withSettings } = await import('../lib/settings.js'); const { revenueScan } = await import('../lib/revenue.js'); await revenueScan(await withSettings(env)); })().catch((e) => console.error('revenueScan', e.message));
       /* automatic NDR rules: re-attempt / return / wait for the customer (lib/ndr-rules.js) */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { autoNdr } = await import('../lib/ndr-rules.js'); const r = await autoNdr(await withSettings(env)); const pl = r.pilot || {}; if (r.actions?.length || r.failed || r.error || pl.nudged || pl.told || pl.failed || pl.error || pl.pending || pl.templates) console.log('autoNdr', JSON.stringify(r)); })().catch((e) => console.error('autoNdr', e));
     }
