@@ -1215,8 +1215,9 @@ const ACTIONS = {
   async revenue(env, b) {
     const R = await import('./revenue.js');
     const f = await withSettingsFresh(env);
-    if (b.scan) await R.revenueScan(f, { pages: 8, force: !!b.force });
-    else { const st = await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null); if (!st) await R.revenueScan(f, { pages: 8 }); }
+    /* read Shopify for up to ~20 s per call; the page calls again while a pass is under way */
+    if (b.scan) await R.revenueScan(f, { pages: 40, force: !!b.force, budgetMs: 20000 });
+    else { const st = await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null); if (!st || JSON.parse(st.v || '{}').cursor) await R.revenueScan(f, { pages: 40, budgetMs: 20000 }); }
     return { ok: true, ...(await R.revenueReport(f, { range: ['all', '7d', '30d', 'month'].includes(b.range) ? b.range : 'all' })) };
   },
   async revenue_cfg(env, b) {

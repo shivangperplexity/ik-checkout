@@ -55,19 +55,21 @@ async function save(env, r) {
     ON CONFLICT (order_id) DO UPDATE SET ${k.filter((x) => x !== 'order_id').map((x) => `${x}=EXCLUDED.${x}`).join(', ')}, scanned_at=EXCLUDED.scanned_at`).bind(...Object.values(r), now()).run();
 }
 
-/** Cron / button: carry the full pass on a few pages. force: start a new pass now. */
-export async function revenueScan(env, { pages = PAGES_PER_RUN, force = false } = {}) {
+/** Cron / button: carry the full pass on (up to `pages` pages, or until `budgetMs` is used). force: start a new pass
+ *  now, unless one is already under way (then it carries on: restarting would only ever re-read the first pages). */
+export async function revenueScan(env, { pages = PAGES_PER_RUN, force = false, budgetMs = 0 } = {}) {
   const st = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null))?.v || '{}');
   if (!st.cursor && !force && st.full_at && now() - st.full_at < PASS_EVERY) return { skipped: 'fresh' };
-  let after = force ? null : st.cursor || null, seen = 0, done = false;
-  for (let p = 0; p < pages; p++) {
+  const t0 = Date.now();
+  let after = st.cursor || null, seen = 0, done = false;
+  for (let p = 0; p < pages && (!budgetMs || Date.now() - t0 < budgetMs); p++) {
     const d = await gql(env, Q, { after });
     const page = d.orders || d.data?.orders;
     for (const o of page.nodes) { await save(env, rowOf(o)); seen++; }
     if (!page.pageInfo.hasNextPage) { done = true; break; }
     after = page.pageInfo.endCursor;
   }
-  const next = done ? { cursor: null, full_at: now(), started_at: st.started_at || now() } : { ...st, cursor: after, started_at: st.cursor ? st.started_at : now() };
+  const next = done ? { cursor: null, full_at: now(), started_at: st.started_at || now(), read: (st.cursor ? num(st.read) : 0) + seen } : { ...st, cursor: after, started_at: st.cursor ? st.started_at : now(), read: (st.cursor ? num(st.read) : 0) + seen };
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('rev_scan', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(next)).run();
   return { seen, done };
 }
@@ -93,10 +95,12 @@ export async function revenueReport(env, { range = 'all' } = {}) {
   const by = { delivered: { cod: blank(), prepaid: blank() }, returned: { cod: blank(), prepaid: blank() }, transit: blank(), unknown: blank(), unshipped: blank(), cancelled: blank() };
   const carriers = {};
   const rto = { n: 0, freight_out: 0, freight_back: 0, ads: 0, advance_kept: 0, est_n: 0, value_lost: 0, list: [] };
-  let freightAll = 0, freightEst = 0, productCost = 0, refunds = 0;
+  let freightAll = 0, freightEst = 0, productCost = 0, refunds = 0, received = 0;
   const STALE = 15 * DAY;   /* a NimbusPost / manual parcel with no tracking update for 15 days: outcome unknown */
 
   for (const r of rows) {
+    /* ad spend: every order placed in the range cost ads to win, whatever happened to it (collab / test orders did not) */
+    if (num(r.created_at) >= from && !/collab|barter|creator|test/i.test(r.tags || '')) received++;
     /* outcome: our Shiprocket record first, Shopify tracking otherwise */
     let state = r.state, at = r.delivered_at, carrier = r.carrier || 'other';
     if (r.sr_stage || r.sr_status) {
@@ -125,6 +129,7 @@ export async function revenueReport(env, { range = 'all' } = {}) {
     } else if (state === 'shipped') {
       const stale = carrier !== 'shiprocket' && num(r.shipped_at) && t - num(r.shipped_at) > STALE;
       if (stale) by.unknown.n++, by.unknown.value += value; else { by.transit.n++; by.transit.value += value; C().transit++; }
+      productCost += num(r.units) * unitCost;   /* out of stock and on its way (or lost) */
     } else if (state === 'cancelled') { by.cancelled.n++; by.cancelled.value += value; }
     else { by.unshipped.n++; by.unshipped.value += value; }
     if (shippedAny) { const f = freight ?? nimbusFreight; freightAll += f; if (freight == null) freightEst += f; }
@@ -139,10 +144,19 @@ export async function revenueReport(env, { range = 'all' } = {}) {
     rto: { ...rto, freight_out: r2(rto.freight_out), freight_back: r2(rto.freight_back), ads: r2(rto.ads), advance_kept: r2(rto.advance_kept), total: r2(rto.total), value_lost: r2(rto.value_lost),
       rate_pct: shippedN ? Math.round((rto.n * 1000) / shippedN) / 10 : 0 },
     carriers,
-    costs: { freight: r2(freightAll), freight_est: r2(freightEst), product: r2(productCost), ads: r2((by.delivered.cod.n + by.delivered.prepaid.n + rto.n) * cac), refunds: r2(refunds) },
+    costs: { freight: r2(freightAll), freight_est: r2(freightEst), product: r2(productCost), ads: r2(received * cac), refunds: r2(refunds) },
   });
-  out.net_est = r2(real - out.costs.freight - rto.freight_back - out.costs.product - out.costs.ads + rto.advance_kept);
+  /* Real profit, cash basis: money in from delivered orders minus everything already spent (stock sent out, freight
+     both ways, ads for every order placed). Parcels still on the way add their revenue when delivered. */
+  const profit = {
+    revenue: r2(real), product: r2(productCost), freight_out: r2(freightAll), freight_back: r2(rto.freight_back), ads: r2(received * cac), orders_received: received,
+    advances_kept: r2(rto.advance_kept), freight_est: r2(freightEst + (rto.est_n ? rto.freight_back * (rto.est_n / Math.max(1, rto.n)) : 0)),
+  };
+  profit.total = r2(profit.revenue - profit.product - profit.freight_out - profit.freight_back - profit.ads + profit.advances_kept);
+  profit.margin_pct = real ? Math.round((profit.total * 1000) / real) / 10 : 0;
+  out.profit = profit;
+  out.net_est = profit.total;
   const st = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null))?.v || '{}');
-  out.scan = { full_at: st.full_at || null, running: !!st.cursor, orders: rows.length };
+  out.scan = { full_at: st.full_at || null, running: !!st.cursor, orders: rows.length, read: num(st.read) };
   return out;
 }

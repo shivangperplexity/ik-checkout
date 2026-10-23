@@ -313,16 +313,18 @@ function applyCard(){var box=document.createElement('div');box.className='card';
  rpc('apply_guide',{}).then(function(j){draw(j)}).catch(function(e){box.innerHTML='<b>How-to-apply video</b><p class="err small">'+esc(e.message)+'</p>'})}
 /* ---- Real revenue (lib/revenue.js) ---- */
 var RVN={range:'all'};
-function loadRevenue(scan){$('#main').innerHTML='<p class="mut">'+(scan?'Reading every order from Shopify…':'Loading…')+'</p>';
- rpc('revenue',{range:RVN.range,scan:!!scan,force:!!scan}).then(function(j){if(tab!=='revenue')return;
+function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+(scan?'Reading every order from Shopify…':'Loading…')+'</p>';
+ rpc('revenue',{range:RVN.range,scan:!!scan,force:scan==='force'}).then(function(j){if(tab!=='revenue')return;
+ /* a pass still under way: show what is in, keep reading */
+ clearTimeout(RVN.t);if(j.scan.running)RVN.t=setTimeout(function(){if(tab==='revenue')loadRevenue(true,true)},800);
  var dl=j.delivered,rt=j.returned,R=j.rto,c=j.costs,dn=dl.cod.n+dl.prepaid.n;
  var kpi=function(t,v,sub,col){return '<div class="card kpi"><span>'+t+'</span><b'+(col?' style="color:'+col+'"':'')+'>'+v+'</b>'+(sub?'<div class="small mut" style="margin-top:4px">'+sub+'</div>':'')+'</div>'};
  var h='<div class="row" style="margin-bottom:10px">'+[['all','All time'],['month','This month'],['30d','30 days'],['7d','7 days']].map(function(x){return '<button class="chip'+(RVN.range===x[0]?' on':'')+'" data-rr="'+x[0]+'">'+x[1]+'</button>'}).join('')
-  +'<span class="grow"></span><span class="small mut">'+(j.scan.running?'Reading orders from Shopify… ':'')+j.scan.orders+' orders'+(j.scan.full_at?' · updated '+ago(j.scan.full_at):'')+'</span><button class="btn ghost sm" id="rv_rf">Refresh from Shopify</button></div>';
+  +'<span class="grow"></span><span class="small mut">'+(j.scan.running?'<b style="color:var(--warn)">Reading orders from Shopify… '+j.scan.orders+' so far</b>':j.scan.orders+' orders'+(j.scan.full_at?' · updated '+ago(j.scan.full_at):''))+'</span><button class="btn ghost sm" id="rv_rf">Refresh from Shopify</button></div>';
  h+='<div class="grid k4">'
   +kpi('Real revenue (delivered)',inr(j.real_revenue),dn+' orders delivered · COD '+inr(dl.cod.value)+' ('+dl.cod.n+') · prepaid '+inr(dl.prepaid.value)+' ('+dl.prepaid.n+')','var(--ok)')
   +kpi('Lost to RTO',inr(R.total),R.n+' parcels came back · '+R.rate_pct+'% of finished deliveries'+(R.value_lost?' · '+inr(R.value_lost)+' COD never collected':''),'var(--bad)')
-  +kpi('Net after costs (est.)',inr(j.net_est),'revenue − freight both ways − product '+inr(c.product)+' − ads '+inr(c.ads))
+  +kpi('Real profit',inr(j.profit.total),j.profit.margin_pct+'% of real revenue · after stock, freight both ways and ads',j.profit.total>=0?'var(--ok)':'var(--bad)')
   +kpi('Not money yet',inr(j.in_transit.value+j.unknown.value+j.unshipped.value),j.in_transit.n+' on the way'+(j.unknown.n?' · '+j.unknown.n+' no tracking update for 15+ days':'')+' · '+j.unshipped.n+' not shipped')
   +'</div>';
  var cars=Object.keys(j.carriers).sort();
@@ -334,12 +336,22 @@ function loadRevenue(scan){$('#main').innerHTML='<p class="mut">'+(scan?'Reading
   +(R.advance_kept?'<br>Advances kept (₹99 part-COD): <b style="color:var(--ok)">− '+inr(R.advance_kept)+'</b>':'')+'<br><b>Total RTO loss: '+inr(R.total)+'</b></div>'
   +(R.est_n?'<p class="small" style="margin:8px 0 0;color:var(--warn)">'+R.est_n+' of these were NimbusPost parcels: freight estimated at '+inr(j.nimbus_freight)+' each'+(j.nimbus_freight_set?'':' (your Shiprocket average)')+'.</p>':'')
   +'<div class="row" style="margin-top:8px"><label class="f" style="max-width:220px">NimbusPost freight per parcel (₹)<input type="number" id="rv_nf" min="0" value="'+(j.nimbus_freight_set?j.nimbus_freight:'')+'" placeholder="'+j.nimbus_freight+'"></label><button class="btn ghost sm" id="rv_nfs" style="align-self:end">Save</button></div></div></div>';
+ var P=j.profit,line=function(t,v,neg,note){return '<tr><td>'+t+(note?' <span class="small mut">'+note+'</span>':'')+'</td><td style="text-align:right;white-space:nowrap'+(neg?';color:var(--bad)':'')+'">'+(neg?'− ':'')+inr(v)+'</td></tr>'};
+ h+='<div class="card" style="margin-top:12px"><h3>Real profit</h3><div class="tw"><table style="max-width:620px">'
+  +line('Real revenue (delivered orders)',P.revenue)
+  +line('Stock sent out',P.product,1,'₹'+j.unit_cost+' per item, delivered + on the way')
+  +line('Freight to customers',P.freight_out,1,'every parcel shipped')
+  +line('Freight back on RTOs',P.freight_back,1,'taken as equal to freight out')
+  +line('Ads',P.ads,1,'₹'+j.cac+' × '+P.orders_received+' orders placed')
+  +(P.advances_kept?'<tr><td>₹99 advances kept on RTOs</td><td style="text-align:right;color:var(--ok)">+ '+inr(P.advances_kept)+'</td></tr>':'')
+  +'<tr><td><b>Real profit</b></td><td style="text-align:right"><b style="color:'+(P.total>=0?'var(--ok)':'var(--bad)')+'">'+inr(P.total)+'</b></td></tr></table></div>'
+  +'<p class="small mut" style="margin:8px 0 0">Cash basis: money in from delivered orders minus everything already spent. Parcels still on the way ('+inr(j.in_transit.value)+') are not counted as revenue yet but their stock and freight are, so this number rises as they get delivered.'+(P.freight_est?' '+inr(P.freight_est)+' of the freight is estimated (NimbusPost).':'')+' Payment gateway and COD remittance fees are not included. Change the per-item and per-order amounts in Settings.</p></div>';
  h+='<div class="card" style="margin-top:12px"><h3>Returned parcels (RTO)'+(R.list.length?' · newest first':'')+'</h3>'+(R.list.length?'<div class="tw"><table><tr><th>Order</th><th>Courier</th><th>Payment</th><th>Order value</th><th>Freight each way</th><th>Shipped</th></tr>'
   +R.list.map(function(x){return '<tr><td><b>'+esc(x.name)+'</b></td><td>'+esc({nimbuspost:'NimbusPost',shiprocket:'Shiprocket'}[x.carrier]||x.carrier)+'</td><td>'+(x.pay==='cod'?'COD':'Prepaid')+'</td><td>'+inr(x.value)+'</td><td>'+inr(x.freight)+(x.est?' <span class="mut small">est.</span>':'')+'</td><td class="small mut">'+ist(x.at)+'</td></tr>'}).join('')+'</table></div>':'<p class="small mut">No returned parcels in this range.</p>')+'</div>';
  h+='<p class="small mut" style="margin-top:10px">Real revenue counts only orders the courier marked delivered, at their final value after any refunds or edits. Orders still on the way, not shipped, cancelled or returned are not counted. Costs use your Settings: product '+inr(j.unit_cost)+' per item, ads '+inr(j.cac)+' per order.</p>';
  $('#main').innerHTML=h;
  $('#main').onclick=function(e){var r=e.target.closest('[data-rr]');if(r){RVN.range=r.dataset.rr;loadRevenue()}};
- $('#rv_rf').onclick=function(){loadRevenue(true)};
+ $('#rv_rf').onclick=function(){loadRevenue('force')};
  $('#rv_nfs').onclick=function(){rpc('revenue_cfg',{nimbus_freight:$('#rv_nf').value}).then(function(){toast('Saved');loadRevenue()}).catch(function(e){toast(e.message)})};
  }).catch(fail)}
 /* ---- login ---- */
