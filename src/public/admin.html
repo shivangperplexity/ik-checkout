@@ -217,9 +217,10 @@ function loadReviews(){rpc('reviews',{status:RV.status,stars:RV.stars,q:RV.q}).t
 function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 
 /* ---- Home: today's to-dos + the assistant (lib/assistant.js). The assistant prepares lists; only Confirm books. ---- */
-var AS={msgs:[],busy:false,props:{}};
-try{AS.msgs=JSON.parse(ls('ik_as_msgs')||'[]').slice(-20)}catch(e){AS.msgs=[]}
-function asSave(){ls('ik_as_msgs',JSON.stringify(AS.msgs.slice(-20).map(function(m){return {role:m.role,content:m.content}})))}
+/* the conversation is kept on the server (same on every device); this page only adds the live lists */
+var AS={msgs:[],busy:false,props:{},loaded:false};
+function asSave(){}
+function asLoad(){if(AS.loaded)return;AS.loaded=true;ls('ik_as_msgs',null);rpc('assistant_history').then(function(j){if(AS.msgs.length)return;AS.msgs=(j.messages||[]).map(function(m){return {role:m.role,content:String(m.content||'').replace(/\n\[[^\]]*\]$/,'')}});asDraw()}).catch(function(){AS.loaded=false})}
 var MORE=[['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
 function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
 function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
@@ -237,13 +238,13 @@ function loadHome(quiet){rpc('home').then(function(h){if(tab!=='home')return;
   +'</div>';
  if(quiet&&$('#home_tiles')){$('#home_top').innerHTML=top;$('#home_tiles').innerHTML=tiles;return}
  $('#main').innerHTML='<div id="home_top">'+top+'</div><div id="home_tiles">'+tiles+'</div>'
-  +'<div class="card asst"><div class="row" style="justify-content:space-between"><b>Assistant</b><span class="row"><span class="small mut">Prepares the list, you tap Confirm. Never packs.</span>'+(AS.msgs.length?'<button class="btn ghost sm" id="as_clear">Clear</button>':'')+'</span></div>'
+  +'<div class="card asst"><div class="row" style="justify-content:space-between"><b>Assistant</b><span class="row"><span class="small mut">Prepares the list, you tap Confirm. Never packs.</span>'+'<button class="btn ghost sm" id="as_clear" title="Start a new conversation (the assistant forgets this one)">New chat</button>'+'</span></div>'
   +'<div class="asmsgs" id="as_msgs"></div>'
   +'<div class="chips" style="margin:8px 0 6px">'+['Ship prepaid orders','Ship address confirmed orders','Handle NDR','How did we do this week?','Suggest checkout improvements'].map(function(x){return '<button class="chip" data-ask="'+esc(x)+'">'+esc(x)+'</button>'}).join('')+'</div>'
   +'<form id="as_f" class="row" style="flex-wrap:nowrap"><input type="text" id="as_in" placeholder="Ask or tell me what to do… e.g. prepaid orders ship kardo" autocomplete="off" style="flex:1"><button class="btn" id="as_go">Send</button></form></div>';
  asDraw();
  $('#as_f').onsubmit=function(e){e.preventDefault();var v=$('#as_in').value.trim();if(v){$('#as_in').value='';asAsk(v)}};
- var cl=$('#as_clear');if(cl)cl.onclick=function(){AS.msgs=[];AS.props={};asSave();loadHome()};
+ var cl=$('#as_clear');if(cl)cl.onclick=function(){if(!confirm('Start a new chat? The assistant forgets this conversation.'))return;rpc('assistant_clear').then(function(){AS.msgs=[];AS.props={};asDraw()}).catch(function(e){toast(e.message)})};asLoad();
  $('#main').onclick=homeClick;
  }).catch(fail)}
 function homeClick(e){var a=e.target.closest('[data-ask]');if(a){e.preventDefault();asAsk(a.dataset.ask);return}
@@ -252,9 +253,8 @@ function homeClick(e){var a=e.target.closest('[data-ask]');if(a){e.preventDefaul
  var x=e.target.closest('[data-pcancel]');if(x){var p=AS.props[x.dataset.pcancel];if(p){p.state='cancelled';asDraw()}return}
  var l=e.target.closest('[data-plbl]');if(l){dlLabels(l.dataset.plbl.split(','),l);return}}
 function asAsk(text){if(AS.busy)return;AS.msgs.push({role:'user',content:text});AS.busy=true;asDraw();
- var hist=AS.msgs.slice(0,-1).slice(-8).map(function(m){return {role:m.role,content:m.content}});
- rpc('assistant',{text:text,history:hist}).then(function(r){var m={role:'assistant',content:r.reply||''};
-  if(r.proposal){var id='p'+Date.now();r.proposal.id=id;r.proposal.state='open';r.proposal.sel={};(r.proposal.rows||[]).forEach(function(x,i){x.i=i;if(r.proposal.kind==='ship')r.proposal.sel[i]=!x.error;else r.proposal.sel[i]=!!x.preselect});AS.props[id]=r.proposal;m.prop=id}
+ rpc('assistant',{text:text}).then(function(r){var m={role:'assistant',content:r.reply||''};
+  if(r.proposal){var id='p'+Date.now();r.proposal.id=id;r.proposal.state='open';r.proposal.sel={};(r.proposal.rows||[]).forEach(function(x,i){x.i=i;if(r.proposal.kind==='ship')r.proposal.sel[i]=!x.error;else r.proposal.sel[i]=!!x.preselect&&!x.error});AS.props[id]=r.proposal;m.prop=id}
   AS.msgs.push(m)}).catch(function(er){AS.msgs.push({role:'assistant',content:'Error: '+er.message,err:true})}).then(function(){AS.busy=false;asSave();asDraw()})}
 function asDraw(){var box=$('#as_msgs');if(!box)return;
  box.innerHTML=(AS.msgs.length?'':'<p class="small mut" style="margin:6px 2px">Try "prepaid orders ship kardo", "address confirmed orders ship karo", "NDR handle karo", "is hafte ki sales?" or "checkout mein kya improve karein?"</p>')
@@ -271,6 +271,11 @@ function asProp(p){var open=p.state==='open',rows=p.rows||[],h='<div class="prop
    return '<tr><td style="width:28px"><input type="checkbox" data-psel="'+p.id+'" data-i="'+r.i+'"'+(p.sel[r.i]?' checked':'')+(open&&!r.error?'':' disabled')+'></td><td><b>'+esc(r.name)+'</b> <span class="small">'+esc(r.customer)+'</span><div class="small mut">'+esc(r.pay)+' '+inr(r.total)+' · '+esc(r.city)+' '+esc(r.pincode)+' · '+r.age_h+'h ago'+(r.packed?' · packed':'')+'</div></td><td>'+st+'</td><td style="text-align:right;white-space:nowrap">'+(r.charge?rup(r.charge):'')+'</td></tr>'}).join('')+'</table></div>';
   var est=chosen.reduce(function(s,r){return s+(Number(r.charge)||0)},0);
   if(open)h+='<div class="row" style="margin-top:8px"><button class="btn sm" data-pconf="'+p.id+'"'+(chosen.length?'':' disabled')+'>Confirm: book '+chosen.length+' with Shiprocket</button><button class="btn ghost sm" data-pcancel="'+p.id+'">Cancel</button><span class="small mut">Est. '+rup(est)+(p.unpriced?' + '+p.unpriced+' unpriced':'')+' from your Shiprocket wallet · not packed</span></div>';
+ }else if(p.kind==='cancel'){
+  h+='<div class="tw"><table><tr><th></th><th>Order</th><th>Status</th></tr>'+rows.map(function(r){
+   var st=r.res?(r.res.ok?'<span class="ok">Cancelled</span>':'<span class="err">'+esc(r.res.err)+'</span>'):r.error?'<span class="err small">'+esc(r.error)+'</span>':'<span class="small">'+esc(r.kind||r.pay||'')+'</span>'+(r.warn?'<div class="small" style="color:var(--warn)">'+esc(r.warn)+'</div>':'');
+   return '<tr><td style="width:28px"><input type="checkbox" data-psel="'+p.id+'" data-i="'+r.i+'"'+(p.sel[r.i]?' checked':'')+(open&&!r.error?'':' disabled')+'></td><td><b>'+esc(r.name)+'</b> <span class="small">'+esc(r.customer||'')+'</span><div class="small mut">'+esc(r.pay||'')+(r.total?' '+inr(r.total):'')+(r.city?' · '+esc(r.city)+' '+esc(r.pincode||''):'')+(r.age_h!=null?' · '+(r.age_h>=48?Math.round(r.age_h/24)+' days':r.age_h+'h')+' old':'')+'</div></td><td>'+st+'</td></tr>'}).join('')+'</table></div>';
+  if(open)h+='<div class="row" style="margin-top:8px"><button class="btn bad sm" data-pconf="'+p.id+'"'+(chosen.length?'':' disabled')+'>Confirm: cancel '+chosen.length+' order'+(chosen.length===1?'':'s')+'</button><button class="btn ghost sm" data-pcancel="'+p.id+'">Keep all</button><span class="small mut">Cancelled in Shopify, stock goes back. No refund is issued from here.</span></div>';
  }else{
   h+='<div class="tw"><table><tr><th>Order</th><th>Courier\'s reason</th><th>Do</th></tr>'+rows.map(function(r){
    var st=r.res?(r.res.ok?'<span class="ok">'+(r.act==='return'?'Return requested':'Re-attempt requested')+'</span>':'<span class="err">'+esc(r.res.err)+'</span>'):'<select data-pact="'+p.id+'" data-i="'+r.i+'" style="width:auto;min-height:32px"'+(open?'':' disabled')+'><option value="reattempt"'+(p.sel[r.i]&&r.act==='reattempt'?' selected':'')+'>Re-attempt</option><option value="return"'+(p.sel[r.i]&&r.act==='return'?' selected':'')+'>Return (RTO)</option><option value="skip"'+(p.sel[r.i]?'':' selected')+'>Leave</option></select>';
@@ -284,10 +289,10 @@ function asProp(p){var open=p.state==='open',rows=p.rows||[],h='<div class="prop
 function asRun(id){var p=AS.props[id];if(!p||p.state!=='open')return;var todo=p.rows.filter(function(r){return p.sel[r.i]});if(!todo.length)return;
  p.state='running';var i=0;asDraw();
  function step(){if(i>=todo.length){var ok=todo.filter(function(r){return r.res.ok}).length;
-   p.summary=p.kind==='ship'?'Booked '+ok+' of '+todo.length+(ok<todo.length?' · '+(todo.length-ok)+' failed (see the list)':''):'Sent '+ok+' of '+todo.length+' to Shiprocket';
-   p.state='done';AS.msgs.push({role:'assistant',content:p.summary+(p.kind==='ship'&&ok?'. Customers get the WhatsApp tracking message once the courier picks up. Packing is yours.':'.')});asSave();asDraw();loadHome(true);return}
-  var r=todo[i];p.progress=(p.kind==='ship'?'Booking ':'Sending ')+(i+1)+' of '+todo.length+': '+r.name+'…';asDraw();
-  var call=p.kind==='ship'?rpc('ship_book',{id:r.id}).then(function(b){r.res={ok:true,awb:b.shipment.awb,courier:b.shipment.courier}}):rpc('ndr_do',{awb:r.awb,action_type:r.act==='return'?'return':'reattempt',attempts:r.attempts}).then(function(){r.res={ok:true}});
+   p.summary=p.kind==='ship'?'Booked '+ok+' of '+todo.length+(ok<todo.length?' · '+(todo.length-ok)+' failed (see the list)':''):p.kind==='cancel'?'Cancelled '+ok+' of '+todo.length+(ok<todo.length?' · '+(todo.length-ok)+' failed (see the list)':''):'Sent '+ok+' of '+todo.length+' to Shiprocket';
+   p.state='done';rpc('assistant_note',{content:p.summary+(p.kind==='ship'?' (booked)':p.kind==='cancel'?' (cancelled)':'')+': '+todo.map(function(r){return r.name+(r.res.ok?'':' failed: '+r.res.err)}).join(', ')}).catch(function(){});AS.msgs.push({role:'assistant',content:p.summary+(p.kind==='ship'&&ok?'. Customers get the WhatsApp tracking message once the courier picks up. Packing is yours.':'.')});asSave();asDraw();loadHome(true);return}
+  var r=todo[i];p.progress=(p.kind==='ship'?'Booking ':p.kind==='cancel'?'Cancelling ':'Sending ')+(i+1)+' of '+todo.length+': '+r.name+'…';asDraw();
+  var call=p.kind==='cancel'?rpc('cancel_orders',{ids:[r.id]}).then(function(x){var y=x.results[0];if(!y.ok)throw new Error(y.note);r.res={ok:true}}):p.kind==='ship'?rpc('ship_book',{id:r.id}).then(function(b){r.res={ok:true,awb:b.shipment.awb,courier:b.shipment.courier}}):rpc('ndr_do',{awb:r.awb,action_type:r.act==='return'?'return':'reattempt',attempts:r.attempts}).then(function(){r.res={ok:true}});
   call.catch(function(er){r.res={ok:false,err:er.message}}).then(function(){i++;step()})}
  step()}
 /* How-to-apply video card (WhatsApp tab; lib/apply-guide.js) */

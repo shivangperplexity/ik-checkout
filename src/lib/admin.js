@@ -1203,6 +1203,9 @@ const ACTIONS = {
     const { withSettings } = await import('./settings.js');
     return { ok: true, ...(await assistant(await withSettings(await withSettingsFresh(env)), ACTIONS, b)) };
   },
+  async assistant_history(env) { const { history } = await import('./assistant.js'); return { ok: true, messages: await history(env, 40) }; },
+  async assistant_note(env, b) { const { remember } = await import('./assistant.js'); await remember(env, 'assistant', '[Done from the dashboard] ' + String(b.content || '').slice(0, 4000)); return { ok: true }; },
+  async assistant_clear(env) { const { forget } = await import('./assistant.js'); await forget(env); return { ok: true }; },
   /** How-to-apply video on delivery (lib/apply-guide.js): status, set the video link, submit the template, send a test. */
   async apply_guide(env, b) {
     const A = await import('./apply-guide.js');

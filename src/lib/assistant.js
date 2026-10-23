@@ -2,6 +2,9 @@
  * Dashboard assistant (Home tab). Answers questions about the store from live data and prepares actions:
  *   - ship prepaid orders / ship confirmed COD orders / ship everything ready (Shiprocket, cheapest allowed courier)
  *   - handle open NDRs (re-attempt or return, per the NDR rules' plan)
+ *   - ship or cancel specific orders ("#1533 #1577 cancel karo", or "cancel these" right after a list)
+ * The conversation is kept in the database (assistant_msgs), so "these orders" / "inko" refer to the last list and
+ * the chat is the same on every device.
  * It never does anything by itself: an action comes back as a list with the cost, and only the dashboard's
  * "Confirm" button books it (the same ship_book / ndr_do calls the Orders and Shipments tabs use). It never packs.
  * Questions go to the WhatsApp assistant's AI provider (Settings > WhatsApp AI) with a snapshot of the numbers;
@@ -20,10 +23,29 @@ const NDR = /\b(ndr|undeliver|not delivered|failed deliver|delivery fail|re-?att
 const SHIP_DO = /\b(ship|book|bhej)\w*\s*(kar ?do|kardo|karo|do)\b/i;
 const DOIT = /\b(handle|sambhal|run|kar ?do|kardo|karo|fix|process|clear|do it|take care|solve|resolve|nipta)\w*/i;
 
-export function intent(text) {
+const CANCEL = /\b(cancel|cancle|cancal|radd|rad kar|rad karo|rad kardo)\w*/i;
+const REFER = /\b(these|them|those|this list|above|in sab|inko|inhe|inhein|ye orders|yeh orders|ye sab|yeh sab|upar|list wale|ye wale|isko|unko|in orders|in ko|sabko|saare orders)\b/i;
+export const orderRefs = (text) => [...new Set((String(text || '').match(/#\s?\d{3,6}\b/g) || []).map((x) => '#' + x.replace(/\D/g, '')))];
+/** Order numbers the message means: written in it, or ("these", "inko") the newest earlier message that listed some. */
+export function refsFor(text, history = []) {
+  const own = orderRefs(text);
+  if (own.length || !REFER.test(String(text || '').toLowerCase())) return own;
+  for (let i = history.length - 1; i >= 0; i--) { const r = orderRefs(history[i].content); if (r.length) return r; }
+  return [];
+}
+
+export function intent(text, history = []) {
   const t = String(text || '').toLowerCase();
   const pack = /\bpack/.test(t);
-  if (SHIP.test(t) && !/\?\s*$/.test(t) && !/\b(how many|kitne|kitna|status|kab)\b/.test(t)) {
+  const question = /\?\s*$/.test(t) || /\b(how many|kitne|kitna|kyu|kyon|why|kya hoga)\b/.test(t);
+  const refs = refsFor(text, history);
+  const dmc = t.match(/(\d+)\s*(?:\+\s*)?(?:din|dino|days?|d)\b/);
+  if (CANCEL.test(t) && !question) {
+    if (refs.length) return { kind: 'cancel', refs };
+    if (dmc && /(unconfirm|confirm nahi|confirm nhi|not confirmed|without confirm|no reply|reply nahi)/.test(t)) return { kind: 'cancel', staleDays: Math.min(90, Number(dmc[1])) };
+  }
+  if (SHIP.test(t) && !question && refs.length) return { kind: 'ship_list', refs, pack };
+  if (SHIP.test(t) && !question && !/\b(status|kab)\b/.test(t)) {
     const pre = /\b(pre-?paid|paid|online)\b/.test(t), conf = /\b(address|confirm|confirmed|cod)\w*/.test(t), all = /\b(all|sab|saare|sare|ready|everything|baaki|bache)\b/.test(t);
     const which = pre && conf ? 'ready' : pre ? 'prepaid' : conf ? 'confirmed' : all ? 'ready' : '';
     if (which) return { kind: 'ship', which, pack };
@@ -54,7 +76,21 @@ async function shipProposal(env, A, which) {
   list.sort((a, b) => a.created_at - b.created_at);
   const rows = list.map((o) => ({ id: String(o.id), name: o.name, customer: o.customer, city: o.city || '', pincode: o.pincode || '', total: o.total,
     pay: o.method !== 'cod' ? 'Prepaid' : o.converted ? 'Paid online' : o.advance ? `COD (₹${o.advance} paid)` : 'COD', age_h: Math.round((now() - o.created_at) / 3600), packed: !!o.packed_at }));
-  const priced = rows.slice(0, 20);
+  await priceRows(env, A, rows);
+  const ok = rows.filter((r) => !r.error);
+  return {
+    kind: 'ship', which, title: SHIP_TITLE[which], rows,
+    total_charge: Math.round(ok.reduce((s, r) => s + num(r.charge), 0) * 100) / 100,
+    unpriced: Math.max(0, rows.length - 20),
+    skipped_unconfirmed: w.unconfirmed.length,
+  };
+}
+
+const rowOf = (o, kind) => ({ id: String(o.id), name: o.name, customer: o.customer, city: o.city || '', pincode: o.pincode || '', total: o.total, kind,
+  pay: o.method !== 'cod' ? 'Prepaid' : o.converted ? 'Paid online' : o.advance ? `COD (₹${o.advance} paid)` : 'COD', age_h: Math.round((now() - o.created_at) / 3600), packed: !!o.packed_at });
+
+async function priceRows(env, A, rows) {
+  const priced = rows.filter((r) => !r.error).slice(0, 20);
   for (let i = 0; i < priced.length; i += 4) {
     await Promise.all(priced.slice(i, i + 4).map(async (r) => {
       try {
@@ -66,13 +102,47 @@ async function shipProposal(env, A, which) {
       } catch (e) { r.error = String(e.message || e).slice(0, 140); }
     }));
   }
+}
+
+/** Orders by number (#1533): the not-shipped ones from the live list, the rest from the database. */
+async function findOrders(env, A, refs) {
+  const w = await waiting(env, A);
+  const live = new Map();
+  for (const [list, kind] of [[w.prepaid, 'Prepaid'], [w.confirmed, 'COD confirmed'], [w.unconfirmed, 'COD not confirmed']]) for (const o of list) live.set(o.name, rowOf(o, kind));
+  const missing = refs.filter((r) => !live.has(r));
+  const db = missing.length ? (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.shipped_at, o.method, o.total_paise, o.first_name, o.last_name, o.city, o.pincode, o.created_at, s.awb
+      FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id AND COALESCE(s.status,'')<>'cancelled' WHERE o.order_name IN (${missing.map(() => '?').join(',')})`).bind(...missing).all()).results : [];
+  return refs.slice(0, 100).map((ref) => {
+    if (live.has(ref)) return live.get(ref);
+    const o = db.find((x) => x.order_name === ref);
+    if (!o) return { id: '', name: ref, error: 'not found' };
+    const r = { id: String(o.order_id), name: ref, customer: `${o.first_name || ''} ${o.last_name || ''}`.trim(), city: o.city || '', pincode: o.pincode || '', total: num(o.total_paise) / 100, pay: o.method === 'cod' ? 'COD' : 'Prepaid', age_h: Math.round((now() - num(o.created_at)) / 3600) };
+    if (o.status === 'cancelled') r.error = 'already cancelled';
+    else if (o.awb || o.shipped_at) { r.kind = 'Shipped'; r.shipped = true; r.awb = o.awb || ''; }
+    return r;
+  });
+}
+
+async function shipListProposal(env, A, refs) {
+  const rows = await findOrders(env, A, refs);
+  for (const r of rows) if (!r.error) { if (r.shipped) r.error = 'already shipped' + (r.awb ? ` (AWB ${r.awb})` : ''); else if (r.kind === 'COD not confirmed') r.error = 'COD not confirmed by the customer'; }
+  await priceRows(env, A, rows);
   const ok = rows.filter((r) => !r.error);
-  return {
-    kind: 'ship', which, title: SHIP_TITLE[which], rows,
-    total_charge: Math.round(ok.reduce((s, r) => s + num(r.charge), 0) * 100) / 100,
-    unpriced: Math.max(0, rows.length - priced.length),
-    skipped_unconfirmed: w.unconfirmed.length,
-  };
+  return { kind: 'ship', which: 'list', title: 'These orders', rows, total_charge: Math.round(ok.reduce((s, r) => s + num(r.charge), 0) * 100) / 100, unpriced: Math.max(0, ok.length - 20), skipped_unconfirmed: 0 };
+}
+
+async function cancelProposal(env, A, { refs, staleDays }) {
+  let rows;
+  if (refs) rows = await findOrders(env, A, refs);
+  else {
+    const w = await waiting(env, A), lim = now() - staleDays * DAY;
+    rows = w.unconfirmed.filter((o) => o.created_at <= lim).sort((a, b) => a.created_at - b.created_at).map((o) => rowOf(o, 'COD not confirmed'));
+  }
+  for (const r of rows) {
+    if (r.error) continue;
+    r.warn = r.shipped ? 'already booked: the Shiprocket pickup is cancelled first (not possible once picked up)' : r.kind === 'COD confirmed' ? 'customer confirmed this COD order' : /Prepaid|Paid online/.test(r.pay) || /paid/.test(r.pay) ? 'paid online: refund it yourself' : '';
+  }
+  return { kind: 'cancel', title: refs ? 'Cancel these orders' : `Unconfirmed COD orders older than ${staleDays} days`, rows };
 }
 
 async function ndrProposal(env, A) {
@@ -148,6 +218,9 @@ ACTION: ship_prepaid    (book all prepaid orders waiting to ship)
 ACTION: ship_confirmed  (book COD orders the customer confirmed on WhatsApp, "address confirmed")
 ACTION: ship_ready      (both of the above)
 ACTION: ndr             (open failed deliveries: re-attempt or return)
+ACTION: ship #1533 #1577   (book these specific orders)
+ACTION: cancel #1453 #1547 (cancel these specific orders in Shopify)
+You remember this conversation: when the owner says "these", "inko", "ye orders", use the order numbers from the earlier messages.
 Only add an ACTION line when the owner asks for that action. Never claim something was shipped, booked or changed: you only prepare it.
 You never pack orders (the owner packs himself) and never ship COD orders that were not confirmed.
 
@@ -157,12 +230,43 @@ Use only STORE DATA, but work it out from there: count, add up and filter the li
 STORE DATA (live):
 ${JSON.stringify(snap)}`;
 
-/** POST rpc assistant { text, history: [{role:'user'|'assistant', content}] } */
+/* ---------- memory: the conversation lives in the database ---------- */
+export async function history(env, n = 40) {
+  return (await env.DB.prepare('SELECT id, ts, role, content FROM assistant_msgs ORDER BY id DESC LIMIT ?').bind(n).all()).results.reverse();
+}
+export const remember = (env, role, content) => env.DB.prepare('INSERT INTO assistant_msgs (ts, role, content) VALUES (?,?,?)').bind(now(), role, String(content || '').slice(0, 8000)).run()
+  .then(() => env.DB.prepare('DELETE FROM assistant_msgs WHERE id < (SELECT COALESCE(MAX(id),0) - 300 FROM assistant_msgs)').run()).catch((e) => console.error('assistant memory', e.message));
+export const forget = (env) => env.DB.prepare('DELETE FROM assistant_msgs').run();
+
+/** POST rpc assistant { text }. The earlier messages come from the database. */
 export async function assistant(env, A, b) {
-  const text = String(b.text || '').trim().slice(0, 1500);
+  const text = String(b.text || '').trim().slice(0, 6000);
   if (!text) throw new Error('Type a message');
-  const it = intent(text);
+  const past = await history(env, 30).catch(() => []);
+  await remember(env, 'user', text);
+  const r = await answer(env, A, text, past);
+  /* what is remembered for the assistant's turn: its words plus the orders in any list it prepared */
+  const listed = r.proposal ? '\n[' + r.proposal.title + ': ' + r.proposal.rows.map((x) => x.name).join(' ') + ']' : '';
+  await remember(env, 'assistant', (r.reply || '') + listed);
+  return r;
+}
+
+async function answer(env, A, text, past) {
+  const it = intent(text, past);
   const packNote = it.pack ? 'I don\'t pack orders, that stays with you. ' : '';
+  if (it.kind === 'cancel') {
+    const p = await cancelProposal(env, A, it);
+    if (!p.rows.length) return { reply: it.refs ? 'I could not find those orders.' : `No unconfirmed COD order is older than ${it.staleDays} days.` };
+    p.rows.forEach((r) => { r.preselect = !r.error; });
+    const bad = p.rows.filter((r) => r.error).length, warn = p.rows.filter((r) => r.warn && !r.error).length;
+    return { reply: `${p.rows.length - bad} order${p.rows.length - bad === 1 ? '' : 's'} to cancel in Shopify (stock goes back, no refund is issued from here).${warn ? ` ${warn} need a second look (marked).` : ''}${bad ? ` ${bad} can't be cancelled (see the list).` : ''} Untick any to keep, then tap Confirm.`, proposal: p };
+  }
+  if (it.kind === 'ship_list') {
+    const p = await shipListProposal(env, A, it.refs);
+    const bad = p.rows.filter((r) => r.error).length;
+    if (bad === p.rows.length) return { reply: `${packNote}None of these can be booked: ` + p.rows.map((r) => `${r.name} (${r.error})`).join(', ') + '.' };
+    return { reply: `${packNote}${p.rows.length - bad} of these can be booked, Shiprocket estimate ${inr(p.total_charge)}.${bad ? ` ${bad} can't (see the list).` : ''} Tap Confirm to book.`, proposal: p };
+  }
   if (it.kind === 'ship') {
     const p = await shipProposal(env, A, it.which);
     if (!p.rows.length) return { reply: `${packNote}Nothing to ship in "${p.title}" right now.${p.skipped_unconfirmed ? ` ${p.skipped_unconfirmed} COD order${p.skipped_unconfirmed > 1 ? 's are' : ' is'} still waiting for the customer to confirm, so I left ${p.skipped_unconfirmed > 1 ? 'them' : 'it'} out.` : ''}` };
@@ -188,19 +292,24 @@ export async function assistant(env, A, b) {
   const c = aiCfg(env), P = PROVIDERS[c.provider];
   if (!c.key) return { reply: 'I can ship prepaid orders, ship confirmed COD orders and handle NDRs without AI. For questions and suggestions, add a free AI key in Settings > WhatsApp AI (Groq is free).', help: true };
   const snap = await snapshot(env, A);
-  const hist = (Array.isArray(b.history) ? b.history : []).slice(-8).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 2000) })).filter((m) => m.content);
+  /* memory: the newest messages that fit in ~12k characters */
+  const hist = [];
+  let room = 12000;
+  for (let i = past.length - 1; i >= 0 && room > 0; i--) { const c = String(past[i].content || '').slice(0, 3000); room -= c.length; hist.unshift({ role: past[i].role === 'assistant' ? 'assistant' : 'user', content: c }); }
   const merged = [];
   for (const m of [...hist, { role: 'user', content: text }]) { if (merged.length && merged[merged.length - 1].role === m.role) merged[merged.length - 1].content += '\n' + m.content; else merged.push({ ...m }); }
   while (merged.length && merged[0].role !== 'user') merged.shift();
   const { r, j, out } = await callModel(c, P, SYSTEM(snap), merged, { max_tokens: 900, timeout: 30000 });
   if (!r || !r.ok) throw new Error('AI provider error: ' + (j?.error?.message || j?.error || r?.status || 'no answer'));
   let reply = String(out || '').trim();
-  const m = reply.match(/\n?\s*ACTION:\s*(ship_prepaid|ship_confirmed|ship_ready|ndr)\s*$/i);
+  const m = reply.match(/\n?\s*ACTION:\s*(ship_prepaid|ship_confirmed|ship_ready|ndr|cancel|ship)\b([^\n]*)\s*$/i);
   if (m) {
     reply = reply.slice(0, m.index).trim();
-    const a = m[1].toLowerCase();
-    const p = a === 'ndr' ? await ndrProposal(env, A) : await shipProposal(env, A, a.replace('ship_', ''));
-    if (p.rows.length) return { reply: (reply ? reply + '\n\n' : '') + 'Here is the list. Nothing is booked until you tap Confirm.', proposal: p };
+    const a = m[1].toLowerCase(), refs = orderRefs(m[2]);
+    if ((a === 'cancel' || a === 'ship') && !refs.length) return { reply: reply || 'Which orders? Give me the order numbers.' };
+    const p = a === 'ndr' ? await ndrProposal(env, A) : a === 'cancel' ? await cancelProposal(env, A, { refs }) : a === 'ship' ? await shipListProposal(env, A, refs) : await shipProposal(env, A, a.replace('ship_', ''));
+    if (a === 'cancel') p.rows.forEach((r) => { r.preselect = !r.error; });
+    if (p.rows.length) return { reply: (reply ? reply + '\n\n' : '') + 'Here is the list. Nothing happens until you tap Confirm.', proposal: p };
     return { reply: (reply ? reply + '\n\n' : '') + 'Nothing is waiting for that right now.' };
   }
   return { reply: reply || 'No answer from the AI, try again.' };
