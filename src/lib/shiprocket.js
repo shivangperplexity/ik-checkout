@@ -379,14 +379,17 @@ export function publicRec(r) {
 }
 
 export async function cancelShipment(env, rec) {
-  if (!rec?.sr_order_id) throw new Error('No Shiprocket order to cancel');
-  try { await sr(env, 'POST', 'orders/cancel', { ids: [Number(rec.sr_order_id)] }); }
-  catch (e) {
-    /* order cancel down: cancelling the AWB itself also takes it off the pickup */
-    if (!(e.status >= 500) || !rec.awb) throw e;
+  if (!rec?.sr_order_id && !rec?.awb) throw new Error('No Shiprocket order to cancel');
+  /* Oct 2026: Shiprocket's orders/cancel answers 503 for every call (its wallet / tracking / AWB-cancel endpoints are
+     fine), so the AWB is cancelled first: that is what takes the parcel off the pickup. The order cancel follows,
+     best effort. Without an AWB only the order cancel is possible. */
+  if (rec.awb) {
     try { await sr(env, 'POST', 'orders/cancel/shipment/awbs', { awbs: [String(rec.awb)] }); }
-    catch (e2) { throw /already\s+cancel/i.test(String(e2.message)) ? e2 : e; }
+    catch (e) { if (!/already\s+cancel/i.test(String(e.message))) throw e; }
+    if (rec.sr_order_id) await sr1(env, 'POST', 'orders/cancel', { ids: [Number(rec.sr_order_id)] }).catch((e) => console.log('shiprocket order cancel (after AWB cancel)', rec.sr_order_id, e.status || '', String(e.message).slice(0, 120)));
+    return;
   }
+  await sr(env, 'POST', 'orders/cancel', { ids: [Number(rec.sr_order_id)] });
 }
 
 /** Label only (no pickup request). Returns the stored label URL, or asks Shiprocket for a fresh one when there is none or `force` is set. */
@@ -410,8 +413,8 @@ export async function srProbe(env) {
   const out = {};
   const time = async (k, f) => { const t0 = Date.now(); try { await f(); out[k] = 'ok ' + (Date.now() - t0) + 'ms'; } catch (e) { out[k] = (e.status || 'err') + ' ' + String(e.message || e).slice(0, 160) + ' ' + (Date.now() - t0) + 'ms'; } };
   await time('wallet', () => sr1(env, 'GET', 'account/details/wallet-balance'));
-  await time('cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel', { ids: [0] }));
-  await time('awb_cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel/shipment/awbs', { awbs: ['0'] }));
+  await time('cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel', { ids: [999999999] }));
+  await time('awb_cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel/shipment/awbs', { awbs: ['19041999999999'] }));
   try {
     out.stuck = (await env.DB.prepare("SELECT order_name, cancel_state, cancel_note FROM shipments WHERE cancel_state IN ('error','queued') AND COALESCE(status,'')<>'cancelled' ORDER BY updated_at DESC LIMIT 10").all()).results
       .map((r) => `${r.order_name}:${r.cancel_state}:${String(r.cancel_note || '').slice(0, 140)}`);

@@ -62,7 +62,7 @@ test('not picked up yet: Shiprocket shipment cancelled, Shopify fulfilment undon
   try {
     const r = await stopShipment(w.env, '1', 'Customer cancelled');
     assert.equal(r.state, 'cancelled');
-    assert.deepEqual(w.calls, ['track A1', 'sr-cancel 901', 'shopify-unfulfil Fulfillment/1'.replace('Fulfillment/', '')]);
+    assert.deepEqual(w.calls, ['track A1', 'sr-cancel-awb A1', 'sr-cancel 901', 'shopify-unfulfil Fulfillment/1'.replace('Fulfillment/', '')]);
     assert.equal(w.shipments[1].status, 'cancelled');
     assert.equal(w.orders[1].shipped_at, null);
   } finally { w.done(); }
@@ -165,13 +165,13 @@ test('orders Shopify shows as fulfilled (another app / by hand) are marked shipp
   } finally { globalThis.fetch = real; }
 });
 
-test('Shiprocket down: a dashboard cancel is queued and the cron finishes it; the AWB cancel is the fallback', async () => {
+test('Shiprocket down: a dashboard cancel is queued and the cron finishes it; the AWB cancel works while the order cancel is down', async () => {
   const w = world({ shipments: { 7: ship('7', 'A7') }, orders: { 7: order('7') } });
   try {
     globalThis.__srDown = 'all';
     const r1 = await stopShipment(w.env, '7', 'test');
     assert.equal(r1.state, 'error');
-    assert.equal(w.calls.filter((c) => c === 'sr-cancel 907').length, 3, 'retried twice');
+    assert.equal(w.calls.filter((c) => c === 'sr-cancel-awb A7').length, 3, 'retried twice');
     w.shipments[7].cancel_state = 'queued';                     /* what cancelOne records */
     const r2 = await sweepCancelled(w.env);                     /* still down: stays queued */
     assert.equal(r2.retry, 1); assert.equal(w.shipments[7].cancel_state, 'queued');
