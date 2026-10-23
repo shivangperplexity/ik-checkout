@@ -1220,6 +1220,12 @@ const ACTIONS = {
     else { const st = await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null); if (!st || JSON.parse(st.v || '{}').cursor) await R.revenueScan(f, { pages: 40, budgetMs: 20000 }); }
     return { ok: true, ...(await R.revenueReport(f, { range: ['all', '7d', '30d', 'month'].includes(b.range) ? b.range : 'all' })) };
   },
+  /** Real revenue page: the profit numbers and an AI-written plan (lib/profit-ai.js). */
+  async revenue_ai(env) {
+    const { profitAdvice } = await import('./profit-ai.js');
+    const { withSettings } = await import('./settings.js');
+    return { ok: true, ...(await profitAdvice(await withSettings(await withSettingsFresh(env)), ACTIONS)) };
+  },
   async revenue_cfg(env, b) {
     const s = await getSettings(env, true), v = Number(b.nimbus_freight);
     if (!(v >= 0 && v < 1000)) throw new Error('Enter the average NimbusPost freight per parcel in rupees');

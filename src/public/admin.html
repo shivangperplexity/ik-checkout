@@ -311,6 +311,21 @@ function applyCard(){var box=document.createElement('div');box.className='card';
   var t=$('#ap_t');if(t)t.onclick=function(){t.disabled=true;rpc('apply_guide',{test:true,to:$('#ap_to').value}).then(function(r){draw(r,r.test&&r.test.ok?'<span class="ok">Test sent.</span>':'<span class="err">'+esc((r.test&&(r.test.error||r.test.skipped))||'not sent')+'</span>')}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})};
   var sb=$('#ap_sub');if(sb)sb.onclick=function(){sb.disabled=true;rpc('apply_guide',{submit:true}).then(function(r){draw(r,'Submitted: '+esc((r.created||[]).map(function(x){return x.status+(x.error?' ('+x.error+')':'')}).join(', ')))}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})}}
  rpc('apply_guide',{}).then(function(j){draw(j)}).catch(function(e){box.innerHTML='<b>How-to-apply video</b><p class="err small">'+esc(e.message)+'</p>'})}
+/* ---- AI profit plan (lib/profit-ai.js) ---- */
+function drawAi(){var box=$('#rv_ai');if(!box)return;var a=RVN.ai;
+ var head='<div class="row" style="justify-content:space-between"><h3 style="margin:0">What to do to be profitable</h3><button class="btn sm" id="rv_aib"'+(RVN.aiBusy?' disabled':'')+'>'+(RVN.aiBusy?'Analysing… (up to a minute)':a?'Analyse again':'Analyse with AI')+'</button></div>';
+ if(!a){box.innerHTML=head+'<p class="small mut" style="margin:8px 0 0">Works out what one delivered order earns, what one RTO costs, your break-even RTO rate and ad spend, where RTOs come from, then writes a ranked plan with the money each step is worth.</p>';bindAi();return}
+ var u=a.facts.unit_economics,tile=function(t,v,sub,col){return '<div class="card kpi" style="padding:12px"><span>'+t+'</span><b style="font-size:20px'+(col?';color:'+col:'')+'">'+v+'</b>'+(sub?'<div class="small mut">'+sub+'</div>':'')+'</div>'};
+ var rows=function(t,list){return list&&list.length?'<div style="min-width:200px"><b class="small">'+t+'</b>'+list.slice(0,6).map(function(x){return '<div class="small row" style="justify-content:space-between;gap:10px;margin:2px 0"><span>'+esc(x.k)+' <span class="mut">('+x.n+')</span></span><b style="color:'+(x.rto_pct>=25?'var(--bad)':x.rto_pct>=15?'var(--warn)':'var(--ok)')+'">'+x.rto_pct+'% RTO</b></div>'}).join('')+'</div>':''};
+ box.innerHTML=head+'<div class="grid k4" style="margin-top:10px">'
+  +tile('Earned per delivered order',inr(u.earned_per_delivered_order),'avg order '+inr(u.avg_delivered_order)+' − stock − freight '+inr(u.freight_per_parcel)+' − ads',u.earned_per_delivered_order>=0?'var(--ok)':'var(--bad)')
+  +tile('Lost per RTO',inr(u.lost_per_rto),'freight both ways + ads','var(--bad)')
+  +tile('Break-even RTO rate',u.break_even_rto_pct+'%','yours: '+a.facts.all_time.rto_rate_pct+'%',a.facts.all_time.rto_rate_pct<u.break_even_rto_pct?'var(--ok)':'var(--bad)')
+  +tile('Max ads per order',inr(u.max_ads_per_order_to_break_even),'to break even at today\'s RTO · yours: '+inr(a.facts.settings.ads_per_order))
+  +'</div><div class="row" style="align-items:flex-start;gap:28px;margin-top:12px">'+rows('RTO by payment',a.facts.rto_by_payment)+rows('RTO by order value',a.facts.rto_by_order_value)+rows('Worst states (5+ parcels)',a.facts.rto_by_state_worst)+'</div>'
+  +(a.advice?'<div style="margin-top:14px;padding:14px;border-radius:10px;background:#f6f4ff;white-space:pre-wrap;line-height:1.55">'+esc(a.advice)+'</div><p class="small mut" style="margin:6px 0 0">Written by AI from the numbers above. Check the ₹ estimates before acting on them.</p>':'<p class="small" style="margin-top:12px;color:var(--warn)">'+esc(a.error||'')+'</p>');
+ bindAi()}
+function bindAi(){var b=$('#rv_aib');if(b)b.onclick=function(){RVN.aiBusy=true;drawAi();rpc('revenue_ai').then(function(r){RVN.ai=r}).catch(function(e){RVN.ai={facts:null,error:e.message}}).then(function(){RVN.aiBusy=false;if(RVN.ai&&!RVN.ai.facts){var x=RVN.ai.error;RVN.ai=null;drawAi();toast(x)}else drawAi()})}}
 /* ---- Real revenue (lib/revenue.js) ---- */
 var RVN={range:'all'};
 function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+(scan?'Reading every order from Shopify…':'Loading…')+'</p>';
@@ -336,6 +351,7 @@ function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+
   +(R.advance_kept?'<br>Advances kept (₹99 part-COD): <b style="color:var(--ok)">− '+inr(R.advance_kept)+'</b>':'')+'<br><b>Total RTO loss: '+inr(R.total)+'</b></div>'
   +(R.est_n?'<p class="small" style="margin:8px 0 0;color:var(--warn)">'+R.est_n+' of these were NimbusPost parcels: freight estimated at '+inr(j.nimbus_freight)+' each'+(j.nimbus_freight_set?'':' (your Shiprocket average)')+'.</p>':'')
   +'<div class="row" style="margin-top:8px"><label class="f" style="max-width:220px">NimbusPost freight per parcel (₹)<input type="number" id="rv_nf" min="0" value="'+(j.nimbus_freight_set?j.nimbus_freight:'')+'" placeholder="'+j.nimbus_freight+'"></label><button class="btn ghost sm" id="rv_nfs" style="align-self:end">Save</button></div></div></div>';
+ h+='<div class="card" id="rv_ai" style="margin-top:12px;border-color:#c9c2f0"></div>';
  var P=j.profit,line=function(t,v,neg,note){return '<tr><td>'+t+(note?' <span class="small mut">'+note+'</span>':'')+'</td><td style="text-align:right;white-space:nowrap'+(neg?';color:var(--bad)':'')+'">'+(neg?'− ':'')+inr(v)+'</td></tr>'};
  h+='<div class="card" style="margin-top:12px"><h3>Real profit</h3><div class="tw"><table style="max-width:620px">'
   +line('Real revenue (delivered orders)',P.revenue)
@@ -352,6 +368,7 @@ function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+
  $('#main').innerHTML=h;
  $('#main').onclick=function(e){var r=e.target.closest('[data-rr]');if(r){RVN.range=r.dataset.rr;loadRevenue()}};
  $('#rv_rf').onclick=function(){loadRevenue('force')};
+ drawAi();
  $('#rv_nfs').onclick=function(){rpc('revenue_cfg',{nimbus_freight:$('#rv_nf').value}).then(function(){toast('Saved');loadRevenue()}).catch(function(e){toast(e.message)})};
  }).catch(fail)}
 /* ---- login ---- */

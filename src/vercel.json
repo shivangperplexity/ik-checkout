@@ -25,7 +25,8 @@
   ],
   "functions": {
     "api/[[...slug]].js": {
-      "includeFiles": "node_modules/{pdfjs-dist/legacy/build/pdf.worker.mjs,pdfjs-dist/standard_fonts/**,@napi-rs/**}"
+      "includeFiles": "node_modules/{pdfjs-dist/legacy/build/pdf.worker.mjs,pdfjs-dist/standard_fonts/**,@napi-rs/**}",
+      "maxDuration": 60
     }
   }
 }
