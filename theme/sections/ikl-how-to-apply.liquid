@@ -1,0 +1,108 @@
+{%- comment -%}
+  IK — How to apply: the YouTube how-to video (loads only when tapped, so the page stays fast) next to the steps.
+  Used on the home page and the product page.
+{%- endcomment -%}
+{%- liquid
+  assign url = section.settings.youtube_url | default: 'https://youtu.be/0GMHG7WmaL8'
+  assign yt = ''
+  if url contains 'youtu.be/'
+    assign yt = url | split: 'youtu.be/' | last | split: '?' | first | split: '&' | first
+  elsif url contains 'v='
+    assign yt = url | split: 'v=' | last | split: '&' | first
+  elsif url contains '/shorts/'
+    assign yt = url | split: '/shorts/' | last | split: '?' | first
+  elsif url contains '/embed/'
+    assign yt = url | split: '/embed/' | last | split: '?' | first
+  endif
+  assign steps = section.settings.steps | newline_to_br | split: '<br />'
+-%}
+<section class="ikh" id="ikh-{{ section.id }}">
+  <div class="ikh__in">
+    <div class="ikh__head">
+      {%- if section.settings.eyebrow != blank -%}<p class="ikh__eyebrow">{{ section.settings.eyebrow }}</p>{%- endif -%}
+      {%- if section.settings.heading != blank -%}<h2 class="ikh__h">{{ section.settings.heading }}</h2>{%- endif -%}
+    </div>
+    <div class="ikh__grid">
+      <div class="ikh__video" style="aspect-ratio: {{ section.settings.aspect }};">
+        {%- if yt != blank -%}
+          <button type="button" class="ikh__facade" data-yt="{{ yt | escape }}" aria-label="Play: {{ section.settings.heading | escape }}">
+            <img src="https://i.ytimg.com/vi/{{ yt | escape }}/hqdefault.jpg" alt="{{ section.settings.heading | escape }}" loading="lazy" decoding="async" width="480" height="360">
+            <span class="ikh__play" aria-hidden="true"><svg viewBox="0 0 68 48" width="68" height="48"><path d="M66.5 7.7a8.5 8.5 0 0 0-6-6C55.2.3 34 .3 34 .3s-21.2 0-26.5 1.4a8.5 8.5 0 0 0-6 6C.1 13 .1 24 .1 24s0 11 1.4 16.3a8.5 8.5 0 0 0 6 6c5.3 1.4 26.5 1.4 26.5 1.4s21.2 0 26.5-1.4a8.5 8.5 0 0 0 6-6C67.9 35 67.9 24 67.9 24s0-11-1.4-16.3z" fill="#f00"/><path d="M45 24 27 14v20z" fill="#fff"/></svg></span>
+          </button>
+        {%- endif -%}
+      </div>
+      <div class="ikh__steps">
+        <ol>
+          {%- for s in steps -%}
+            {%- assign line = s | strip -%}
+            {%- if line != blank -%}<li>{{ line }}</li>{%- endif -%}
+          {%- endfor -%}
+        </ol>
+        {%- if section.settings.note != blank -%}<p class="ikh__note">{{ section.settings.note }}</p>{%- endif -%}
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  #ikh-{{ section.id }} { background: {{ section.settings.bg_color }}; color: {{ section.settings.text_color }}; padding: {{ section.settings.pad_top }}px 16px {{ section.settings.pad_bottom }}px; }
+  #ikh-{{ section.id }} .ikh__in { max-width: 1100px; margin: 0 auto; }
+  #ikh-{{ section.id }} .ikh__head { text-align: center; margin-bottom: 18px; }
+  #ikh-{{ section.id }} .ikh__eyebrow { margin: 0 0 4px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+  #ikh-{{ section.id }} .ikh__h { margin: 0; font-size: 28px; line-height: 1.2; color: {{ section.settings.text_color }}; }
+  #ikh-{{ section.id }} .ikh__grid { display: grid; gap: 22px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: center; }
+  #ikh-{{ section.id }} .ikh__video { position: relative; width: 100%; max-height: 78vh; margin: 0 auto; border-radius: 14px; overflow: hidden; background: #000; }
+  #ikh-{{ section.id }} .ikh__facade { all: unset; cursor: pointer; position: absolute; inset: 0; display: block; }
+  #ikh-{{ section.id }} .ikh__facade img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #ikh-{{ section.id }} .ikh__play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); filter: drop-shadow(0 2px 8px #0006); transition: transform .15s; }
+  #ikh-{{ section.id }} .ikh__facade:hover .ikh__play, #ikh-{{ section.id }} .ikh__facade:focus-visible .ikh__play { transform: translate(-50%, -50%) scale(1.08); }
+  #ikh-{{ section.id }} .ikh__video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  #ikh-{{ section.id }} ol { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 12px; }
+  #ikh-{{ section.id }} li { counter-increment: s; position: relative; padding-left: 42px; font-size: 16px; line-height: 1.45; }
+  #ikh-{{ section.id }} li::before { content: counter(s); position: absolute; left: 0; top: -2px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: {{ section.settings.text_color }}; color: {{ section.settings.bg_color }}; }
+  #ikh-{{ section.id }} .ikh__note { margin: 16px 0 0; font-size: 14px; opacity: .8; }
+  @media (max-width: 749px) {
+    #ikh-{{ section.id }} .ikh__grid { grid-template-columns: 1fr; gap: 16px; }
+    #ikh-{{ section.id }} .ikh__h { font-size: 22px; }
+    #ikh-{{ section.id }} li { font-size: 15px; }
+  }
+</style>
+<script>
+  (function () {
+    var root = document.getElementById('ikh-{{ section.id }}'); if (!root) return;
+    root.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('.ikh__facade'); if (!b) return;
+      var f = document.createElement('iframe');
+      f.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(b.getAttribute('data-yt')) + '?autoplay=1&rel=0&playsinline=1&modestbranding=1';
+      f.title = b.getAttribute('aria-label') || 'How to apply';
+      f.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+      f.allowFullscreen = true;
+      b.replaceWith(f);
+    });
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "IK — How to apply",
+  "tag": "div",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Watch before you apply" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "How to apply your tattoo" },
+    { "type": "url", "id": "youtube_url", "label": "YouTube link", "info": "Any YouTube link (youtu.be/…, youtube.com/watch?v=…, shorts)." },
+    { "type": "select", "id": "aspect", "label": "Video shape", "options": [
+      { "value": "16 / 9", "label": "Landscape 16:9" },
+      { "value": "9 / 16", "label": "Vertical 9:16" },
+      { "value": "1 / 1", "label": "Square" }
+    ], "default": "16 / 9" },
+    { "type": "textarea", "id": "steps", "label": "Steps (one per line)", "default": "Wipe the spot with the skin wipe and let it dry fully. No cream, oil or sweat.\nRemove the clear film and place the tattoo face down. Hold it still.\nDip the tissue magic coin in water and press it firmly over the paper for 30 seconds.\nPeel the paper off slowly from one corner. Let it dry; the ink darkens over 24 hours." },
+    { "type": "text", "id": "note", "label": "Note under the steps", "default": "Semi-permanent: lasts 1–2 weeks depending on your skin type, and may fade sooner on sensitive skin." },
+    { "type": "header", "content": "Spacing and colours" },
+    { "type": "range", "id": "pad_top", "label": "Top padding", "min": 0, "max": 80, "step": 4, "unit": "px", "default": 36 },
+    { "type": "range", "id": "pad_bottom", "label": "Bottom padding", "min": 0, "max": 80, "step": 4, "unit": "px", "default": 36 },
+    { "type": "color", "id": "bg_color", "label": "Background", "default": "#EDE7DC" },
+    { "type": "color", "id": "text_color", "label": "Text", "default": "#0A0A0C" }
+  ],
+  "presets": [{ "name": "IK — How to apply" }]
+}
+{% endschema %}
