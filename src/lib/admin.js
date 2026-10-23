@@ -1669,7 +1669,7 @@ export async function runAutomations(env) {
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; if (sw.retry || sw.late) console.log('cancel-sweep', JSON.stringify(sw)); } catch (e) { console.error('cancel-sweep', e); }
   /* Shiprocket health in the logs (temporary diagnostics for the cancel 503s) */
   try {
-    if (new Date().getUTCMinutes() < 5) {   /* about once an hour; logged only when something is off */
+    if (true) {   /* TEMP: every run while the 503s are investigated */
       const { srProbe } = await import('./shiprocket.js'); const p = await srProbe(env);
       if (!/^ok/.test(p.wallet) || !/^ok/.test(p.awb_cancel_endpoint) || (p.stuck || []).length) console.log('shiprocket probe', JSON.stringify(p));
     }

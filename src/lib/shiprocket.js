@@ -414,6 +414,10 @@ export async function srProbe(env) {
   const time = async (k, f) => { const t0 = Date.now(); try { await f(); out[k] = 'ok ' + (Date.now() - t0) + 'ms'; } catch (e) { out[k] = (e.status || 'err') + ' ' + String(e.message || e).slice(0, 160) + ' ' + (Date.now() - t0) + 'ms'; } };
   await time('wallet', () => sr1(env, 'GET', 'account/details/wallet-balance'));
   await time('cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel', { ids: [999999999] }));
+  await time('create_endpoint', () => sr1(env, 'POST', 'orders/create/adhoc', {}));   /* empty: a healthy API answers 422 */
+  await time('orders_list', () => sr1(env, 'GET', 'orders?per_page=1'));
+  try { const r = await fetch(`${SR}/orders/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (await srToken(cfg(env))) }, body: JSON.stringify({ ids: [999999999] }), signal: AbortSignal.timeout(TIMEOUT) });
+    out.cancel_raw = r.status + ' ' + (r.headers.get('content-type') || '') + ' ' + (await r.text()).slice(0, 300).replace(/\s+/g, ' '); } catch (e) { out.cancel_raw = 'err ' + e.message; }
   await time('awb_cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel/shipment/awbs', { awbs: ['19041999999999'] }));
   try {
     out.stuck = (await env.DB.prepare("SELECT order_name, cancel_state, cancel_note FROM shipments WHERE cancel_state IN ('error','queued') AND COALESCE(status,'')<>'cancelled' ORDER BY updated_at DESC LIMIT 10").all()).results
