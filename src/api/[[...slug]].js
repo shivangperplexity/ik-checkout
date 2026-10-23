@@ -20,6 +20,11 @@ export default {
       const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
       req = new Request(u.toString(), { method: request.method, headers: request.headers, body: hasBody ? await request.arrayBuffer() : undefined });
     }
+    /* the review link in the WhatsApp button: /review/<token> (Vercel hands the function the original path) */
+    {
+      const m = /^\/review\/([A-Za-z0-9]{6,16})\/?$/.exec(new URL(req.url).pathname);
+      if (m) { const u2 = new URL(req.url); u2.pathname = '/api/review/page'; u2.search = '?t=' + m[1]; req = new Request(u2.toString(), { method: 'GET', headers: req.headers }); }
+    }
     const env = { ...process.env, DB: makeDb(process.env) };
     const ctx = { waitUntil };
     const path = new URL(req.url).pathname;
