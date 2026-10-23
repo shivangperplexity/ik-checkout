@@ -54,6 +54,7 @@ export async function stopShipment(env, orderId, why = 'Order cancelled') {
   } catch (e) {
     if (!/already\s+cancel/i.test(String(e.message))) {
       const note = 'Shiprocket cancel failed, will retry: ' + String(e.message || e).slice(0, 200);
+      console.error('shiprocket cancel', id, rec.sr_order_id, rec.awb, e.status || '', JSON.stringify(e.body || {}).slice(0, 300));
       await setState(env, id, rec.cancel_state === 'queued' ? 'queued' : 'error', note).catch(() => {});
       return { state: 'error', note };
     }

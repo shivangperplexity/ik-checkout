@@ -404,3 +404,17 @@ export async function refreshDocs(env, rec) {
   try { const p = await sr(env, 'POST', 'courier/generate/pickup', { shipment_id: sid }); pickup = String(p.response?.data?.pickup_scheduled_date || p.pickup_status || 'requested'); } catch (e) { pickup = 'pickup: ' + String(e.message).slice(0, 120); }
   return { label_url: label, pickup };
 }
+
+/** Diagnostics: is Shiprocket answering, and is its cancel endpoint up? Cancels nothing (order id 0 does not exist). */
+export async function srProbe(env) {
+  const out = {};
+  const time = async (k, f) => { const t0 = Date.now(); try { await f(); out[k] = 'ok ' + (Date.now() - t0) + 'ms'; } catch (e) { out[k] = (e.status || 'err') + ' ' + String(e.message || e).slice(0, 160) + ' ' + (Date.now() - t0) + 'ms'; } };
+  await time('wallet', () => sr1(env, 'GET', 'account/details/wallet-balance'));
+  await time('cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel', { ids: [0] }));
+  await time('awb_cancel_endpoint', () => sr1(env, 'POST', 'orders/cancel/shipment/awbs', { awbs: ['0'] }));
+  try {
+    out.stuck = (await env.DB.prepare("SELECT order_name, cancel_state, cancel_note FROM shipments WHERE cancel_state IN ('error','queued') AND COALESCE(status,'')<>'cancelled' ORDER BY updated_at DESC LIMIT 10").all()).results
+      .map((r) => `${r.order_name}:${r.cancel_state}:${String(r.cancel_note || '').slice(0, 140)}`);
+  } catch (e) { out.stuck = 'db ' + e.message; }
+  return out;
+}
