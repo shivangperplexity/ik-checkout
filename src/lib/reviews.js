@@ -216,7 +216,7 @@ export function reviewTemplate(base) {
 async function dueRows(env, cfg, limit) {
   const t = now(), delay = cfg.delay_days * DAY;
   const pastCut = (cfg.launched_at || t) - delay;
-  return (await env.DB.prepare(`SELECT * FROM review_asks WHERE state='delivered' AND delivered_at<=?
+  return (await env.DB.prepare(`SELECT * FROM review_asks WHERE state='delivered' AND order_id NOT LIKE 'test-%' AND delivered_at<=?
       AND (delivered_at>=? OR ?::bigint>0) AND COALESCE(hold_until,0)<? ORDER BY delivered_at DESC LIMIT ?`)
     .bind(t - delay, pastCut, cfg.backfill_at || 0, t, limit).all()).results;
 }
@@ -226,7 +226,7 @@ export async function countDue(env, cfg) {
       SUM(CASE WHEN state='delivered' AND delivered_at<=? AND delivered_at>=? THEN 1 ELSE 0 END) AS due,
       SUM(CASE WHEN state='delivered' AND delivered_at<? THEN 1 ELSE 0 END) AS past,
       SUM(CASE WHEN state='delivered' AND delivered_at>? THEN 1 ELSE 0 END) AS waiting
-      FROM review_asks`).bind(t - delay, pastCut, pastCut, t - delay).first();
+      FROM review_asks WHERE order_id NOT LIKE 'test-%'`).bind(t - delay, pastCut, pastCut, t - delay).first();
   return { due: Number(r?.due || 0), past: Number(r?.past || 0), waiting: Number(r?.waiting || 0) };
 }
 
@@ -245,7 +245,7 @@ export async function askOne(env, row, { send, force = false } = {}) {
   const fire = send || (async (...a) => (await import('./whatsapp.js')).fireTrigger(...a));
   const r = await fire(env, 'review_ask', { to: row.phone, vars: { name: displayName(row.first_name).replace(/ .*/, '') || 'there', order: row.order_name, rtok: token }, orderId: String(row.order_id).startsWith('test-') ? '0' : String(row.order_id), orderName: row.order_name, force });
   if (r && r.ok) {
-    await env.DB.prepare("UPDATE review_asks SET state='sent', sent_at=?, note=?, updated_at=? WHERE order_id=?").bind(t, 'sent: ' + (r.template || REVIEW_TEMPLATE), t, row.order_id).run();
+    await env.DB.prepare("UPDATE review_asks SET state=CASE WHEN order_id LIKE 'test-%' THEN 'test' ELSE 'sent' END, sent_at=?, note=?, updated_at=? WHERE order_id=?").bind(t, 'sent: ' + (r.template || REVIEW_TEMPLATE), t, row.order_id).run();
     return { ok: true, token };
   }
   if (r && r.skipped) {
@@ -291,6 +291,7 @@ export async function sendDue(env, { send, cfg: cfg0 } = {}) {
 export async function reviewsTick(env, { send, track } = {}) {
   const cfg = await reviewCfg(env);
   if (!cfg.launched_at) await saveReviewCfg(env, {});
+  await env.DB.prepare("UPDATE review_asks SET state='test' WHERE order_id LIKE 'test-%' AND state<>'test'").run().catch(() => {});
   const out = {};
   try { out.scan = await scanShopify(env, { pages: 3 }); } catch (e) { out.scan = { error: String(e.message || e).slice(0, 160) }; }
   try { out.track = await checkTracking(env, { max: 25, track }); } catch (e) { out.track = { error: String(e.message || e).slice(0, 160) }; }
@@ -352,7 +353,7 @@ export async function submitReview(env, token, b, cfg0) {
     await env.DB.prepare('INSERT INTO review_photos (review_id, idx, w, h, full_b64, thumb_b64, created_at) VALUES (?,?,?,?,?,?,?)')
       .bind(rev.id, idx++, Math.round(Number(p.w) || 0), Math.round(Number(p.h) || 0), JPEG.exec(p.full)[1], JPEG.exec(p.thumb)[1], t).run();
   }
-  await env.DB.prepare("UPDATE review_asks SET state='reviewed', reviewed_at=COALESCE(reviewed_at, ?), updated_at=? WHERE token=?").bind(t, t, token).run();
+  await env.DB.prepare("UPDATE review_asks SET state=CASE WHEN order_id LIKE 'test-%' THEN 'test' ELSE 'reviewed' END, reviewed_at=COALESCE(reviewed_at, ?), updated_at=? WHERE token=?").bind(t, t, token).run();
   return { ok: true, id: rev.id, rating };
 }
 
@@ -402,8 +403,8 @@ export async function adminList(env, b = {}) {
       SUM(CASE WHEN status='hidden' THEN 1 ELSE 0 END) AS hidden,
       SUM(CASE WHEN rating=5 THEN 1 ELSE 0 END) AS s5, SUM(CASE WHEN rating=4 THEN 1 ELSE 0 END) AS s4, SUM(CASE WHEN rating=3 THEN 1 ELSE 0 END) AS s3,
       SUM(CASE WHEN rating=2 THEN 1 ELSE 0 END) AS s2, SUM(CASE WHEN rating=1 THEN 1 ELSE 0 END) AS s1 FROM reviews WHERE NOT test`).first();
-  const asks = (await env.DB.prepare('SELECT state, COUNT(*) AS n FROM review_asks GROUP BY state').all()).results;
-  const opened = Number((await env.DB.prepare('SELECT COUNT(*) AS n FROM review_asks WHERE opened_at IS NOT NULL').first())?.n || 0);
+  const asks = (await env.DB.prepare("SELECT state, COUNT(*) AS n FROM review_asks WHERE order_id NOT LIKE 'test-%' GROUP BY state").all()).results;
+  const opened = Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM review_asks WHERE opened_at IS NOT NULL AND order_id NOT LIKE 'test-%'").first())?.n || 0);
   const scan = await env.DB.prepare("SELECT v FROM settings WHERE k='reviews_scan'").first().catch(() => null);
   return {
     ok: true, cfg,
@@ -432,7 +433,7 @@ export async function adminDelete(env, b) {
   const r = await env.DB.prepare('SELECT ask_token FROM reviews WHERE id=?').bind(id).first();
   await env.DB.prepare('DELETE FROM review_photos WHERE review_id=?').bind(id).run();
   await env.DB.prepare('DELETE FROM reviews WHERE id=?').bind(id).run();
-  if (r?.ask_token) await env.DB.prepare("UPDATE review_asks SET state='sent' WHERE token=? AND state='reviewed'").bind(r.ask_token).run();
+  if (r?.ask_token) await env.DB.prepare("UPDATE review_asks SET state='sent' WHERE token=? AND state='reviewed' AND order_id NOT LIKE 'test-%'").bind(r.ask_token).run();
   return { ok: true };
 }
 /** A test ask to any number: a real link and the real WhatsApp message (marked test, never shown on the website). */
@@ -441,7 +442,7 @@ export async function adminTest(env, b, { send } = {}) {
   if (!phone) throw new Error('Enter a 10-digit Indian mobile number');
   const t = now(), id = 'test-' + t, token = newToken();
   await env.DB.prepare(`INSERT INTO review_asks (order_id, order_name, phone, first_name, last_name, city, items, state, delivered_at, token, note, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,'delivered',?,?,?,?,?)`).bind(id, '#TEST', phone, String(b.name || 'there').slice(0, 30), '', '', 'Test order · sample designs', t, token, 'test message', t, t).run();
+      VALUES (?,?,?,?,?,?,?,'test',?,?,?,?,?)`).bind(id, '#TEST', phone, String(b.name || 'there').slice(0, 30), '', '', 'Test order · sample designs', t, token, 'test message', t, t).run();
   const base = String(env.WORKER_URL || '').replace(/\/$/, '');
   const link = `${base}/review/${token}`;
   if (b.whatsapp === false) return { ok: true, link };

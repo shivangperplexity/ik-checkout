@@ -11,3 +11,10 @@ or the chosen UPI app (phones).
 
 Upload: themeFilesUpsert with body type TEXT (type URL is only honoured for assets, not snippets), then compare
 each file's checksumMd5 with `md5sum src/ikx-js-*.liquid`.
+
+## Live reviews (Oct 2026)
+`sections/ikl-live-reviews.liquid` ("IK — Live reviews") shows the reviews put "On website" in IK Checkout
+(Reviews tab), loaded from `https://ik-checkout.vercel.app/api/review/list`; hidden until there is one to show.
+Build 041 (live reviews) = Build 039 + this section on the home page (`ikl_live_reviews`, the old static
+`ikl_reviews` kept but disabled) and on the product page (`ikl_pdp_live_reviews`, right under the main product).
+To add it to another build: upload the section file, then add the section in the theme editor.
