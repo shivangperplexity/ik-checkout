@@ -649,8 +649,8 @@ const ACTIONS = {
   },
   async confirm(env, b) {
     const gid = `gid://shopify/Order/${b.id}`;
-    await removeTags(env, gid, ['cod-unconfirmed']); await addTags(env, gid, ['cod-confirmed']);
-    await env.DB.prepare('UPDATE orders SET confirmed_at=? WHERE order_id=?').bind(now(), String(b.id)).run();
+    await removeTags(env, gid, ['cod-unconfirmed']); await addTags(env, gid, ['cod-confirmed', 'Address confirmed']);
+    await env.DB.prepare('UPDATE orders SET confirmed_at=?, addr_tagged_at=? WHERE order_id=?').bind(now(), now(), String(b.id)).run();
     return { ok: true };
   },
   async cancel(env, b) { await cancelOne(await withSettingsFresh(env), b.id); return { ok: true }; },
@@ -1195,6 +1195,44 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, ...r };
   },
+  /** How-to-apply video on delivery (lib/apply-guide.js): status, set the video link, submit the template, send a test. */
+  async apply_guide(env, b) {
+    const A = await import('./apply-guide.js');
+    const { withSettings, putSetting, getSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache, fireTrigger } = await import('./whatsapp.js');
+    const s = await getSettings(env, true);
+    if (b.video !== undefined) {
+      const v = String(b.video || '').trim();
+      if (v && !/^https:\/\/\S+$/.test(v)) throw new Error('Paste a public https link to the video (.mp4)');
+      if (v) {
+        const r = await fetch(v, { method: 'HEAD', redirect: 'follow' }).catch(() => null);
+        const type = r?.headers.get('content-type') || '', size = Number(r?.headers.get('content-length') || 0);
+        if (!r || !r.ok) throw new Error('That link does not open (HTTP ' + (r ? r.status : 'error') + '). It must be a direct, public link to the .mp4 file');
+        if (type && !/video\/mp4|application\/octet-stream|binary/.test(type)) throw new Error(`That link is a ${type.split(';')[0]} page, not an .mp4 file. Use a direct file link`);
+        if (size > 16 * 1024 * 1024) throw new Error(`The video is ${(size / 1048576).toFixed(1)} MB; WhatsApp allows up to 16 MB`);
+      }
+      await putSetting(env, 'apply', { ...s.apply, video: v });
+    }
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const video = A.applyVideo(e2);
+    let tpl = await metaTemplate(e2, A.APPLY_TEMPLATE).catch(() => null);
+    let created = null;
+    if (b.submit || (video && (!tpl || tpl.status === 'REJECTED') && b.video !== undefined)) {
+      if (!video) throw new Error('Set the video first');
+      const t = { ...A.applyTemplate(), sample_url: video };
+      created = (await ACTIONS.wa_create_templates(env, { templates: [t] })).created;
+      clearMetaCache();
+      tpl = await metaTemplate(e2, A.APPLY_TEMPLATE).catch(() => null);
+    }
+    let test = null;
+    if (b.test) {
+      const to = cleanPhone(b.to) || cleanPhone(e2.WA_ADMIN_PHONE);
+      if (!to) throw new Error('Enter a 10-digit number for the test');
+      if (!video) throw new Error('Set the video first');
+      test = await fireTrigger(e2, 'ship_delivered', { to, vars: { name: 'Test', order: '#TEST', video }, orderName: '#TEST', force: true });
+    }
+    return { ok: true, video, text: A.APPLY_TEXT, template: A.APPLY_TEMPLATE, status: tpl ? tpl.status : (created?.[0]?.status || 'NOT SUBMITTED'), created, test, on: triggerConfig(e2, 'ship_delivered').enabled };
+  },
   /** Submit the NDR autopilot templates (nudge, booked again, final attempt) that are not in WhatsApp Manager yet. */
   async ndr_pilot_templates(env, b) {
     const { pilotTemplates, PILOT_TEMPLATE_NAMES } = await import('./ndr-pilot.js');
@@ -1524,7 +1562,8 @@ const ACTIONS = {
     const sample = { name: 'Test', order: '#TEST', total: '499.00', courier: 'Delhivery', tracking: 'TEST123', items: 'Test item', link: env.STORE_URL, method: 'COD', risk: '40 (medium)', reasons: 'test',
       pct: String(env.COD_CONVERT_DISCOUNT || 10), newtotal: '449.00', confirm: env.STORE_URL, pay: env.STORE_URL };
     /* Image-header templates need a picture: use a real product shot for the test. */
-    if (TRIGGERS[key].media && (!env.WA_HEADER_IMAGE || b.image_q)) sample.image = (await searchProducts(env, String(b.image_q || '')).catch(() => [])).find((p) => p.image)?.image || '';
+    if (TRIGGERS[key].media === 'video') sample.video = (await import('./apply-guide.js')).applyVideo(env);
+    else if (TRIGGERS[key].media && (!env.WA_HEADER_IMAGE || b.image_q)) sample.image = (await searchProducts(env, String(b.image_q || '')).catch(() => [])).find((p) => p.image)?.image || '';
     if (b.image_q) sample.items = (await searchProducts(env, String(b.image_q)).catch(() => []))[0]?.title || sample.items;
     /* b.template: test one exact template (no rotation) instead of whatever today's rotation picks for this number. */
     const pick = /^[a-z0-9_]{1,512}$/.test(String(b.template || '')) ? String(b.template) : '';

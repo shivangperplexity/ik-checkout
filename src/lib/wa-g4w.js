@@ -28,7 +28,9 @@ export async function applyAction(env, row, action, opts = {}) {
     const claim = await env.DB.prepare('UPDATE orders SET confirmed_at=? WHERE order_id=? AND confirmed_at IS NULL RETURNING order_id').bind(now(), String(row.order_id)).first();
     if (!claim) return 'already-confirmed';
     await removeTags(env, gid, ['cod-unconfirmed']);
-    await addTags(env, gid, ['cod-confirmed']);
+    const partial = Number(row.advance_paise || 0) > 0;
+    await addTags(env, gid, partial ? ['cod-confirmed'] : ['cod-confirmed', 'Address confirmed']);
+    if (!partial) await env.DB.prepare('UPDATE orders SET addr_tagged_at=? WHERE order_id=?').bind(now(), String(row.order_id)).run().catch(() => {});
     return 'confirmed';
   }
   if (row.confirmed_at && !opts.force) return 'already-confirmed';
@@ -156,7 +158,7 @@ export async function processInbound(env0, msgs) {
     await clearPending(env, m.from);
     await logMsg(env, { direction: 'in', phone: m.from, trigger: 'reply', template: action, status: result, orderName: row.order_name });
     if (result === 'confirmed') {
-      await sendText(env, '91' + m.from, `Thanks ${row.first_name || ''}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.`);
+      await sendText(env, '91' + m.from, `Thanks ${row.first_name || ''}! Order ${row.order_name} is confirmed. We'll pack and ship it soon.\n\nGood to know: your tattoo is semi-permanent, not permanent. It lasts 1-2 weeks depending on your skin type, and may last fewer days on sensitive skin.`);
       const { sendAddressCheck } = await import('./wa-address.js');
       await sendAddressCheck(env, row);
     }
@@ -227,7 +229,7 @@ export async function handleAct(req, env0) {
       const o = await orderDetail(env, orderId);
       if (o?.shippingAddress && editable(o)) extra = `<p style="text-align:left;background:rgba(127,127,127,.08);border-radius:12px;padding:12px 14px;margin:0 0 14px"><b>Delivering to</b><br>${esc(fmtAddress(o.shippingAddress)).replace(/\n/g, '<br>')}</p><a class="btn n" href="${esc(await addrLink(env, orderId))}">Edit address</a>`;
     } catch (e) { console.error('act addr', orderId, e.message); }
-    return page(`Order ${name} confirmed`, "Thank you! We'll pack it and ship it soon.", extra);
+    return page(`Order ${name} confirmed`, "Thank you! We'll pack it and ship it soon.", `<p style="font-size:14px;opacity:.8;margin:0 0 14px">Good to know: your tattoo is semi-permanent, not permanent. It lasts 1-2 weeks depending on your skin type, and may last fewer days on sensitive skin.</p>` + extra);
   }
   if (result === 'cancelled') return page(`Order ${name} cancelled`, 'Your order has been cancelled. You can order again anytime.', `<a class="btn y" href="${esc(env.STORE_URL || 'https://www.inkkulture.in')}">Back to Ink Kulture</a>`);
   if (result === 'already-paid') return page(`Order ${name}`, 'Paid online. Thank you! We will ship it soon.');

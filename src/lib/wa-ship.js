@@ -107,7 +107,7 @@ async function ndrReasons(env) {
 
 export async function shipUpdates(env) {
   if (!env.DB) return { shipChecked: 0 };
-  const anyOn = ['ship_picked', 'ship_transit', 'ship_ofd', 'ship_failed'].some((k) => triggerConfig(env, k).enabled);
+  const anyOn = ['ship_picked', 'ship_transit', 'ship_ofd', 'ship_failed', 'ship_delivered'].some((k) => triggerConfig(env, k).enabled);
   if (!anyOn) return { shipChecked: 0, skipped: 'off' };
   const t = now();
   const rows = (await env.DB.prepare(
@@ -182,7 +182,16 @@ export async function shipUpdates(env) {
         }
         sent = mark(sent, what, c);
       }
-      await save(r, { awb, courier, url, status: tr.status || c.stage, sent, done: c.stage === 'delivered' || c.stage === 'rto' });
+      /* how-to-apply video the moment it is delivered (lib/apply-guide.js) */
+      let guideRetry = false;
+      if (c.stage === 'delivered') {
+        try {
+          const { maybeSendApplyGuide } = await import('./apply-guide.js');
+          const gd = await maybeSendApplyGuide(env, r, tr, sent);
+          sent = gd.sent; guideRetry = gd.retry; if (gd.ok) sentN++;
+        } catch (e) { console.error('apply guide', r.order_id, e.message); }
+      }
+      await save(r, { awb, courier, url, status: tr.status || c.stage, sent, done: (c.stage === 'delivered' && !guideRetry) || c.stage === 'rto' });
     } catch (e) {
       console.error('shipUpdates', r.order_id, e.message);
       await save(r, { awb: r.awb, courier: r.courier, url: r.url, status: 'error', sent: (() => { try { return JSON.parse(r.sent || '{}'); } catch { return {}; } })() }).catch(() => {});

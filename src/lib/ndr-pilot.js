@@ -424,6 +424,11 @@ export async function submitMissingTemplates(env) {
       const rv = await action('review_template')(env, {});
       out.review = (rv.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);
     }
+    if (!(await metaTemplate(env, 'apply_guide_v1').catch(() => undefined))) {
+      const { applyVideo } = await import('./apply-guide.js');
+      const { withSettings } = await import('./settings.js');
+      if (applyVideo(await withSettings(env))) { const ag = await action('apply_guide')(env, { submit: true }); out.apply = (ag.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`); }
+    }
     if (!(await metaTemplate(env, 'cod_prepaid_offer_v2').catch(() => undefined))) {
       const c = await action('convert_template')(env, {});
       out.offer = (c.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);

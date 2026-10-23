@@ -117,6 +117,7 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_pct INT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_payable_paise BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_started_at BIGINT`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS addr_tagged_at BIGINT`,
   /* Reviews (lib/reviews.js): one ask per delivered order, the reviews, their photos (JPEG base64) */
   `CREATE TABLE IF NOT EXISTS review_asks (order_id TEXT PRIMARY KEY, order_name TEXT, phone TEXT, first_name TEXT, last_name TEXT, city TEXT, items TEXT, state TEXT, delivered_at BIGINT, fulfilled_at BIGINT, awb TEXT, track_url TEXT, note TEXT, token TEXT UNIQUE, sent_at BIGINT, opened_at BIGINT, reviewed_at BIGINT, checked_at BIGINT, hold_until BIGINT, tries INT DEFAULT 0, created_at BIGINT, updated_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS review_asks_state ON review_asks (state, delivered_at)`,

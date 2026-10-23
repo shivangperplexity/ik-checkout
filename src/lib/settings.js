@@ -12,6 +12,7 @@ import { CONVERT_DEFAULTS } from './convert-cfg.js';
 //   items    - cart summary from the Shopify order, or from the lead's saved cart
 //   btnurl   - the confirm link again, for a Call-To-Action button whose URL Type is "Dynamic"
 // media:true = the template has an image header: the first item's design, falling back to WA_HEADER_IMAGE.
+// media:'video' = a video header: the how-to-apply video (lib/apply-guide.js).
 // marketing:true = MARKETING category; never sent to a number that replied STOP.
 export const TRIGGERS = {
   cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm_v2', fallback: 'cod_order_confirm', on: true },
@@ -43,6 +44,7 @@ export const TRIGGERS = {
   ndr_rescheduled: { label: 'NDR: delivery booked again', to: 'Customer', when: 'The NDR rules booked a re-attempt on their own: the day, the amount to pay, and a "Yes, I\'ll receive it" button', vars: ['name', 'order', 'when', 'amount'], buttons: 'ndr', urlParam: 'ndrkey', def: 'ndr_rescheduled_v1', on: true },
   ndr_last_attempt: { label: 'NDR: final delivery attempt', to: 'Customer', when: 'The re-attempt just booked is the last one the courier allows: says the parcel goes back and the order is cancelled if it fails', vars: ['name', 'order', 'when', 'amount'], buttons: 'ndr', urlParam: 'ndrkey', def: 'ndr_last_attempt_v1', on: true },
   ship_failed: { label: 'Delivery attempt failed (re-attempt)', to: 'Customer', when: 'Courier could not deliver; skipped if the customer refused / cancelled with OTP. The link lets the customer pick re-attempt (any day) or return; replying "re-attempt" / "return" works too', vars: ['name', 'order', 'track'], def: 'ship_delivery_failed', on: true },
+  ship_delivered: { label: 'How-to-apply video (on delivery)', to: 'Customer', when: 'Right after the courier marks a parcel delivered (Shiprocket tracking), once per order. Sends only after the video is set (WhatsApp tab > How-to-apply video)', vars: ['name', 'order'], media: 'video', def: 'apply_guide_v1', on: true },
   review_ask: { label: 'Review request', to: 'Customer', when: 'Once per customer, 3 days after the tracking shows the order delivered (Reviews tab), 10 am to 8 pm. The button opens the review page', vars: ['name', 'order'], urlParam: 'rtok', def: 'review_request_v1', on: true, marketing: true },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
@@ -73,6 +75,8 @@ const DEFAULTS = {
   ndr: structuredClone(NDR_DEFAULTS),
   /* Pay-online offer before shipping (lib/wa-convert.js) */
   convert: { ...CONVERT_DEFAULTS },
+  /* How-to-apply video sent on delivery (lib/apply-guide.js) */
+  apply: { video: '', bundled: false },
 };
 
 let cache = { at: 0, s: null };
@@ -89,6 +93,7 @@ export async function getSettings(env, fresh) {
   s.partial = { ...DEFAULTS.partial, ...(s.partial || {}) };
   s.meta = { ...DEFAULTS.meta, ...(s.meta || {}) };
   s.convert = { ...DEFAULTS.convert, ...(s.convert || {}) };
+  s.apply = { ...DEFAULTS.apply, ...(s.apply || {}) };
   cache = { at: Date.now(), s };
   return s;
 }

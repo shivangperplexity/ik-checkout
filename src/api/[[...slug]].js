@@ -51,6 +51,8 @@ export default {
       await autoCancelStale(env).catch((e) => console.error('autoCancelStale', e));
       /* WhatsApp shipment updates from Shiprocket tracking. */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { shipUpdates } = await import('../lib/wa-ship.js'); return shipUpdates(await withSettings(env)); })().catch((e) => console.error('shipUpdates', e));
+      /* "Address confirmed" tag on confirmed COD orders in Shopify (lib/order-tags.js) */
+      await (async () => { const { tagConfirmedSweep } = await import('../lib/order-tags.js'); const r = await tagConfirmedSweep(env); if (r.tagged || r.failed) console.log('address tags', JSON.stringify(r)); })().catch((e) => console.error('address tags', e));
       /* reviews: find delivered orders (Shopify + tracking), ask 3 days after delivery (lib/reviews.js) */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { reviewsTick } = await import('../lib/reviews.js'); const r = await reviewsTick(await withSettings(env)); if (r.track?.delivered || r.send?.sent || r.send?.failed || r.send?.held || r.scan?.error || r.track?.error || r.send?.error) console.log('reviews', JSON.stringify(r)); })().catch((e) => console.error('reviews', e));
       /* automatic NDR rules: re-attempt / return / wait for the customer (lib/ndr-rules.js) */

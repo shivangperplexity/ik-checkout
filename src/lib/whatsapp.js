@@ -199,7 +199,7 @@ export function waImage(url) {
 }
 
 /** Build and send one template on the Cloud API. keys/values are the checkout's variables in {{1}}..{{n}} order. */
-export async function metaSendTemplate(env, { name, phone, keys, values, image, orderId, lang, urlParam = '', onText = null, qrKind = 'cod' }) {
+export async function metaSendTemplate(env, { name, phone, keys, values, image, video = false, orderId, lang, urlParam = '', onText = null, qrKind = 'cod' }) {
   let tpl = null;
   try { tpl = await metaTemplate(env, name); } catch (e) { console.error('metaTemplate', name, e.message); }
   if (env.WA_WABA_ID && tpl === null) throw new Error(`template "${name}" not found or not approved in WhatsApp Manager`);
@@ -213,7 +213,10 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
   const dyn = buttons.map((b, i) => ({ b, i })).filter((x) => x.b.type === 'URL' && /{{\s*\d+\s*}}/.test(x.b.url || ''));
   if (dyn.length && !urlParam) throw new Error(`template "${name}" has a dynamic link button this checkout can't fill`);
 
-  if (!tpl ? image : header?.format === 'IMAGE') {
+  if (!tpl ? image && video : header?.format === 'VIDEO') {
+    if (!image) throw new Error(`template "${name}" has a video header but no video was given`);
+    components.push({ type: 'header', parameters: [{ type: 'video', video: { link: image } }] });
+  } else if (!tpl ? image : header?.format === 'IMAGE') {
     if (!image) throw new Error(`template "${name}" has an image header but no image was found`);
     components.push({ type: 'header', parameters: [{ type: 'image', image: { link: waImage(image) } }] });
   }
@@ -306,13 +309,17 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     let image = v.image || '';
     delete v.image;
     const wantItems = cfg.vars.includes('items');
-    if ((wantItems || t.media) && (orderId || phone)) {
+    const isVideo = t.media === 'video';
+    if (isVideo) image = v.video || image;
+    delete v.video;
+    if ((wantItems || t.media === true) && (orderId || phone)) {
       const m = orderId && orderId !== '0' ? await orderMedia(env, orderId) : await leadMedia(env, phone);
       if (m.items) v.items = m.items;
       if (!image && m.image) image = m.image;
     }
     if (wantItems && !v.items) v.items = 'your Ink Kulture order';
-    if (t.media && !image) image = env.WA_HEADER_IMAGE || '';
+    if (t.media === true && !image) image = env.WA_HEADER_IMAGE || '';
+    if (isVideo && !image) { await logMsg(env, { ...base(), status: 'skipped', error: 'no how-to-apply video set' }); return { skipped: 'novideo' }; }
 
     /* Signed one-tap links, deterministic even when a button payload is lost in transit. */
     if (orderId && orderId !== '0') {
@@ -340,7 +347,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
       }
       wamid = r.wamid;
     } else {
-      const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', orderId: t.buttons ? orderId : '', lang: cfg.lang,
+      const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', video: isVideo, orderId: t.buttons ? orderId : '', lang: cfg.lang,
         urlParam: t.urlParam ? v[t.urlParam] || '' : '', onText: (x) => { shown = x; }, qrKind: t.buttons === 'ndr' ? 'ndr' : 'cod' });
       const list = candidates(templateName);
       for (let i = 0; i < list.length; i++) {

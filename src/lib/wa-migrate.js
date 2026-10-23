@@ -34,10 +34,12 @@ export const CHECKOUT_TEMPLATES = ['cod_order_confirm', 'cod_to_prepaid', 'check
 /* Image headers need a fresh upload handle in the new account (Resumable Upload API). */
 async function imageHandle(env, appId, url) {
   const img = await fetch(url);
-  if (!img.ok) throw new Error('could not download sample image');
-  const type = (img.headers.get('content-type') || 'image/jpeg').split(';')[0];
+  if (!img.ok) throw new Error('could not download the sample header file');
+  let type = (img.headers.get('content-type') || 'image/jpeg').split(';')[0];
+  if (/\.mp4(\?|$)/i.test(url) && !/^video\//.test(type)) type = 'video/mp4';
   const buf = new Uint8Array(await img.arrayBuffer());
-  const sess = await g(env, `${appId}/uploads?file_name=header.${type.includes('png') ? 'png' : 'jpg'}&file_length=${buf.length}&file_type=${encodeURIComponent(type)}`, { method: 'POST' });
+  const ext = type.includes('png') ? 'png' : type.includes('mp4') ? 'mp4' : 'jpg';
+  const sess = await g(env, `${appId}/uploads?file_name=header.${ext}&file_length=${buf.length}&file_type=${encodeURIComponent(type)}`, { method: 'POST' });
   const res = await fetch(`${GRAPH}/${sess.id}`, { method: 'POST', headers: { Authorization: `OAuth ${env.WA_TOKEN}`, file_offset: '0' }, body: buf });
   const j = await res.json().catch(() => ({}));
   if (!j.h) throw new Error('image upload failed: ' + (j.error?.message || res.status));
@@ -90,6 +92,7 @@ export async function createTemplate(env, { waba, appId, tpl, sampleImage }) {
   for (const c of tpl.components || []) {
     const x = { ...c };
     if (x.type === 'HEADER' && x.format === 'IMAGE') x.example = { header_handle: [await imageHandle(env, appId, sampleImage)] };
+    if (x.type === 'HEADER' && x.format === 'VIDEO') { if (!tpl.sample_url) throw new Error('a video header needs a sample video'); x.example = { header_handle: [await imageHandle(env, appId, tpl.sample_url)] }; }
     components.push(x);
   }
   const body = { name: tpl.name, language: tpl.language || 'en', category: tpl.category || 'MARKETING', components };

@@ -32,8 +32,8 @@ export const PROVIDERS = {
 };
 
 export const DEFAULT_KNOWLEDGE = `Ink Kulture sells semi-permanent tattoos (temporary tattoo transfers) in India, at inkkulture.in.
-- The tattoo is a transfer sheet: clean and dry the skin, place the tattoo face down, press a wet cloth on the backing paper for about 30 seconds, then peel the paper off slowly. Let it dry for a few minutes. Full instructions come with every order.
-- It lasts up to 2 weeks depending on placement, skin type and how much it is rubbed or washed. Avoid oil, scrubbing and soap directly on it to make it last longer. To remove early, rub gently with baby oil or coconut oil, or exfoliate.
+- How to apply (most problems come from skipping a step): wipe the spot clean with the skin wipe in the box and let it dry fully (no cream, oil or sweat). Peel off the clear film, place the tattoo face down and hold it still. Dip the tissue "magic coin" in water and press it firmly over the whole backing paper until it is fully soaked, about 30 seconds, without sliding it. Peel the paper off slowly from one corner; if a part has not transferred, press that part with the wet coin again. Let it dry for a few minutes and do not touch or stretch the skin meanwhile. Full instructions and a how-to video come with every order.
+- It is semi-permanent, NOT permanent: it lasts 1 to 2 weeks depending on skin type, and may last fewer days on sensitive or oily skin, or where it is rubbed a lot (hands, fingers, inner wrist). It fades on its own; it is not meant to be peeled or scrubbed off. Avoid oil, scrubbing and soap directly on it to make it last longer.
 - It is waterproof once dry: showering and swimming are fine. Pat dry, do not rub.
 - The ink is skin-safe. Patch-test on a small area first if your skin is sensitive. Not for broken or irritated skin.
 - Sizes: small designs 5.5 x 5.5 cm (from Rs 399), forearm designs 8 x 13 cm (from Rs 499), arm bands, and large pieces 11 x 18 cm and up (Rs 699 to 1199).
@@ -54,6 +54,11 @@ Rules:
 - For "where is my order" use the CUSTOMER'S ORDERS: name the order, its status and the expected date if one is given, where the parcel was last scanned if that is given, and the tracking link if there is one. If there are no orders for this number, say you cannot see an order on this number and ask for the order number, then end with [HANDOFF].
 - To confirm or cancel a COD order the customer can reply YES or CANCEL; after a failed delivery they can reply RE-ATTEMPT or RETURN. Mention these only when relevant.
 - Do not discuss anything unrelated to Ink Kulture.
+
+FIXED PRODUCT FACTS (always true; they win over anything else below):
+- The tattoos are semi-permanent, never permanent. They last 1 to 2 weeks depending on skin type and may last fewer days on sensitive or oily skin. Never say or imply they are permanent or last longer than 2 weeks.
+- They fade on their own. Do not suggest removing them with oil, scrubbing or any other method; if asked how to remove one, say it fades by itself in 1 to 2 weeks and the team can help with anything else ([HANDOFF] if they insist).
+- Applying: clean the skin with the wipe in the box and let it dry, place the tattoo face down, press the tissue "magic coin" dipped in water firmly over the backing paper for about 30 seconds, then peel slowly. If a customer says it did not come out properly, walk them through these steps once and offer the how-to video; a team member can help further.
 
 STORE KNOWLEDGE:
 ${knowledge}
