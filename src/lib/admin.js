@@ -1145,6 +1145,56 @@ const ACTIONS = {
     const { clearMetaCache } = await import('./whatsapp.js'); clearMetaCache();
     return { ok: true, ...r };
   },
+  /* ---------------- Reviews (lib/reviews.js) ---------------- */
+  async reviews(env, b) {
+    const R = await import('./reviews.js');
+    const { photoSig } = await import('./review-page.js');
+    const r = await R.adminList(env, b || {});
+    const base = String(env.WORKER_URL || '').replace(/\/$/, '');
+    for (const rv of r.reviews) rv.photos = rv.photos.map((id) => ({ id, thumb: `${base}/api/review/photo?id=${id}&s=t&k=${photoSig(env, id)}`, full: `${base}/api/review/photo?id=${id}&s=f&k=${photoSig(env, id)}` }));
+    const { metaTemplate } = await import('./whatsapp.js');
+    const { withSettings } = await import('./settings.js');
+    const tpl = await metaTemplate(await withSettings(env), R.REVIEW_TEMPLATE).catch(() => undefined);
+    r.template = tpl ? tpl.status : (env.WA_WABA_ID || (await withSettings(env)).WA_WABA_ID ? 'MISSING' : 'UNKNOWN');
+    return r;
+  },
+  async review_set(env, b) { const R = await import('./reviews.js'); return R.adminSet(env, b); },
+  async review_delete(env, b) { const R = await import('./reviews.js'); return R.adminDelete(env, b); },
+  async review_cfg(env, b) { const R = await import('./reviews.js'); return { ok: true, cfg: await R.saveReviewCfg(env, b || {}) }; },
+  /** Test: a real review link and the real WhatsApp message to any number (marked test, never on the website). */
+  async review_test(env, b) {
+    const R = await import('./reviews.js');
+    const { withSettings } = await import('./settings.js');
+    return R.adminTest(await withSettings(await withSettingsFresh(env)), b || {});
+  },
+  /** "Ask past customers": everyone delivered before the launch becomes due now (still one per customer, 10 am - 8 pm). */
+  async review_backfill(env) {
+    const R = await import('./reviews.js');
+    const cfg = await R.saveReviewCfg(env, { backfill_at: Math.floor(Date.now() / 1000) });
+    return { ok: true, cfg, due: await R.countDue(env, cfg) };
+  },
+  /** Scan Shopify + tracking now (dashboard "Refresh"), and send what is due if sending is on. */
+  async review_scan(env, b) {
+    const R = await import('./reviews.js');
+    const { withSettings } = await import('./settings.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const out = { scan: await R.scanShopify(e2, { pages: Math.min(8, Number(b?.pages) || 4) }), track: await R.checkTracking(e2, { max: 30 }) };
+    if (b?.send) out.send = await R.sendDue(e2);
+    return { ok: true, ...out };
+  },
+  /** Submit the review request template to WhatsApp Manager (also done by the server on its own). */
+  async review_template(env, b) {
+    const R = await import('./reviews.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const base = String(env.WORKER_URL || '').replace(/\/$/, '');
+    if (!/^https:\/\//.test(base)) throw new Error('WORKER_URL (this app\'s https address) is not set');
+    const have = await metaTemplate(await withSettings(await withSettingsFresh(env)), R.REVIEW_TEMPLATE).catch(() => null);
+    if (have && have.status !== 'REJECTED' && !b?.force) return { ok: true, created: [{ name: R.REVIEW_TEMPLATE, status: have.status }] };
+    const r = await ACTIONS.wa_create_templates(env, { templates: [R.reviewTemplate(base)] });
+    clearMetaCache();
+    return { ok: true, ...r };
+  },
   /** Submit the NDR autopilot templates (nudge, booked again, final attempt) that are not in WhatsApp Manager yet. */
   async ndr_pilot_templates(env, b) {
     const { pilotTemplates, PILOT_TEMPLATE_NAMES } = await import('./ndr-pilot.js');

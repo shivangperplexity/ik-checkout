@@ -1,0 +1,159 @@
+{%- comment -%}
+  IK — Live reviews. Real reviews from customers whose order was delivered, collected by IK Checkout
+  (WhatsApp review request -> review page). Only reviews put "On website" in the dashboard (Reviews tab) appear.
+  Loads from {{ api_url }}/api/review/list. The whole section stays hidden until there is at least one review to show.
+{%- endcomment -%}
+{{ 'ikl-styles.css' | asset_url | stylesheet_tag }}
+<section class="ikl-section iklr" id="iklr-{{ section.id }}" data-api="{{ section.settings.api_url | default: 'https://ik-checkout.vercel.app' | escape }}" data-limit="{{ section.settings.limit }}" data-photos="{{ section.settings.photos_only }}" hidden>
+  <div class="ikl-container">
+    <div class="iklr__head">
+      {%- if section.settings.heading != blank -%}<h2 class="ikl-h2 ikl-h2--upright iklr__title">{{ section.settings.heading }}</h2>{%- endif -%}
+      <div class="iklr__sum" data-sum>
+        <span class="iklr__avg" data-avg></span>
+        <span class="iklr__stars" data-stars aria-hidden="true"></span>
+        <span class="iklr__count" data-count></span>
+      </div>
+      {%- if section.settings.subheading != blank -%}<p class="ikl-sub iklr__subhead">{{ section.settings.subheading }}</p>{%- endif -%}
+    </div>
+    {%- if section.settings.show_strip -%}<div class="iklr__strip" data-strip hidden></div>{%- endif -%}
+    <div class="iklr__rail iklr__rail--{{ section.settings.layout }}" data-rail></div>
+    <div class="iklr__more"><button type="button" class="ikl-btn" data-more hidden>{{ section.settings.more_label | default: 'See more reviews' }}</button></div>
+  </div>
+  <div class="iklr__lb" data-lb hidden><button type="button" class="iklr__lbx" aria-label="Close">&times;</button><img alt="" data-lbimg></div>
+</section>
+
+<style>
+  #shopify-section-{{ section.id }}, #iklr-{{ section.id }} { background: {{ section.settings.bg_color }}; color: {{ section.settings.text_color }}; }
+  #iklr-{{ section.id }} { padding-top: {{ section.settings.pad_top }}px; padding-bottom: {{ section.settings.pad_bottom }}px; }
+  #iklr-{{ section.id }} .iklr__stars, #iklr-{{ section.id }} .iklr-card__stars { color: {{ section.settings.star_color }}; }
+  .iklr[hidden]{display:none!important}
+  .iklr__head{text-align:center;margin-bottom:18px}
+  .iklr__title{margin:0 0 8px}
+  .iklr__sum{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;font-size:15px}
+  .iklr__avg{font-size:30px;font-weight:800;line-height:1}
+  .iklr__stars{font-size:20px;letter-spacing:2px;line-height:1}
+  .iklr__count{opacity:.72}
+  .iklr__subhead{margin:6px auto 0;text-align:center}
+  .iklr__strip{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 12px;margin-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .iklr__strip::-webkit-scrollbar{display:none}
+  .iklr__strip button{flex:0 0 auto;width:112px;height:112px;border:0;padding:0;border-radius:12px;overflow:hidden;scroll-snap-align:start;cursor:zoom-in;background:#efebe3}
+  .iklr__strip img{width:100%;height:100%;object-fit:cover;display:block}
+  .iklr__rail{display:grid;gap:12px}
+  .iklr__rail--rail{grid-auto-flow:column;grid-auto-columns:minmax(268px,82%);overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 10px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+  .iklr__rail--grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  @media (min-width:750px){.iklr__rail--rail{grid-auto-columns:minmax(280px,320px)}.iklr__strip button{width:140px;height:140px}}
+  .iklr-card{background:#fff;border:1px solid rgba(10,10,12,.09);border-radius:16px;padding:16px;scroll-snap-align:start;display:flex;flex-direction:column;gap:8px;color:#0a0a0c;text-align:left;min-width:0}
+  .iklr-card__top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .iklr-card__stars{font-size:16px;letter-spacing:1.5px;line-height:1}
+  .iklr-card__date{font-size:12px;opacity:.6;white-space:nowrap}
+  .iklr-card__text{margin:0;font-size:14.5px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;word-break:break-word}
+  .iklr-card__text.is-open{-webkit-line-clamp:unset;display:block}
+  .iklr-card__read{border:0;background:none;padding:0;font:inherit;font-size:13px;font-weight:600;text-decoration:underline;cursor:pointer;align-self:flex-start;color:inherit}
+  .iklr-card__tags{display:flex;flex-wrap:wrap;gap:6px}
+  .iklr-card__tags span{font-size:11.5px;font-weight:600;background:#f1ede5;border-radius:99px;padding:3px 9px}
+  .iklr-card__photos{display:flex;gap:6px}
+  .iklr-card__photos button{width:64px;height:64px;border:0;padding:0;border-radius:10px;overflow:hidden;cursor:zoom-in;background:#efebe3}
+  .iklr-card__photos img{width:100%;height:100%;object-fit:cover;display:block}
+  .iklr-card__who{margin-top:auto;font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .iklr-card__who small{font-weight:500;opacity:.65}
+  .iklr-card__ok{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;font-weight:700;color:#1f7a4d}
+  .iklr__more{text-align:center;margin-top:16px}
+  .iklr__lb{position:fixed;inset:0;z-index:2147483000;background:rgba(10,10,12,.92);display:flex;align-items:center;justify-content:center;padding:16px}
+  .iklr__lb[hidden]{display:none}
+  .iklr__lb img{max-width:100%;max-height:100%;border-radius:10px;object-fit:contain}
+  .iklr__lbx{position:absolute;top:12px;right:12px;width:44px;height:44px;border-radius:50%;border:0;background:#fff;color:#0a0a0c;font-size:26px;line-height:44px;cursor:pointer}
+</style>
+
+<script>
+(function () {
+  var root = document.getElementById('iklr-{{ section.id }}');
+  if (!root || root.__iklr) return;
+  root.__iklr = true;
+  var api = (root.getAttribute('data-api') || '').replace(/\/$/, '');
+  var limit = +root.getAttribute('data-limit') || 12, photosOnly = root.getAttribute('data-photos') === 'true';
+  var rail = root.querySelector('[data-rail]'), strip = root.querySelector('[data-strip]'), more = root.querySelector('[data-more]');
+  var lb = root.querySelector('[data-lb]'), lbimg = root.querySelector('[data-lbimg]');
+  var offset = 0;
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function stars(n) { n = Math.round(n || 0); return '\u2605\u2605\u2605\u2605\u2605'.slice(0, n) + '<span style="opacity:.25">' + '\u2605\u2605\u2605\u2605\u2605'.slice(0, 5 - n) + '</span>'; }
+  function when(t) {
+    var d = Math.max(0, Date.now() / 1000 - t), day = 86400;
+    if (d < day) return 'today'; if (d < 2 * day) return 'yesterday'; if (d < 7 * day) return Math.floor(d / day) + ' days ago';
+    if (d < 30 * day) { var w = Math.floor(d / (7 * day)); return w + (w > 1 ? ' weeks' : ' week') + ' ago'; }
+    return new Date(t * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function open(src) { lbimg.src = src; lb.hidden = false; document.documentElement.style.overflow = 'hidden'; }
+  function close() { lb.hidden = true; lbimg.removeAttribute('src'); document.documentElement.style.overflow = ''; }
+  lb.addEventListener('click', close);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !lb.hidden) close(); });
+  root.addEventListener('click', function (e) {
+    var p = e.target.closest('[data-full]'); if (p) { open(p.getAttribute('data-full')); return; }
+    var r = e.target.closest('.iklr-card__read'); if (r) { var t = r.previousElementSibling; var o = t.classList.toggle('is-open'); r.textContent = o ? 'Show less' : 'Read more'; }
+  });
+  function card(r) {
+    var ph = (r.photos || []).map(function (p) { return '<button type="button" data-full="' + esc(p.full) + '" aria-label="Open photo"><img src="' + esc(p.thumb) + '" loading="lazy" decoding="async" alt="Customer photo of an Ink Kulture tattoo"></button>'; }).join('');
+    return '<article class="iklr-card">'
+      + '<div class="iklr-card__top"><span class="iklr-card__stars" aria-label="' + r.rating + ' out of 5 stars">' + stars(r.rating) + '</span><span class="iklr-card__date">' + when(r.date) + '</span></div>'
+      + (r.text ? '<p class="iklr-card__text">' + esc(r.text) + '</p><button type="button" class="iklr-card__read" hidden>Read more</button>' : '')
+      + (r.tags && r.tags.length ? '<div class="iklr-card__tags">' + r.tags.slice(0, 4).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
+      + (ph ? '<div class="iklr-card__photos">' + ph + '</div>' : '')
+      + '<div class="iklr-card__who">' + esc(r.name) + (r.city ? ' <small>&middot; ' + esc(r.city) + '</small>' : '') + ' <span class="iklr-card__ok">&#10003; Verified buyer</span></div>'
+      + '</article>';
+  }
+  function load() {
+    more.disabled = true;
+    fetch(api + '/api/review/list?limit=' + limit + '&offset=' + offset + (photosOnly ? '&photos=1' : ''), { credentials: 'omit' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok) return;
+        if (!offset) {
+          if (!j.reviews.length) return;          /* nothing on the website yet: the section stays hidden */
+          var s = j.summary;
+          root.querySelector('[data-avg]').textContent = s.avg ? s.avg.toFixed(1) : '';
+          root.querySelector('[data-stars]').innerHTML = stars(s.avg);
+          root.querySelector('[data-count]').textContent = 'from ' + s.count + ' verified ' + (s.count === 1 ? 'buyer' : 'buyers') + (s.recommend >= 80 ? ' \u00b7 ' + s.recommend + '% would recommend' : '');
+          if (strip) {
+            var pics = [];
+            j.reviews.forEach(function (r) { (r.photos || []).forEach(function (p) { pics.push(p); }); });
+            if (pics.length >= 3) { strip.innerHTML = pics.slice(0, 12).map(function (p) { return '<button type="button" data-full="' + esc(p.full) + '" aria-label="Open photo"><img src="' + esc(p.thumb) + '" loading="lazy" decoding="async" alt="Customer photo of an Ink Kulture tattoo"></button>'; }).join(''); strip.hidden = false; }
+          }
+          root.hidden = false;
+        }
+        rail.insertAdjacentHTML('beforeend', j.reviews.map(card).join(''));
+        /* "Read more" only where the text is really cut off */
+        [].forEach.call(rail.querySelectorAll('.iklr-card__read[hidden]'), function (b) { var t = b.previousElementSibling; if (t && t.scrollHeight > t.clientHeight + 2) b.hidden = false; });
+        offset += j.reviews.length;
+        more.hidden = !j.more; more.disabled = false;
+      })
+      .catch(function () { more.disabled = false; });
+  }
+  more.addEventListener('click', load);
+  load();
+})();
+</script>
+
+{% schema %}
+{
+  "name": "IK — Live reviews",
+  "tag": "div",
+  "class": "ikl-live-reviews",
+  "settings": [
+    { "type": "paragraph", "content": "Shows the reviews you put \"On website\" in IK Checkout (Reviews tab). Hidden until there is at least one." },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by real customers" },
+    { "type": "text", "id": "subheading", "label": "Line under the rating", "default": "Reviews from verified Ink Kulture buyers, after their order was delivered" },
+    { "type": "select", "id": "layout", "label": "Layout", "options": [ { "value": "rail", "label": "Swipe row" }, { "value": "grid", "label": "Grid" } ], "default": "rail" },
+    { "type": "range", "id": "limit", "label": "Reviews to load at a time", "min": 3, "max": 24, "step": 1, "default": 12 },
+    { "type": "checkbox", "id": "show_strip", "label": "Photo strip above the reviews (when there are 3+ customer photos)", "default": true },
+    { "type": "checkbox", "id": "photos_only", "label": "Only reviews with photos", "default": false },
+    { "type": "text", "id": "more_label", "label": "Load-more button", "default": "See more reviews" },
+    { "type": "text", "id": "api_url", "label": "IK Checkout address", "default": "https://ik-checkout.vercel.app" },
+    { "type": "header", "content": "Spacing and colours" },
+    { "type": "range", "id": "pad_top", "label": "Top padding", "min": 0, "max": 80, "step": 4, "unit": "px", "default": 36 },
+    { "type": "range", "id": "pad_bottom", "label": "Bottom padding", "min": 0, "max": 80, "step": 4, "unit": "px", "default": 36 },
+    { "type": "color", "id": "bg_color", "label": "Background", "default": "#EDE7DC" },
+    { "type": "color", "id": "text_color", "label": "Text", "default": "#0A0A0C" },
+    { "type": "color", "id": "star_color", "label": "Stars", "default": "#F5A623" }
+  ],
+  "presets": [ { "name": "IK — Live reviews" } ]
+}
+{% endschema %}

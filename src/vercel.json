@@ -15,6 +15,10 @@
       "destination": "/admin.html"
     },
     {
+      "source": "/review/:t",
+      "destination": "/api/x?a=review&b=page&t=:t"
+    },
+    {
       "source": "/api/:a/:b",
       "destination": "/api/x?a=:a&b=:b"
     }

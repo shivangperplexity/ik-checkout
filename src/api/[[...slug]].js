@@ -31,6 +31,8 @@ export default {
       if (path === '/api/wa/addr') { const { handleAddr } = await import('../lib/wa-address.js'); return await handleAddr(req, env); }
       if (path === '/api/wa/pay') return await handlePay(req, env);
       if (path === '/api/wa/paid' && req.method === 'POST') return await handlePaid(req, env, ctx);
+      /* reviews: the page the WhatsApp button opens, submit, photos, the public list for the website (lib/review-page.js) */
+      if (path.startsWith('/api/review/')) { const { handleReview } = await import('../lib/review-page.js'); return await handleReview(req, env); }
       /* label printing agent on the packing Mac (lib/print-agent.js) */
       if (path.startsWith('/api/print/')) { const { handlePrint } = await import('../lib/print-agent.js'); const { withSettings } = await import('../lib/settings.js'); return await handlePrint(req, await withSettings(env)); }
     } catch (e) {
@@ -44,6 +46,8 @@ export default {
       await autoCancelStale(env).catch((e) => console.error('autoCancelStale', e));
       /* WhatsApp shipment updates from Shiprocket tracking. */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { shipUpdates } = await import('../lib/wa-ship.js'); return shipUpdates(await withSettings(env)); })().catch((e) => console.error('shipUpdates', e));
+      /* reviews: find delivered orders (Shopify + tracking), ask 3 days after delivery (lib/reviews.js) */
+      await (async () => { const { withSettings } = await import('../lib/settings.js'); const { reviewsTick } = await import('../lib/reviews.js'); const r = await reviewsTick(await withSettings(env)); if (r.track?.delivered || r.send?.sent || r.send?.failed || r.send?.held || r.scan?.error || r.track?.error || r.send?.error) console.log('reviews', JSON.stringify(r)); })().catch((e) => console.error('reviews', e));
       /* automatic NDR rules: re-attempt / return / wait for the customer (lib/ndr-rules.js) */
       await (async () => { const { withSettings } = await import('../lib/settings.js'); const { autoNdr } = await import('../lib/ndr-rules.js'); const r = await autoNdr(await withSettings(env)); const pl = r.pilot || {}; if (r.actions?.length || r.failed || r.error || pl.nudged || pl.told || pl.failed || pl.error || pl.pending || pl.templates) console.log('autoNdr', JSON.stringify(r)); })().catch((e) => console.error('autoNdr', e));
     }

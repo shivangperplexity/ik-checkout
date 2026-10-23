@@ -420,6 +420,10 @@ export async function submitMissingTemplates(env) {
     out.ndr = (r.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);
     const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
     clearMetaCache();
+    if (!(await metaTemplate(env, 'review_request_v1').catch(() => undefined))) {
+      const rv = await action('review_template')(env, {});
+      out.review = (rv.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);
+    }
     if (!(await metaTemplate(env, 'cod_prepaid_offer_v2').catch(() => undefined))) {
       const c = await action('convert_template')(env, {});
       out.offer = (c.created || []).map((x) => `${x.name}: ${x.status}${x.error ? ' (' + x.error + ')' : ''}`);

@@ -117,6 +117,13 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_pct INT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_payable_paise BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_started_at BIGINT`,
+  /* Reviews (lib/reviews.js): one ask per delivered order, the reviews, their photos (JPEG base64) */
+  `CREATE TABLE IF NOT EXISTS review_asks (order_id TEXT PRIMARY KEY, order_name TEXT, phone TEXT, first_name TEXT, last_name TEXT, city TEXT, items TEXT, state TEXT, delivered_at BIGINT, fulfilled_at BIGINT, awb TEXT, track_url TEXT, note TEXT, token TEXT UNIQUE, sent_at BIGINT, opened_at BIGINT, reviewed_at BIGINT, checked_at BIGINT, hold_until BIGINT, tries INT DEFAULT 0, created_at BIGINT, updated_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS review_asks_state ON review_asks (state, delivered_at)`,
+  `CREATE INDEX IF NOT EXISTS review_asks_phone ON review_asks (phone)`,
+  `CREATE TABLE IF NOT EXISTS reviews (id SERIAL PRIMARY KEY, ask_token TEXT UNIQUE, order_id TEXT, order_name TEXT, phone TEXT, city TEXT, items TEXT, name TEXT, rating INT, tags TEXT, body TEXT, consent BOOLEAN DEFAULT TRUE, status TEXT, pinned BOOLEAN DEFAULT FALSE, test BOOLEAN DEFAULT FALSE, reply TEXT, created_at BIGINT, updated_at BIGINT, published_at BIGINT)`,
+  `CREATE TABLE IF NOT EXISTS review_photos (id SERIAL PRIMARY KEY, review_id INT, idx INT, w INT, h INT, full_b64 TEXT, thumb_b64 TEXT, created_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS review_photos_review ON review_photos (review_id)`,
 ];
 
 let ready;

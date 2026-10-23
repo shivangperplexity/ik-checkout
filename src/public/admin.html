@@ -87,7 +87,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 <script>
 (function(){
 'use strict';
-var TABS=[['live','Live'],['unshipped','Unshipped'],['ship','Shipments'],['orders','Orders'],['chats','Chats'],['wa','WhatsApp'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['settings','Settings']];
+var TABS=[['live','Live'],['unshipped','Unshipped'],['ship','Shipments'],['orders','Orders'],['chats','Chats'],['wa','WhatsApp'],['reviews','Reviews'],['recovery','Abandoned'],['analytics','Analytics'],['upsell','Upsells'],['settings','Settings']];
 var tab='live',token='',timer=null,S={filter:'all',days:7,msgTab:false,sel:{},rows:{},report:''},BULK=false;
 function $(s,r){return (r||document).querySelector(s)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -132,6 +132,74 @@ function stationLoop(){clearTimeout(ST.t);if(!window.IKBT||!IKBT.cfg().station||
   return (BTQ=BTQ.then(function(){return IKBT.printPdf(u)})).then(function(){ST.done={done:j.id,ok:true};stationShow(j.order+' printed at '+new Date().toLocaleTimeString('en-IN'));return 500},
    function(e){stationShow(j.order+': '+e.message+' (tries again)');return 8000});
  }).catch(function(e){if(ST.done==null&&d)ST.done=d;stationShow('Not reaching the server: '+e.message);return 10000}).then(function(ms){ST.run=false;ST.t=setTimeout(stationLoop,ms)})}
+/* ---- reviews (lib/reviews.js) ---- */
+var RV={status:'',stars:0,q:''};
+function starsTxt(n){n=Math.round(n||0);return '<span style="white-space:nowrap;letter-spacing:1px"><span style="color:#f5a623">'+'★★★★★'.slice(0,n)+'</span><span style="color:#d9d3c6">'+'★★★★★'.slice(0,5-n)+'</span></span>'}
+function loadReviews(){rpc('reviews',{status:RV.status,stars:RV.stars,q:RV.q}).then(function(j){if(tab!=='reviews')return;
+ var c=j.cfg,st=j.stats,a=j.asks,d=j.due,n=function(k){return a[k]||0};
+ var sentAll=n('sent')+n('reviewed');
+ var tplPill=j.template==='APPROVED'?'<span class="pill ok">WhatsApp template approved</span>':j.template==='PENDING'||j.template==='IN_REVIEW'?'<span class="pill warn">WhatsApp template in review at Meta</span>':j.template==='REJECTED'?'<span class="pill bad">WhatsApp template rejected</span>':j.template==='MISSING'?'<span class="pill warn">WhatsApp template not submitted yet</span>':'<span class="pill">WhatsApp template: '+esc(j.template||'?')+'</span>';
+ var h='<div class="grid two">';
+ h+='<div class="card"><div class="row" style="align-items:flex-end;gap:14px"><b style="font-size:40px;line-height:1">'+(st.n?st.avg.toFixed(1):'–')+'</b><div>'+starsTxt(st.avg)+'<div class="small mut">'+st.n+' review'+(st.n===1?'':'s')+' · '+st.live+' on the website · '+st.fresh+' new</div></div></div>'
+  +'<div style="margin-top:12px">'+[5,4,3,2,1].map(function(k){var v=st['s'+k]||0,p=st.n?Math.round(v*100/st.n):0;return '<div class="row small" style="gap:8px;margin:3px 0;flex-wrap:nowrap"><span style="width:26px">'+k+'★</span><div style="flex:1;height:8px;background:#efebe3;border-radius:9px;overflow:hidden"><div style="width:'+p+'%;height:100%;background:#f5a623"></div></div><span class="mut" style="width:30px;text-align:right">'+v+'</span></div>'}).join('')+'</div></div>';
+ h+='<div class="card"><div class="row" style="justify-content:space-between"><b>Review requests</b><span>'+tplPill+'</span></div>'
+  +'<div class="small" style="margin-top:8px;line-height:1.9">'
+  +'In transit (waiting for delivery): <b>'+n('shipped')+'</b><br>'
+  +'Delivered, waiting '+c.delay_days+' days: <b>'+d.waiting+'</b> · due now: <b>'+d.due+'</b><br>'
+  +'Delivered before launch (past customers, not asked yet): <b>'+d.past+'</b>'+(c.backfill_at?' <span class="pill ok">being asked</span>':'')+'<br>'
+  +'Sent: <b>'+sentAll+'</b> · opened: <b>'+j.opened+'</b> · reviewed: <b>'+n('reviewed')+'</b>'+(sentAll?' ('+Math.round(n('reviewed')*100/sentAll)+'%)':'')+'<br>'
+  +'<span class="mut">Not asked: returned '+n('returned')+' · cancelled / collab / same customer / no phone '+n('skipped')+(n('failed')?' · failed '+n('failed'):'')+'</span></div>'
+  +'<div class="row" style="margin-top:10px"><button class="btn ghost sm" id="rv_scan">Refresh from Shopify + tracking</button>'+(j.scan.full_at?'<span class="small mut">full scan '+ago(j.scan.full_at)+'</span>':'<span class="small mut">first scan running…</span>')+'</div></div>';
+ h+='</div>';
+ h+='<div class="grid two" style="margin-top:12px"><div class="card"><b>Automatic WhatsApp</b>'
+  +'<label class="row small" style="margin-top:10px"><input type="checkbox" id="rv_on"'+(c.on?' checked':'')+'> <b>Send review requests automatically</b> '+(c.on?'<span class="pill ok">On</span>':'<span class="pill">Off</span>')+'</label>'
+  +'<div class="grid k4" style="margin-top:8px"><label class="f">Days after delivery<input type="number" id="rv_delay" min="0" max="30" value="'+c.delay_days+'"></label><label class="f">Max per 5 minutes<input type="number" id="rv_run" min="1" max="100" value="'+c.per_run+'"></label><label class="f">Ask a customer again after (days)<input type="number" id="rv_rep" min="7" max="365" value="'+c.repeat_days+'"></label></div>'
+  +'<label class="row small" style="margin-top:8px"><input type="checkbox" id="rv_quiet"'+(c.quiet?' checked':'')+'> Only send between 10 am and 8 pm</label>'
+  +'<label class="row small"><input type="checkbox" id="rv_auto"'+(c.auto_publish?' checked':'')+'> Put 4★ and 5★ reviews on the website by themselves (when the customer allowed it)</label>'
+  +'<div class="row" style="margin-top:10px"><button class="btn sm" id="rv_save">Save</button>'
+  +(d.past&&!c.backfill_at?'<button class="btn ghost sm" id="rv_back">Ask past customers ('+d.past+')</button>':'')+'</div>'
+  +'<p class="small mut" style="margin:8px 0 0">Delivered = the tracking says delivered (Shopify tracking for NimbusPost orders, Shiprocket tracking for the rest), never just "fulfilled". One message per customer: their newest delivered order.</p></div>';
+ h+='<div class="card"><b>Test it</b><p class="small mut" style="margin:6px 0 10px">Sends the real WhatsApp message with a working review link to any number. Test reviews are marked TEST and never go on the website.</p>'
+  +'<div class="grid k4"><label class="f">WhatsApp number<input type="tel" id="rv_tp" placeholder="98XXXXXXXX"></label><label class="f">First name<input type="text" id="rv_tn" placeholder="Shivang"></label></div>'
+  +'<div class="row" style="margin-top:10px"><button class="btn sm" id="rv_tw">Send test WhatsApp</button><button class="btn ghost sm" id="rv_tl">Just give me a test link</button></div><div class="small" id="rv_tr" style="margin-top:8px;word-break:break-all"></div>'
+  +'<p class="small mut" style="margin:10px 0 0">On the website: reviews you put "on the website" show in the "IK — Live reviews" section on the home page and product pages.</p></div></div>';
+ h+='<div class="chips" style="margin-top:16px;align-items:center">'+[['','All'],['new','New ('+st.fresh+')'],['published','On website ('+st.live+')'],['hidden','Hidden ('+st.hidden+')']].map(function(x){return '<button class="chip'+(RV.status===x[0]?' on':'')+'" data-s="'+x[0]+'">'+x[1]+'</button>'}).join('')
+  +'<select id="rv_star" style="width:auto;border-radius:99px;padding:4px 10px;min-height:0"><option value="0">All stars</option>'+[5,4,3,2,1].map(function(k){return '<option value="'+k+'"'+(RV.stars==k?' selected':'')+'>'+k+'★</option>'}).join('')+'</select>'
+  +'<input type="search" id="rv_q" placeholder="Search order, name, text" value="'+esc(RV.q)+'" style="width:auto;flex:0 1 260px;border-radius:99px;padding:5px 12px;min-height:0"></div>';
+ h+=j.reviews.length?j.reviews.map(function(r){
+  var low=r.rating<=3;
+  return '<div class="card" style="margin-bottom:10px'+(low?';border-color:#f1c9c4':'')+'"><div class="row">'+starsTxt(r.rating)+'<b>'+esc(r.name)+'</b><span class="small mut">'+esc(r.order_name)+(r.city?' · '+esc(r.city):'')+' · '+ago(r.created_at)+'</span>'
+   +(r.test?'<span class="pill warn">TEST</span>':'')+(r.status==='published'?'<span class="pill ok">On website</span>':r.status==='hidden'?'<span class="pill">Hidden</span>':'<span class="pill warn">New</span>')+(r.pinned?'<span class="pill">Pinned</span>':'')+(!r.consent?'<span class="pill bad">Private: customer did not allow the website</span>':'')+'</div>'
+   +(r.tags&&r.tags.length?'<div class="row" style="margin-top:8px">'+r.tags.map(function(t){return '<span class="pill">'+esc(t)+'</span>'}).join('')+'</div>':'')
+   +(r.body?'<p style="margin:8px 0 0;white-space:pre-wrap">'+esc(r.body)+'</p>':'<p class="small mut" style="margin:8px 0 0">No text</p>')
+   +(r.items?'<div class="small mut" style="margin-top:6px">Ordered: '+esc(r.items)+'</div>':'')
+   +(r.photos.length?'<div class="row" style="margin-top:10px">'+r.photos.map(function(p){return '<a href="'+p.full+'" target="_blank" rel="noopener"><img src="'+p.thumb+'" loading="lazy" alt="" style="width:92px;height:92px;object-fit:cover;border-radius:10px;border:1px solid #e6e1d6"></a>'}).join('')+'</div>':'')
+   +'<div class="row" style="margin-top:12px">'
+   +(r.status!=='published'?(r.consent&&!r.test?'<button class="btn sm" data-a="pub" data-id="'+r.id+'">Show on website</button>':''):'<button class="btn ghost sm" data-a="hide" data-id="'+r.id+'">Remove from website</button>')
+   +(r.status==='new'?'<button class="btn ghost sm" data-a="hide" data-id="'+r.id+'">Hide</button>':'')
+   +(r.status==='published'?'<button class="btn ghost sm" data-a="pin" data-id="'+r.id+'" data-v="'+(r.pinned?0:1)+'">'+(r.pinned?'Unpin':'Pin to top')+'</button>':'')
+   +(r.phone&&!r.test?'<button class="btn ghost sm" data-chat="'+esc(r.phone)+'">'+(low?'Message them':'Chat')+'</button>':'')
+   +'<button class="btn bad sm" data-a="del" data-id="'+r.id+'">Delete</button></div></div>'}).join(''):'<div class="card mut">No reviews here yet.'+(st.n?'':' They appear here as customers answer the WhatsApp message.')+'</div>';
+ $('#main').innerHTML=h;
+ var save=function(){return rpc('review_cfg',{on:$('#rv_on').checked,delay_days:$('#rv_delay').value,per_run:$('#rv_run').value,repeat_days:$('#rv_rep').value,quiet:$('#rv_quiet').checked,auto_publish:$('#rv_auto').checked})};
+ $('#rv_save').onclick=function(){save().then(function(r){toast(r.cfg.on?'Saved. Review requests go out automatically.':'Saved. Automatic sending is off.');loadReviews()}).catch(function(e){toast(e.message)})};
+ $('#rv_on').onchange=function(){$('#rv_save').click()};
+ var bk=$('#rv_back');if(bk)bk.onclick=function(){
+  if(!confirm(c.on?'Send the review request to '+d.past+' past customers (one per customer, up to '+c.per_run+' every 5 minutes'+(c.quiet?', 10 am to 8 pm':'')+')?':'Automatic sending is off, so nothing goes out until you turn it on. Mark the '+d.past+' past customers to be asked then?'))return;
+  rpc('review_backfill').then(function(){toast('Past customers will be asked'+(c.on?' over the next few hours':' once sending is on'));loadReviews()}).catch(function(e){toast(e.message)})};
+ $('#rv_scan').onclick=function(){var b=this;b.disabled=true;b.textContent='Checking…';rpc('review_scan',{pages:6}).then(function(r){toast('Checked '+r.scan.seen+' orders and '+r.track.checked+' tracking numbers'+(r.track.delivered?': '+r.track.delivered+' newly delivered':''));loadReviews()}).catch(function(e){toast(e.message);b.disabled=false;b.textContent='Refresh from Shopify + tracking'})};
+ var test=function(wa){rpc('review_test',{phone:$('#rv_tp').value,name:$('#rv_tn').value||'there',whatsapp:wa}).then(function(r){
+   $('#rv_tr').innerHTML=(wa?(r.sent?'<span class="ok">WhatsApp sent.</span> ':'<span class="err">WhatsApp not sent: '+esc(r.error||'unknown')+'</span> '):'')+'Review page: <a href="'+esc(r.link)+'" target="_blank" rel="noopener">'+esc(r.link)+'</a>'}).catch(function(e){$('#rv_tr').innerHTML='<span class="err">'+esc(e.message)+'</span>'})};
+ $('#rv_tw').onclick=function(){test(true)};$('#rv_tl').onclick=function(){test(false)};
+ [].forEach.call(document.querySelectorAll('#main .chips .chip'),function(b){b.onclick=function(){RV.status=b.dataset.s;loadReviews()}});
+ $('#rv_star').onchange=function(){RV.stars=+this.value;loadReviews()};
+ $('#rv_q').onkeydown=function(e){if(e.key==='Enter'){RV.q=this.value;loadReviews()}};
+ $('#main').onclick=function(e){var ch=e.target.closest('[data-chat]');if(ch){CH.phone=ch.dataset.chat;go('chats');return}
+  var b=e.target.closest('button[data-a]');if(!b)return;var id=+b.dataset.id,a=b.dataset.a;
+  if(a==='del'&&!confirm('Delete this review and its photos for good?'))return;
+  (a==='pub'?rpc('review_set',{id:id,status:'published'}):a==='hide'?rpc('review_set',{id:id,status:'hidden'}):a==='pin'?rpc('review_set',{id:id,pinned:b.dataset.v==='1'}):rpc('review_delete',{id:id}))
+   .then(function(){toast(a==='pub'?'On the website within 2 minutes':a==='hide'?'Hidden':a==='pin'?'Saved':'Deleted');loadReviews()}).catch(function(e){toast(e.message)})};
+}).catch(fail)}
 function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 
 /* ---- login ---- */
@@ -147,7 +215,7 @@ function start(){$('#login').classList.add('hide');$('#app').classList.remove('h
  if(/^#chat=\d{10}$/.test(location.hash)){CH.phone=location.hash.slice(6);history.replaceState(null,'',location.pathname);go('chats')}}
 function go(t){tab=t;[].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t)});
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,settings:loadSettings})[t]()}
+ ({live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */
