@@ -35,13 +35,25 @@ export async function resolveHandoff(env, phone) {
   await env.DB.prepare("UPDATE wa_handoff SET state='resolved', resolved_at=?, ai_paused_until=NULL WHERE phone=?").bind(now(), clean(phone)).run();
 }
 
-/** Chats for the list: open handoffs, unanswered messages, or everything recent. */
+/** Chats for the list: open handoffs, unanswered messages, chats the customer wrote in, or every number we messaged
+ *  (filter 'every': automatic messages too, newest first, like WhatsApp itself). */
 export async function inboxList(env, { filter = 'needs', q = '' } = {}) {
   const t = now();
+  const every = filter === 'every', days = every ? 60 : 30;
+  /* search: by phone digits, or by name / order number from the orders table */
+  let only = null;
+  if (q) {
+    const s = String(q).toLowerCase().replace(/^\+?91/, '').trim(), digits = s.replace(/\D/g, '');
+    const hit = (await env.DB.prepare(`SELECT DISTINCT phone FROM orders WHERE phone IS NOT NULL AND (LOWER(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) LIKE ? OR LOWER(COALESCE(order_name,'')) LIKE ?) LIMIT 50`).bind(`%${s}%`, `%${s.replace(/^#?/, '')}%`).all()).results.map((r) => String(r.phone));
+    if (digits.length >= 4) hit.push(...(await env.DB.prepare('SELECT DISTINCT phone FROM messages WHERE phone LIKE ? LIMIT 50').bind(`%${digits}%`).all()).results.map((r) => String(r.phone)));
+    only = [...new Set(hit)].filter((p) => p.length >= 10);
+    if (!only.length) return [];
+  }
   const rows = (await env.DB.prepare(`SELECT m.phone, MAX(m.ts) AS last_ts, MAX(CASE WHEN m.direction='in' THEN m.ts END) AS last_in,
       MAX(CASE WHEN m.direction='out' AND m.trigger IN ('ai','agent') AND COALESCE(m.status,'') NOT IN ('failed','capped','queued','expired') THEN m.ts END) AS last_answer,
       MAX(CASE WHEN m.direction='out' AND m.trigger IN ('ai','agent') AND COALESCE(m.status,'') NOT IN ('failed','capped','queued','expired') THEN m.id END) AS last_answer_id
-    FROM messages m WHERE m.ts>? AND LENGTH(m.phone) >= 10 GROUP BY m.phone ORDER BY MAX(m.ts) DESC LIMIT 400`).bind(t - 30 * 86400).all()).results;
+    FROM messages m WHERE m.ts>? AND LENGTH(m.phone) >= 10 AND (m.direction='in' OR COALESCE(m.status,'') NOT IN ('skipped','queued','capped','merged'))${only ? ` AND m.phone IN (${only.map(() => '?').join(',')})` : ''}
+    GROUP BY m.phone ORDER BY MAX(m.ts) DESC LIMIT 400`).bind(t - days * 86400, ...(only || [])).all()).results;
   const ho = Object.fromEntries((await env.DB.prepare('SELECT * FROM wa_handoff').all()).results.map((r) => [String(r.phone), r]));
   const plainIn = Object.fromEntries((await env.DB.prepare(`SELECT phone, MAX(ts) AS ts, MAX(id) AS id FROM messages WHERE ${PLAIN_IN} AND ts>? GROUP BY phone`).bind(t - 30 * 86400).all()).results.map((r) => [String(r.phone), { ts: Number(r.ts), id: Number(r.id) }]));
   let list = rows.map((r) => {
@@ -55,17 +67,24 @@ export async function inboxList(env, { filter = 'needs', q = '' } = {}) {
   });
   if (filter === 'needs') list = list.filter((x) => x.handoff || (x.unanswered && x.last_in > t - 7 * 86400));
   else if (filter === 'handoff') list = list.filter((x) => x.handoff);
-  else list = list.filter((x) => x.last_in);   /* 'all': conversations where the customer wrote at least once */
-  const phones = list.map((x) => x.phone).slice(0, 150);
+  else if (!every) list = list.filter((x) => x.last_in);   /* 'all': conversations where the customer wrote at least once */
+  const MAX = every ? 300 : 150;
+  const phones = list.map((x) => x.phone).slice(0, MAX);
   const names = {}, last = {};
   if (phones.length) {
     for (const r of (await env.DB.prepare(`SELECT phone, first_name, last_name, order_name FROM orders WHERE phone IN (${phones.map(() => '?').join(',')}) AND order_name IS NOT NULL ORDER BY created_at`).bind(...phones).all()).results) names[r.phone] = { name: `${r.first_name || ''} ${r.last_name || ''}`.trim(), order: r.order_name };
-    for (const r of (await env.DB.prepare(`SELECT phone, direction, trigger, template, preview, ts FROM messages WHERE id IN (SELECT MAX(id) FROM messages WHERE phone IN (${phones.map(() => '?').join(',')}) AND LENGTH(COALESCE(preview,'')) > 0 GROUP BY phone)`).bind(...phones).all()).results) last[r.phone] = r;
+    for (const r of (await env.DB.prepare(`SELECT phone, direction, trigger, template, preview, status, ts FROM messages WHERE id IN (SELECT MAX(id) FROM messages WHERE phone IN (${phones.map(() => '?').join(',')}) AND (direction='in' OR COALESCE(status,'') NOT IN ('skipped','queued','capped','merged')) GROUP BY phone)`).bind(...phones).all()).results) last[r.phone] = r;
   }
-  list = list.slice(0, 150).map((x) => ({ ...x, name: names[x.phone]?.name || '', order: names[x.phone]?.order || '', preview: String(last[x.phone]?.preview || '').slice(0, 120), preview_dir: last[x.phone]?.direction || '', preview_by: last[x.phone]?.trigger || '' }));
-  if (q) { const s = String(q).toLowerCase().replace(/^\+?91/, ''); list = list.filter((x) => `${x.phone} ${x.name} ${x.order}`.toLowerCase().includes(s)); }
-  /* chats with the team first, then unanswered, newest first */
-  list.sort((a, b) => (b.handoff ? 1 : 0) - (a.handoff ? 1 : 0) || (b.unanswered ? 1 : 0) - (a.unanswered ? 1 : 0) || b.last_ts - a.last_ts);
+  const { TRIGGERS } = await import('./settings.js');
+  const lastText = (m) => {
+    if (!m) return '';
+    if (m.direction === 'out' && m.template && !['ai', 'agent'].includes(m.trigger) && (isVars(m.preview) || !m.preview)) return (TRIGGERS[m.trigger]?.label || m.template).replace(/\s*\(.*\)$/, '');
+    return String(m.preview || (m.template ? 'Tapped: ' + m.template : '')).slice(0, 120);
+  };
+  list = list.slice(0, MAX).map((x) => ({ ...x, name: names[x.phone]?.name || '', order: names[x.phone]?.order || '', preview: lastText(last[x.phone]), preview_dir: last[x.phone]?.direction || '', preview_by: last[x.phone]?.trigger || '', preview_status: last[x.phone]?.status || '', preview_auto: !!(last[x.phone] && last[x.phone].direction === 'out' && !['ai', 'agent'].includes(last[x.phone].trigger)) }));
+  /* WhatsApp order (newest first) for "All chats"; otherwise chats with the team first, then unanswered */
+  if (every) list.sort((a, b) => b.last_ts - a.last_ts);
+  else list.sort((a, b) => (b.handoff ? 1 : 0) - (a.handoff ? 1 : 0) || (b.unanswered ? 1 : 0) - (a.unanswered ? 1 : 0) || b.last_ts - a.last_ts);
   return list;
 }
 
@@ -103,6 +122,7 @@ export async function inboxThread(env, phone) {
       address: d?.shippingAddress ? [d.shippingAddress.address1, d.shippingAddress.address2, d.shippingAddress.city, d.shippingAddress.province, d.shippingAddress.zip].filter(Boolean).join(', ') : '',
       name_on_order: d?.shippingAddress?.name || `${o.first_name || ''} ${o.last_name || ''}`.trim() };
   });
+  await renderTemplates(env, msgs).catch((e) => console.error('render templates', e.message));
   const h = await env.DB.prepare('SELECT * FROM wa_handoff WHERE phone=?').bind(p).first();
   const seenId = msgs.length ? Number(msgs[msgs.length - 1].id) : 0;
   await env.DB.prepare('INSERT INTO wa_handoff (phone, state, seen_at, seen_id) VALUES (?,?,?,?) ON CONFLICT (phone) DO UPDATE SET seen_at=EXCLUDED.seen_at, seen_id=GREATEST(COALESCE(wa_handoff.seen_id,0), EXCLUDED.seen_id)').bind(p, h?.state || 'none', now(), seenId).run();
@@ -131,4 +151,44 @@ export async function inboxSend(env, phone, text, { done = false } = {}) {
       .bind(p, 'open', 'team replied', t, t, t + PAUSE, t).run();
   }
   return { ok: true, id: res.id || '' };
+}
+
+/* "name=Riya | order=#1801": the variables logged for a template sent through Go4WhatsUp (no text available) */
+export const isVars = (p) => /^[a-z_]+=/.test(String(p || '')) && String(p).split(' | ').every((x) => /^[a-z_]+=/.test(x));
+export function parseVars(p) {
+  const keys = [], vals = [], map = {};
+  for (const part of String(p || '').split(' | ')) { const i = part.indexOf('='); if (i < 1) continue; const k = part.slice(0, i), v = part.slice(i + 1); keys.push(k); vals.push(v); map[k] = v; }
+  return { keys, vals, map };
+}
+/** The message as the customer saw it: the approved template's text with the variables filled in, its header (photo /
+ *  video) and its buttons. Messages already logged as text keep their text. */
+export function renderTemplate(tpl, preview) {
+  const comps = tpl?.components || [];
+  const body = comps.find((c) => c.type === 'BODY'), header = comps.find((c) => c.type === 'HEADER');
+  const out = { header: header ? String(header.format || 'TEXT').toLowerCase() : '', buttons: (comps.find((c) => c.type === 'BUTTONS')?.buttons || []).map((b) => ({ text: b.text, type: b.type })) };
+  if (header && header.format === 'TEXT') out.header_text = header.text || '';
+  if (!isVars(preview)) return { ...out, text: preview || '' };
+  const { vals, map } = parseVars(preview);
+  const named = (body?.example?.body_text_named_params || []).map((x) => x.param_name);
+  out.text = String(body?.text || '').replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (m, k) => {
+    if (/^\d+$/.test(k)) return vals[Number(k) - 1] ?? m;
+    if (map[k] !== undefined) return map[k];
+    const i = named.indexOf(k); return i >= 0 && vals[i] !== undefined ? vals[i] : m;
+  });
+  if (!out.text) out.text = vals.join(' · ');
+  return out;
+}
+async function renderTemplates(env, msgs) {
+  const want = msgs.filter((m) => m.direction === 'out' && m.template && !['ai', 'agent'].includes(m.trigger));
+  if (!want.length) return;
+  const { metaTemplate } = await import('./whatsapp.js');
+  const { withSettings, TRIGGERS } = await import('./settings.js');
+  const e2 = await withSettings(env);
+  const names = [...new Set(want.map((m) => m.template))].slice(0, 25);
+  const tpls = {};
+  await Promise.all(names.map(async (n) => { tpls[n] = await Promise.race([metaTemplate(e2, n), new Promise((ok) => setTimeout(() => ok(null), 4000))]).catch(() => null); }));
+  for (const m of want) {
+    const r = renderTemplate(tpls[m.template], m.preview);
+    m.text = r.text; m.header = r.header; m.header_text = r.header_text || ''; m.buttons = r.buttons; m.label = (TRIGGERS[m.trigger]?.label || '').replace(/\s*\(.*\)$/, '');
+  }
 }

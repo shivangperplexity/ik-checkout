@@ -505,7 +505,7 @@ const ACTIONS = {
     return { ok: true, sent: res.ok, via: res.via || (viaG4w(e2) ? 'g4w' : 'meta'), id: res.id || '', error: res.error || '', last_in: Number(lastIn?.ts) || null };
   },
   /* ---- Chats tab (lib/inbox.js): chats the assistant handed off, unanswered messages, manual replies ---- */
-  async inbox_list(env, b) { const { inboxList } = await import('./inbox.js'); return { ok: true, chats: await inboxList(env, { filter: ['needs', 'handoff', 'all'].includes(b.filter) ? b.filter : 'needs', q: String(b.q || '').slice(0, 60) }) }; },
+  async inbox_list(env, b) { const { inboxList } = await import('./inbox.js'); return { ok: true, chats: await inboxList(env, { filter: ['needs', 'handoff', 'all', 'every'].includes(b.filter) ? b.filter : 'needs', q: String(b.q || '').slice(0, 60) }) }; },
   async inbox_count(env) { const { inboxCount } = await import('./inbox.js'); return { ok: true, ...(await inboxCount(env)) }; },
   async inbox_thread(env, b) { const { inboxThread } = await import('./inbox.js'); return { ok: true, ...(await inboxThread(await withSettingsFresh(env), b.phone)) }; },
   async inbox_send(env, b) {

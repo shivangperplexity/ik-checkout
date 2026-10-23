@@ -48,7 +48,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--cream)}
 .bub{max-width:78%;padding:8px 10px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;font-size:14px;line-height:1.35}
 .bub .m{display:block;font-size:11px;color:var(--mut);margin-top:3px}.bub.in{align-self:flex-start;background:#fff;border:1px solid var(--line)}
-.bub.out{align-self:flex-end;background:#e7f6dd}.bub.ai{background:#e9eefc}.bub.tpl{background:#f3efe6;font-size:13px}.bub.bad{background:#fde8e6}
+.bub.out{align-self:flex-end;background:#d9fdd3}.bub.ai{background:#e9eefc}.bub.tpl{background:#f3efe6;font-size:13px}.bub.bad{background:#fde8e6}
 .sys{align-self:center;font-size:12px;color:var(--mut);background:#fff;border:1px dashed var(--line);border-radius:99px;padding:3px 10px;max-width:90%;text-align:center}
 .compose{border-top:1px solid var(--line);padding:8px;display:grid;gap:6px}.compose textarea{width:100%;min-height:62px;resize:vertical;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box}
 .qr{display:flex;gap:6px;flex-wrap:wrap}.qr button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer}
@@ -75,6 +75,14 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .asb .prop{white-space:normal;margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px}.asb .prop td,.asb .prop th{padding:6px}
 .morelist{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}.moreit{display:grid;gap:4px;text-align:left;cursor:pointer;font:inherit}.moreit:hover{border-color:var(--ink)}
 @media(max-width:640px){.asb{max-width:100%}.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:12px}.tile:first-child{grid-column:1/-1}.tile .big{font-size:22px}.tile .small.mut{font-size:11.5px}nav button{padding:10px 8px;font-size:13px}.asb .prop{padding:4px}.asb .prop td{padding:6px 4px}}
+
+.msgs{background:#efeae2!important}.bub{box-shadow:0 1px .5px #0b141a22;border:0!important}.bub.in{background:#fff}.bub.tpl{background:#d9fdd3!important;font-size:14px}.bub.ai{background:#d9fdd3!important}
+.bub .by{display:block;font-size:11px;font-weight:700;color:#027eb5;margin-bottom:2px}.bub.ai .by{color:#6b4fbb}.bub .m{text-align:right}.bub a{color:#027eb5;word-break:break-all}
+.bub .hdm{background:#0b141a14;border-radius:8px;padding:22px 10px;text-align:center;font-size:13px;color:#54656f;margin:2px 0 6px}
+.wabtns{display:grid;margin:6px -10px -8px;border-top:1px solid #0b141a1a}.wabtns span{display:block;text-align:center;color:#027eb5;font-weight:600;font-size:13.5px;padding:8px;border-bottom:1px solid #0b141a1a}.wabtns span:last-child{border-bottom:0}
+.tk{color:#8696a0;font-size:11px;letter-spacing:-3px;margin-right:4px}.tk.rd{color:#53bdeb}.tk.bad{color:var(--bad);letter-spacing:0;font-weight:800}
+.dday{align-self:center;margin:6px 0}.dday span{background:#fff;color:#54656f;font-size:12px;padding:4px 10px;border-radius:8px;box-shadow:0 1px .5px #0b141a22}
+.bub.tap{background:#fff}
 </style><script src="/btprint.js" defer></script></head><body>
 <div id="login"><form class="card login-card" id="lf">
   <img src="https://www.inkkulture.in/cdn/shop/t/40/assets/ikl-logo-black.svg" alt="Ink Kulture" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:'INK KULTURE'}))">
@@ -929,17 +937,17 @@ function convertLoad(){var c=$('#cv_card');if(!c)return;rpc('convert_settings').
  var tb=$('#cv_tpl');if(tb)tb.onclick=function(){tb.disabled=true;tb.textContent='Submitting…';rpc('convert_template').then(function(x){var t=(x.created||[])[0]||{};toast(t.status==='FAILED'?'Meta refused: '+(t.error||''):'Submitted: '+(t.status||'pending'));convertLoad()}).catch(function(e){tb.disabled=false;tb.textContent='Submit cod_prepaid_offer_v2 to Meta';toast(e.message)})};
 }).catch(function(e){c.innerHTML='<h3>Pay online before shipping</h3><p class="err small">'+esc(e.message)+'</p>'})}
 /* ---- Chats: WhatsApp conversations the assistant handed off / left unanswered; reply as the team (lib/inbox.js) ---- */
-var CH={filter:'needs',q:'',phone:'',list:[],th:null,draft:{}};
+var CH={filter:'every',q:'',phone:'',list:[],th:null,draft:{}};
 function chatCount(){if(!token)return;rpc('inbox_count').then(function(r){var d=$('#chatdot');if(!d)return;d.textContent=r.needs;d.classList.toggle('hide',!r.needs);d.style.background=r.unread?'var(--bad)':'var(--warn)'}).catch(function(){})}
 function loadChats(quiet){
- if(!quiet||!$('#chatwrap')){$('#main').innerHTML='<div class="chatwrap'+(CH.phone?' th':'')+'" id="chatwrap"><div class="chatlist"><div style="padding:8px;display:grid;gap:6px;border-bottom:1px solid var(--line)"><div class="chips" style="margin:0">'+[['needs','Needs reply'],['handoff','With team'],['all','All']].map(function(f){return '<button class="chip'+(CH.filter===f[0]?' on':'')+'" data-cf="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><input type="search" id="ch_q" placeholder="Name, phone, order" value="'+esc(CH.q)+'"></div><div class="items" id="ch_items"><p class="mut small" style="padding:10px">Loading…</p></div></div><div class="chatmain" id="ch_main"><p class="mut" style="padding:16px">Pick a chat on the left.</p></div><div class="chatside" id="ch_side"></div></div>';
+ if(!quiet||!$('#chatwrap')){$('#main').innerHTML='<div class="chatwrap'+(CH.phone?' th':'')+'" id="chatwrap"><div class="chatlist"><div style="padding:8px;display:grid;gap:6px;border-bottom:1px solid var(--line)"><div class="chips" style="margin:0">'+[['every','All chats'],['needs','Needs reply'],['handoff','With team']].map(function(f){return '<button class="chip'+(CH.filter===f[0]?' on':'')+'" data-cf="'+f[0]+'">'+f[1]+'</button>'}).join('')+'</div><input type="search" id="ch_q" placeholder="Name, phone, order" value="'+esc(CH.q)+'"></div><div class="items" id="ch_items"><p class="mut small" style="padding:10px">Loading…</p></div></div><div class="chatmain" id="ch_main"><p class="mut" style="padding:16px">Pick a chat on the left.</p></div><div class="chatside" id="ch_side"></div></div>';
   var w=$('#chatwrap');w.onclick=chatClick;$('#ch_q').onkeydown=function(e){if(e.key==='Enter'){CH.q=this.value;loadChats()}};
   if(CH.phone)loadThread(CH.phone)}
  rpc('inbox_list',{filter:CH.filter,q:CH.q}).then(function(j){if(tab!=='chats')return;CH.list=j.chats;drawChatList();if(quiet&&CH.phone)loadThread(CH.phone,true)}).catch(function(e){if(!quiet)toast(e.message)})}
 function drawChatList(){var box=$('#ch_items');if(!box)return;
- box.innerHTML=CH.list.length?CH.list.map(function(c){var who=c.preview_dir==='in'?'':c.preview_by==='ai'?'Assistant: ':c.preview_by==='agent'?'You: ':'';
-  return '<div class="chi'+(c.phone===CH.phone?' on':'')+'" data-ph="'+c.phone+'"><div class="t">'+(c.unread?'<i class="udot" title="New message"></i>':'')+'<b>'+esc(c.name||('+91 '+c.phone))+'</b><span class="small mut">'+ago(c.last_ts)+'</span></div>'
-   +'<div class="p">'+esc(who+(c.preview||''))+'</div><div class="row" style="gap:4px;margin:0">'+(c.handoff?'<span class="pill bad" style="font-size:11px">With team</span>':'')+(c.unanswered&&!c.handoff?'<span class="pill warn" style="font-size:11px">No reply yet</span>':'')+(c.order?'<span class="small mut">'+esc(c.order)+'</span>':'')+(!c.in_window?'<span class="small mut" title="More than 24 h since they wrote">· 24h passed</span>':'')+'</div></div>'}).join('')
+ box.innerHTML=CH.list.length?CH.list.map(function(c){var who=c.preview_dir==='in'?'':c.preview_by==='ai'?'Assistant: ':c.preview_by==='agent'?'You: ':c.preview_auto?'Auto: ':'';
+  return '<div class="chi'+(c.phone===CH.phone?' on':'')+'" data-ph="'+c.phone+'"><div class="t">'+(c.unread?'<i class="udot" title="New message"></i>':'')+'<b>'+esc(c.name||('+91 '+c.phone))+'</b><span class="small mut"'+(c.unread?' style="color:var(--ok);font-weight:700"':'')+'>'+waDay(c.last_ts,true)+'</span></div>'
+   +'<div class="p">'+(c.preview_dir==='out'?ticks(c.preview_status):'')+esc(who+(c.preview||''))+'</div><div class="row" style="gap:4px;margin:0">'+(c.handoff?'<span class="pill bad" style="font-size:11px">With team</span>':'')+(c.unanswered&&!c.handoff?'<span class="pill warn" style="font-size:11px">No reply yet</span>':'')+(c.order?'<span class="small mut">'+esc(c.order)+'</span>':'')+(!c.in_window?'<span class="small mut" title="More than 24 h since they wrote">· 24h passed</span>':'')+'</div></div>'}).join('')
   :'<p class="mut small" style="padding:12px">'+(CH.filter==='needs'?'Nothing waiting. The assistant has answered everyone.':'No chats.')+'</p>'}
 function chatClick(e){var t=e.target,cf=t.closest('[data-cf]');if(cf){CH.filter=cf.dataset.cf;loadChats();return}
  var it=t.closest('.chi');if(it){CH.phone=it.dataset.ph;$('#chatwrap').classList.add('th');[].forEach.call(document.querySelectorAll('.chi'),function(x){x.classList.toggle('on',x.dataset.ph===CH.phone)});loadThread(CH.phone);return}
@@ -953,13 +961,24 @@ function sendChat(done){var ta=$('#ch_txt'),txt=ta.value.trim();if(!txt)return;v
 function loadThread(phone,quiet){rpc('inbox_thread',{phone:phone}).then(function(j){if(tab!=='chats'||CH.phone!==phone)return;
  var sig=j.messages.length+':'+(j.messages.length?j.messages[j.messages.length-1].id:0)+':'+(j.handoff?j.handoff.ai_paused_until:0)+':'+j.in_window;if(quiet&&CH.th&&CH.th.sig===sig)return;
  CH.th={sig:sig,j:j};drawThread(j,quiet)}).catch(function(e){if(!quiet)$('#ch_main').innerHTML='<p class="err" style="padding:16px">'+esc(e.message)+'</p>'})}
-function bubble(m){var t=ist(m.ts),tx=m.preview||'';
- if(m.direction==='in'){if(m.trigger==='reply'&&!m.template)return '<div class="bub in">'+esc(tx)+'<span class="m">'+t+'</span></div>';
-  return '<div class="sys">Customer: '+esc(m.template?('tapped '+m.template):m.trigger)+(tx?' · '+esc(tx):'')+' · '+t+'</div>'}
+function waDay(t,list){if(!t)return '';var d=new Date(t*1000),n=new Date(),k=function(x){return x.toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})},y=new Date(Date.now()-864e5);
+ if(k(d)===k(n))return list?d.toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'numeric',minute:'2-digit'}):'Today';if(k(d)===k(y))return 'Yesterday';
+ if(Date.now()/1000-t<6*86400)return d.toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata',weekday:list?'long':'long'});
+ return d.toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:list?'numeric':'short',year:list?'2-digit':'numeric'})}
+function hm(t){return new Date(t*1000).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'numeric',minute:'2-digit'})}
+function ticks(st){st=st||'';if(st==='read')return '<span class="tk rd" title="Read">✓✓</span>';if(st==='delivered')return '<span class="tk" title="Delivered">✓✓</span>';if(st==='failed')return '<span class="tk bad" title="Not delivered">!</span>';if(/^(sent|accepted|ok|)$/.test(st))return '<span class="tk" title="Sent">✓</span>';return ''}
+function linkify(h){return h.replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>')}
+function bubble(m){var t=hm(m.ts),tx=m.text!=null&&m.text!==''?m.text:(m.preview||'');
+ if(m.direction==='in'){if(m.trigger==='reply'&&!m.template)return '<div class="bub in">'+linkify(esc(tx))+'<span class="m">'+t+'</span></div>';
+  return '<div class="bub in tap"><span class="small mut">Tapped</span> <b>'+esc(m.template||m.trigger)+'</b>'+(tx&&tx!==m.template?'<div>'+esc(tx)+'</div>':'')+'<span class="m">'+t+'</span></div>'}
  var bad=m.status==='failed',by=m.trigger==='ai'?'Assistant'+(m.template==='handoff'?' · handed off to you':''):m.trigger==='agent'?'You':'';
- if(by)return '<div class="bub out'+(m.trigger==='ai'?' ai':'')+(bad?' bad':'')+'">'+esc(tx)+'<span class="m">'+by+' · '+t+(bad?' · NOT DELIVERED: '+esc(m.error||''):'')+'</span></div>';
+ if(by)return '<div class="bub out'+(m.trigger==='ai'?' ai':'')+(bad?' bad':'')+'"><span class="by">'+by+'</span>'+linkify(esc(tx))+'<span class="m">'+t+' '+ticks(m.status)+(bad?' · NOT DELIVERED: '+esc(m.error||''):'')+'</span></div>';
  if(/^(queued|capped|expired|merged)$/.test(m.status||''))return '';
- return '<div class="bub out tpl'+(bad?' bad':'')+'">'+(tx?esc(tx):'<i>'+esc(m.template||m.trigger)+'</i>')+'<span class="m">'+esc(m.trigger)+(m.template&&tx?' · '+esc(m.template):'')+(m.order_name?' · '+esc(m.order_name):'')+' · '+t+(bad?' · failed: '+esc(m.error||''):m.status==='skipped'?' · not sent: '+esc(m.error||''):'')+'</span></div>'}
+ if(m.status==='skipped')return '<div class="sys">Not sent: '+esc(m.label||m.template||m.trigger)+(m.error?' · '+esc(m.error):'')+' · '+t+'</div>';
+ var hd=m.header==='image'?'<div class="hdm">📷 Photo of the design</div>':m.header==='video'?'<div class="hdm">▶ Video</div>':m.header==='document'?'<div class="hdm">📄 Document</div>':m.header_text?'<b>'+esc(m.header_text)+'</b><br>':'';
+ var bt=(m.buttons||[]).length?'<div class="wabtns">'+m.buttons.map(function(b){return '<span>'+(b.type==='URL'?'↗ ':b.type==='PHONE_NUMBER'?'📞 ':'↩ ')+esc(b.text)+'</span>'}).join('')+'</div>':'';
+ return '<div class="bub out tpl'+(bad?' bad':'')+'"><span class="by">Auto · '+esc(m.label||m.trigger)+(m.order_name?' · '+esc(m.order_name):'')+'</span>'+hd+(tx?linkify(esc(tx)):'<i>'+esc(m.template||m.trigger)+'</i>')+'<span class="m">'+t+' '+ticks(m.status)+(bad?' · failed: '+esc(m.error||''):'')+'</span>'+bt+'</div>'}
+function withDays(ms){var out=[],last='';ms.forEach(function(m){var d=waDay(m.ts,false);if(d!==last){out.push('<div class="dday"><span>'+esc(d)+'</span></div>');last=d}out.push(bubble(m))});return out.join('')}
 function stageTxt(o){var L={pickup_pending:'Waiting for pickup',pickup_failed:'Pickup failed',transit:'In transit',ofd:'Out for delivery',ndr:'Delivery failed',delivered:'Delivered',rto:'Returning to us (RTO)',lost:'Lost'};
  if(o.status==='cancelled')return '<span class="pill bad">Cancelled</span>';if(o.stage)return '<span class="pill '+(o.stage==='delivered'||o.stage==='ofd'?'ok':/ndr|rto|lost|failed/.test(o.stage)?'bad':'warn')+'">'+esc(L[o.stage]||o.stage)+'</span>';
  if(o.shipped)return '<span class="pill ok">Shipped</span>';if(!o.confirmed)return '<span class="pill warn">COD not confirmed</span>';return '<span class="pill">'+(o.packed?'Packed':'To ship')+'</span>'}
@@ -968,7 +987,7 @@ function drawThread(j,quiet){var c=CH.list.find(function(x){return x.phone===j.p
   +'<a class="btn ghost sm chl" href="tel:+91'+j.phone+'">Call</a><a class="btn ghost sm chl" target="_blank" rel="noopener" href="https://wa.me/91'+j.phone+'">WhatsApp</a>'
   +(h?'<button class="btn sm" id="ch_done" type="button" title="Mark solved and let the assistant answer this customer again">Done · back to assistant</button>':'<button class="btn ghost sm" id="ch_take" type="button" title="Keep the assistant quiet on this chat while you handle it">Take over</button>')+'</div>'
   +(h?'<div class="small" style="padding:6px 12px;background:#fff6e5;border-bottom:1px solid var(--line)"><b>With you</b>'+(h.reason?' · '+esc(h.reason):'')+(h.ai_paused_until&&h.ai_paused_until>Date.now()/1000?' · assistant quiet until '+ist(h.ai_paused_until):'')+'</div>':'');
- var msgs='<div class="msgs" id="ch_msgs">'+(j.messages.length?j.messages.map(bubble).join(''):'<p class="mut small">No messages in the last 90 days.</p>')+'</div>';
+ var msgs='<div class="msgs" id="ch_msgs">'+(j.messages.length?withDays(j.messages):'<p class="mut small">No messages in the last 90 days.</p>')+'</div>';
  var t0=o0.name?{name:nm||'there',order:o0.name,courier:o0.courier,track:o0.track,edd:o0.edd}:null;
  var QR=[];if(t0&&t0.track)QR.push(['Tracking','Hi '+t0.name+', your order '+t0.order+' is on its way'+(t0.courier?' with '+t0.courier:'')+'. Track it here: '+t0.track]);
  if(t0&&t0.edd)QR.push(['Delivery date','Your order '+t0.order+' should reach you by '+eddNice(t0.edd)+'.']);
