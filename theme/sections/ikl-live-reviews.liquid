@@ -33,7 +33,7 @@
   .iklr__avg{font-size:30px;font-weight:800;line-height:1}
   .iklr__stars{font-size:20px;letter-spacing:2px;line-height:1}
   .iklr__count{opacity:.72}
-  .iklr__subhead{margin:6px auto 0;text-align:center}
+  .iklr .iklr__subhead{margin:6px auto 0;text-align:center}
   .iklr__strip{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 12px;margin-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .iklr__strip::-webkit-scrollbar{display:none}
   .iklr__strip button{flex:0 0 auto;width:112px;height:112px;border:0;padding:0;border-radius:12px;overflow:hidden;scroll-snap-align:start;cursor:zoom-in;background:#efebe3}
@@ -75,7 +75,7 @@
   var lb = root.querySelector('[data-lb]'), lbimg = root.querySelector('[data-lbimg]');
   var offset = 0;
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function stars(n) { n = Math.round(n || 0); return '\u2605\u2605\u2605\u2605\u2605'.slice(0, n) + '<span style="opacity:.25">' + '\u2605\u2605\u2605\u2605\u2605'.slice(0, 5 - n) + '</span>'; }
+  function stars(n) { n = Math.round(n || 0); return '★★★★★'.slice(0, n) + '<span style="opacity:.25">' + '★★★★★'.slice(0, 5 - n) + '</span>'; }
   function when(t) {
     var d = Math.max(0, Date.now() / 1000 - t), day = 86400;
     if (d < day) return 'today'; if (d < 2 * day) return 'yesterday'; if (d < 7 * day) return Math.floor(d / day) + ' days ago';
@@ -111,7 +111,7 @@
           var s = j.summary;
           root.querySelector('[data-avg]').textContent = s.avg ? s.avg.toFixed(1) : '';
           root.querySelector('[data-stars]').innerHTML = stars(s.avg);
-          root.querySelector('[data-count]').textContent = 'from ' + s.count + ' verified ' + (s.count === 1 ? 'buyer' : 'buyers') + (s.recommend >= 80 ? ' \u00b7 ' + s.recommend + '% would recommend' : '');
+          root.querySelector('[data-count]').textContent = 'from ' + s.count + ' verified ' + (s.count === 1 ? 'buyer' : 'buyers') + (s.recommend >= 80 ? ' · ' + s.recommend + '% would recommend' : '');
           if (strip) {
             var pics = [];
             j.reviews.forEach(function (r) { (r.photos || []).forEach(function (p) { pics.push(p); }); });
