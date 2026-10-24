@@ -321,7 +321,7 @@ function loadSrc(){var box=$('#rv_src');if(!box)return;if(!SRC.data||SRC.range!=
 function drawSrc(){var box=$('#rv_src'),j=SRC.data;if(!box||!j)return;var o=j.overall||{rto_pct:null},avg=o.rto_pct;
  var col=function(p,f){if(p==null||!f)return 'var(--mut)';if(avg==null)return 'inherit';return p>=avg+8?'var(--bad)':p<=avg-8?'var(--ok)':'inherit'};
  var tbl=function(rows,first,min){rows=rows.slice();if(SRC.sort==='rto')rows.sort(function(a,b){return (b.finished>=min?b.rto_pct:-1)-(a.finished>=min?a.rto_pct:-1)});
-  return '<div class="tw"><table class="small"><tr><th>'+first+'</th><th>Shipped</th><th>Delivered</th><th>RTO</th><th>RTO %</th><th>On the way</th><th>Lost to RTO</th></tr>'
+  return '<div class="tw"><table class="small"><tr><th>'+first+'</th><th>Shipped</th><th>Delivered</th><th>RTO</th><th>RTO %</th><th>On the way</th><th>Order value returned</th></tr>'
   +rows.map(function(x){var few=x.finished<min;return '<tr'+(few?' class="mut"':'')+'><td><b>'+esc(x.label||'–')+'</b></td><td>'+(x.finished+x.in_transit)+'</td><td>'+x.delivered+'</td><td>'+x.returned+'</td><td><b style="color:'+col(x.rto_pct,!few)+'">'+(x.rto_pct==null?'–':x.rto_pct+'%')+'</b>'+(few&&x.finished?' <span class="mut">(few)</span>':'')+'</td><td>'+x.in_transit+'</td><td>'+inr(x.lost_paise/100)+'</td></tr>'}).join('')+'</table></div>'};
  var worst=j.by_state.filter(function(x){return x.finished>=8&&avg!=null&&x.rto_pct>=avg+8}).sort(function(a,b){return b.rto_pct-a.rto_pct}).slice(0,6);
  var best=j.by_state.filter(function(x){return x.finished>=8&&avg!=null&&x.rto_pct<=avg-8}).sort(function(a,b){return a.rto_pct-b.rto_pct}).slice(0,6);
@@ -332,7 +332,7 @@ function drawSrc(){var box=$('#rv_src'),j=SRC.data;if(!box||!j)return;var o=j.ov
  if(srcW.length>1||worst.length||best.length){h+='<div class="small" style="margin:8px 0;padding:8px 10px;background:#f6f5ff;border-radius:10px;line-height:1.7">';
   if(srcW.length>1)h+='Lowest RTO source: <b>'+esc(srcW[0].label)+'</b> ('+srcW[0].rto_pct+'%) · highest: <b>'+esc(srcW[srcW.length-1].label)+'</b> ('+srcW[srcW.length-1].rto_pct+'%).<br>';
   if(worst.length)h+='Cut ad spend / exclude in Meta targeting: <b style="color:var(--bad)">'+worst.map(function(x){return esc(x.label)+' '+x.rto_pct+'%'}).join(', ')+'</b>.<br>';
-  if(best.length)h+='Spend more here: <b style="color:var(--ok)">'+best.map(function(x){return esc(x.label)+' '+x.rto_pct+'%'}).join(', ')+'</b>.';
+  if(best.length)h+='Best states (put more of the budget here): <b style="color:var(--ok)">'+best.map(function(x){return esc(x.label)+' '+x.rto_pct+'%'}).join(', ')+'</b>.';
   h+='<div class="mut">States with fewer than 8 finished parcels are left out of these picks.</div></div>'}
  h+='<h4 style="margin:12px 0 4px">By source</h4>'+tbl(j.by_source,'Came from',5)+'<h4 style="margin:14px 0 4px">By state</h4>'+tbl(j.by_state,'State',5);
  box.innerHTML=h;box.onclick=function(e){var b=e.target.closest('[data-srs]');if(b){SRC.sort=b.dataset.srs;drawSrc()}}}
