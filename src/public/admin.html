@@ -73,6 +73,7 @@ td{padding:10px 8px;border-bottom:1px solid #efeadf;vertical-align:middle}tr.cli
 .asst{display:grid;gap:4px}.asmsgs{max-height:56vh;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:8px 2px}
 .asb{max-width:92%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;line-height:1.4}.asb.u{align-self:flex-end;background:var(--ink);color:#fff}.asb.a{align-self:flex-start;background:var(--cream);border:1px solid var(--line)}.asb.bad{background:#fdecea}
 .asb .prop{white-space:normal;margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px}.asb .prop td,.asb .prop th{padding:6px}
+.cotip{position:absolute;z-index:5;background:#0a0a0c;color:#fff;font-size:12px;line-height:1.5;padding:8px 10px;border-radius:8px;pointer-events:none;max-width:240px}.cotip .mut{color:#c9c2b4}
 .morelist{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}.moreit{display:grid;gap:4px;text-align:left;cursor:pointer;font:inherit}.moreit:hover{border-color:var(--ink)}
 @media(max-width:640px){.asb{max-width:100%}.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:12px}.tile:first-child{grid-column:1/-1}.tile .big{font-size:22px}.tile .small.mut{font-size:11.5px}nav button{padding:10px 8px;font-size:13px}.asb .prop{padding:4px}.asb .prop td{padding:6px 4px}}
 
@@ -311,6 +312,63 @@ function applyCard(){var box=document.createElement('div');box.className='card';
   var t=$('#ap_t');if(t)t.onclick=function(){t.disabled=true;rpc('apply_guide',{test:true,to:$('#ap_to').value}).then(function(r){draw(r,r.test&&r.test.ok?'<span class="ok">Test sent.</span>':'<span class="err">'+esc((r.test&&(r.test.error||r.test.skipped))||'not sent')+'</span>')}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})};
   var sb=$('#ap_sub');if(sb)sb.onclick=function(){sb.disabled=true;rpc('apply_guide',{submit:true}).then(function(r){draw(r,'Submitted: '+esc((r.created||[]).map(function(x){return x.status+(x.error?' ('+x.error+')':'')}).join(', ')))}).catch(function(e){draw(j,'<span class="err">'+esc(e.message)+'</span>')})}}
  rpc('apply_guide',{}).then(function(j){draw(j)}).catch(function(e){box.innerHTML='<b>How-to-apply video</b><p class="err small">'+esc(e.message)+'</p>'})}
+/* ---- RTO % and profit by shipping date (lib/revenue.js shipCohorts) ---- */
+var CO={group:'day',days:90,data:null,hide:{}};
+function loadCohorts(){var box=$('#rv_co');if(!box)return;box.innerHTML='<h3>By shipping date</h3><p class="small mut">Loading…</p>';
+ rpc('revenue_cohorts',{group:CO.group,days:CO.days}).then(function(j){CO.data=j;drawCohorts()}).catch(function(e){box.innerHTML='<h3>By shipping date</h3><p class="err small">'+esc(e.message)+'</p>'})}
+function coLabel(d){var x=new Date(d+'T00:00:00Z');return x.toLocaleDateString('en-IN',{day:'numeric',month:'short',timeZone:'UTC'})}
+function drawCohorts(){var box=$('#rv_co');if(!box||!CO.data)return;var j=CO.data,L=j.cohorts;
+ var marks=(j.auto_marks||[]).concat(j.marks||[]).sort(function(a,b){return a.date<b.date?-1:1});
+ var head='<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">By shipping date</h3><p class="small mut" style="margin:4px 0 0">Each parcel counts on the day the courier picked it up, so a change shows in the parcels shipped after it, whatever day they were ordered or delivered.</p></div>'
+  +'<div class="row">'+[['day','Daily'],['week','Weekly']].map(function(x){return '<button class="chip'+(CO.group===x[0]?' on':'')+'" data-cog="'+x[0]+'">'+x[1]+'</button>'}).join('')
+  +'<select id="co_days" style="width:auto;min-height:32px">'+[[30,'30 days'],[60,'60 days'],[90,'90 days'],[180,'180 days']].map(function(x){return '<option value="'+x[0]+'"'+(CO.days===x[0]?' selected':'')+'>'+x[1]+'</option>'}).join('')+'</select></div></div>';
+ if(!L.length){box.innerHTML=head+'<p class="small mut">No shipped parcels in this range yet.</p>';bindCo();return}
+ var W=Math.max(320,(box.clientWidth||900)-36),pl=44,pr=12,n=L.length,bw=(W-pl-pr)/n,X=function(i){return pl+bw*i+bw/2};
+ var idxOf=function(d){for(var i=n-1;i>=0;i--){if(L[i].date<=d)return i}return -1};
+ /* markers: numbered flags, listed under the charts */
+ var mk=marks.map(function(m,k){return {m:m,k:k+1,i:idxOf(m.date)}}).filter(function(x){return x.i>=0||x.m.date>=L[0].date});
+ function markLines(H,top){return mk.map(function(x){var px=x.i<0?pl:X(x.i)-bw/2;return '<line x1="'+px+'" x2="'+px+'" y1="'+top+'" y2="'+H+'" stroke="#8a8478" stroke-width="1.5" stroke-dasharray="4 3"/><g transform="translate('+px+','+(top-2)+')"><circle r="8" fill="'+(x.m.auto?'#0a0a0c':'#315a9f')+'"/><text y="3.5" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">'+x.k+'</text></g>'}).join('')}
+ function xLabels(H){var step=Math.max(1,Math.ceil(n/Math.floor((W-pl)/64)));return L.map(function(c,i){return i%step?'':'<text x="'+X(i)+'" y="'+(H+14)+'" text-anchor="middle" font-size="11" fill="#6b7280">'+coLabel(c.date)+'</text>'}).join('')}
+ function hits(H,top,kind){return L.map(function(c,i){return '<rect x="'+(pl+bw*i)+'" y="'+top+'" width="'+bw+'" height="'+(H-top)+'" fill="transparent" data-coi="'+i+'" data-cok="'+kind+'"/>'}).join('')}
+ /* chart 1: RTO % (all parcels, COD only), finished parcels only */
+ var H1=190,T1=22,maxR=Math.max(10,Math.ceil(Math.max.apply(null,L.map(function(c){return Math.max(c.rto_pct||0,c.cod_rto_pct||0)}))/10)*10),Y1=function(v){return H1-(v/maxR)*(H1-T1)};
+ var grid1=[0,maxR/2,maxR].map(function(v){return '<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+Y1(v)+'" y2="'+Y1(v)+'" stroke="#ece7dd"/><text x="'+(pl-6)+'" y="'+(Y1(v)+4)+'" text-anchor="end" font-size="11" fill="#6b7280">'+v+'%</text>'}).join('');
+ function path(key,col,dash){var d='',pen=false,dots='';L.forEach(function(c,i){var v=c[key];if(v==null||CO.hide[key]){pen=false;return}d+=(pen?'L':'M')+X(i).toFixed(1)+' '+Y1(v).toFixed(1);pen=true;
+   dots+='<circle cx="'+X(i).toFixed(1)+'" cy="'+Y1(v).toFixed(1)+'" r="'+(c.finished_pct<80?3:4)+'" fill="'+(c.finished_pct<80?'#fff':col)+'" stroke="'+col+'" stroke-width="2"/>'});
+  return '<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="2"'+(dash?' stroke-dasharray="5 4"':'')+' stroke-linejoin="round"/>'+dots}
+ var svg1='<svg width="'+W+'" height="'+(H1+22)+'" role="img" aria-label="RTO percentage by shipping date">'+grid1+markLines(H1,T1)+path('rto_pct','#315a9f')+path('cod_rto_pct','#c2410c',true)+xLabels(H1)+hits(H1,T1,'r')+'</svg>';
+ /* chart 2: cohort profit (bars from zero, green above / red below) */
+ var H2=170,T2=14,mx=Math.max(1,Math.max.apply(null,L.map(function(c){return Math.abs(c.profit)}))),Z=T2+(H2-T2)/2,Y2=function(v){return Z-(v/mx)*((H2-T2)/2)};
+ var grid2='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+Z+'" y2="'+Z+'" stroke="#c9c2b4"/><text x="'+(pl-6)+'" y="'+(T2+8)+'" text-anchor="end" font-size="11" fill="#6b7280">'+inr(mx)+'</text><text x="'+(pl-6)+'" y="'+(H2)+'" text-anchor="end" font-size="11" fill="#6b7280">−'+inr(mx)+'</text><text x="'+(pl-6)+'" y="'+(Z+4)+'" text-anchor="end" font-size="11" fill="#6b7280">0</text>';
+ var bars=L.map(function(c,i){var y=Y2(c.profit),h=Math.abs(y-Z),w=Math.max(2,Math.min(28,bw-4)),col=c.profit>=0?'#15803d':'#b3261e';return '<rect x="'+(X(i)-w/2)+'" y="'+Math.min(y,Z)+'" width="'+w+'" height="'+Math.max(1,h)+'" rx="3" fill="'+col+'" opacity="'+(c.finished_pct<80?.4:1)+'"/>'}).join('');
+ var svg2='<svg width="'+W+'" height="'+(H2+22)+'" role="img" aria-label="Profit by shipping date">'+grid2+markLines(H2,T2)+bars+xLabels(H2)+hits(H2,T2,'p')+'</svg>';
+ var tot=L.reduce(function(a,c){a.s+=c.shipped;a.d+=c.delivered;a.r+=c.returned;a.p+=c.profit;return a},{s:0,d:0,r:0,p:0});
+ var legend='<div class="row small" style="gap:16px;margin:6px 0 2px"><label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" data-coh="rto_pct"'+(CO.hide.rto_pct?'':' checked')+'><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#315a9f" stroke-width="2"/></svg>All parcels</label><label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" data-coh="cod_rto_pct"'+(CO.hide.cod_rto_pct?'':' checked')+'><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#c2410c" stroke-width="2" stroke-dasharray="5 4"/></svg>COD only</label><span class="mut">Hollow dots / pale bars: fewer than 80% of those parcels have finished, so the number can still change.</span></div>';
+ /* before / after each change: RTO % of the parcels shipped in the 14 days before vs the 14 days after (finished ones) */
+ var span=function(a,b){var d=0,r=0,p=0,sh=0;L.forEach(function(c){if(c.date>=a&&c.date<b){d+=c.delivered;r+=c.returned;p+=c.profit;sh+=c.shipped}});return {n:d+r,sh:sh,rto:d+r?Math.round(r*1000/(d+r))/10:null,ppp:sh?Math.round(p/sh):null}};
+ var shift=function(d,k){var x=new Date(d+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+k);return x.toISOString().slice(0,10)};
+ var effect=function(m){var b=span(shift(m.date,-14),m.date),a=span(m.date,shift(m.date,14));if(b.n<5||a.n<5)return '<span class="mut">not enough finished parcels on both sides yet</span>';
+  var better=a.rto<b.rto,early=a.sh&&a.n/a.sh<0.8;return 'RTO <b>'+b.rto+'%</b> → <b style="color:'+(early?'var(--warn)':better?'var(--ok)':'var(--bad)')+'">'+a.rto+'%</b> <span class="mut">('+b.n+' → '+a.n+' finished parcels)</span> · profit per parcel '+inr(b.ppp)+' → '+inr(a.ppp)+' <span class="mut">14 days before → after</span>'+(early?' <span style="color:var(--warn)">· early: '+Math.round(a.n*100/a.sh)+'% of the "after" parcels have finished and returns take 1–2 weeks to come back, so the "after" RTO will rise</span>':'')};
+ var mlist=mk.length?'<div class="small" style="margin-top:10px;display:grid;gap:6px">'+mk.map(function(x){return '<div class="row" style="gap:8px"><span style="display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:'+(x.m.auto?'#0a0a0c':'#315a9f')+';color:#fff;font-size:10px;font-weight:700">'+x.k+'</span><b>'+esc(x.m.label)+'</b><span class="mut">'+coLabel(x.m.date)+(x.m.auto?' · detected from your data':'')+'</span><span>'+effect(x.m)+'</span>'+(x.m.auto?'':'<button class="btn ghost sm" data-comx="'+esc(x.m.date)+'|'+esc(x.m.label)+'" style="min-height:24px;padding:0 8px">Remove</button>')+'</div>'}).join('')+'</div>':'';
+ var add='<div class="row" style="margin-top:10px"><input type="date" id="co_md" style="width:auto"><input type="text" id="co_ml" placeholder="What changed? e.g. WhatsApp API live" style="max-width:300px"><button class="btn ghost sm" id="co_ma">Add a change to the charts</button></div>';
+ var tbl='<details style="margin-top:12px"><summary class="small" style="cursor:pointer">Table</summary><div class="tw"><table><tr><th>Shipped</th><th>Parcels</th><th>Delivered</th><th>RTO</th><th>On the way</th><th>RTO %</th><th>COD RTO %</th><th>Revenue</th><th>Profit</th></tr>'
+  +L.slice().reverse().map(function(c){return '<tr><td>'+(CO.group==='week'?'Week of ':'')+coLabel(c.date)+'</td><td>'+c.shipped+'</td><td>'+c.delivered+'</td><td>'+c.returned+'</td><td>'+c.transit+'</td><td>'+(c.rto_pct==null?'–':c.rto_pct+'%')+'</td><td>'+(c.cod_rto_pct==null?'–':c.cod_rto_pct+'%')+'</td><td>'+inr(c.revenue)+'</td><td style="color:'+(c.profit>=0?'var(--ok)':'var(--bad)')+'">'+inr(c.profit)+'</td></tr>'}).join('')+'</table></div></details>';
+ box.innerHTML=head+'<div class="small" style="margin:10px 0 2px"><b>RTO %</b> <span class="mut">of parcels that finished (delivered or returned)</span></div>'+legend+'<div style="position:relative">'+svg1+'</div>'
+  +'<div class="small" style="margin:14px 0 2px"><b>Profit per shipping '+(CO.group==='week'?'week':'day')+'</b> <span class="mut">delivered value − stock − freight both ways − ads (₹'+j.cac+' per parcel) · '+tot.s+' parcels, '+inr(tot.p)+' in this range</span></div><div style="position:relative">'+svg2+'</div>'
+  +mlist+add+tbl+'<div class="cotip hide" id="co_tip"></div>';
+ bindCo()}
+function bindCo(){var box=$('#rv_co');if(!box)return;
+ box.onclick=function(e){var g=e.target.closest('[data-cog]');if(g){CO.group=g.dataset.cog;loadCohorts();return}
+  var h=e.target.closest('[data-coh]');if(h){CO.hide[h.dataset.coh]=!h.checked;drawCohorts();return}
+  var x=e.target.closest('[data-comx]');if(x){var p=x.dataset.comx.split('|');rpc('revenue_marks',{remove:{date:p[0],label:p.slice(1).join('|')}}).then(loadCohorts).catch(function(er){toast(er.message)});return}
+  if(e.target.id==='co_ma')rpc('revenue_marks',{add:{date:$('#co_md').value,label:$('#co_ml').value}}).then(loadCohorts).catch(function(er){toast(er.message)})};
+ var sel=$('#co_days');if(sel)sel.onchange=function(){CO.days=Number(sel.value);loadCohorts()};
+ var tip=$('#co_tip');if(!tip)return;
+ box.onmousemove=function(e){var r=e.target.closest&&e.target.closest('[data-coi]');if(!r){tip.classList.add('hide');return}var c=CO.data.cohorts[Number(r.dataset.coi)];
+  tip.innerHTML='<b>'+(CO.group==='week'?'Week of ':'Shipped ')+coLabel(c.date)+'</b><br>'+c.shipped+' parcels · '+c.delivered+' delivered · '+c.returned+' RTO'+(c.transit?' · '+c.transit+' on the way':'')
+   +'<br>RTO '+(c.rto_pct==null?'–':c.rto_pct+'%')+' · COD RTO '+(c.cod_rto_pct==null?'–':c.cod_rto_pct+'%')+'<br>Revenue '+inr(c.revenue)+' · profit <b>'+inr(c.profit)+'</b>'+(c.finished_pct<80?'<br><span class="mut">'+c.finished_pct+'% finished, can still change</span>':'');
+  var b=box.getBoundingClientRect();tip.style.left=Math.min(e.clientX-b.left+12,b.width-230)+'px';tip.style.top=(e.clientY-b.top+12)+'px';tip.classList.remove('hide')};
+ box.onmouseleave=function(){tip.classList.add('hide')}}
 /* ---- AI profit plan (lib/profit-ai.js) ---- */
 function drawAi(){var box=$('#rv_ai');if(!box)return;var a=RVN.ai;
  var head='<div class="row" style="justify-content:space-between"><h3 style="margin:0">What to do to be profitable</h3><button class="btn sm" id="rv_aib"'+(RVN.aiBusy?' disabled':'')+'>'+(RVN.aiBusy?'Analysing… (up to a minute)':a?'Analyse again':'Analyse with AI')+'</button></div>';
@@ -351,6 +409,7 @@ function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+
   +(R.advance_kept?'<br>Advances kept (₹99 part-COD): <b style="color:var(--ok)">− '+inr(R.advance_kept)+'</b>':'')+'<br><b>Total RTO loss: '+inr(R.total)+'</b></div>'
   +(R.est_n?'<p class="small" style="margin:8px 0 0;color:var(--warn)">'+R.est_n+' of these were NimbusPost parcels: freight estimated at '+inr(j.nimbus_freight)+' each'+(j.nimbus_freight_set?'':' (your Shiprocket average)')+'.</p>':'')
   +'<div class="row" style="margin-top:8px"><label class="f" style="max-width:220px">NimbusPost freight per parcel (₹)<input type="number" id="rv_nf" min="0" value="'+(j.nimbus_freight_set?j.nimbus_freight:'')+'" placeholder="'+j.nimbus_freight+'"></label><button class="btn ghost sm" id="rv_nfs" style="align-self:end">Save</button></div></div></div>';
+ h+='<div class="card" id="rv_co" style="margin-top:12px;position:relative"></div>';
  h+='<div class="card" id="rv_ai" style="margin-top:12px;border-color:#c9c2f0"></div>';
  var P=j.profit,line=function(t,v,neg,note){return '<tr><td>'+t+(note?' <span class="small mut">'+note+'</span>':'')+'</td><td style="text-align:right;white-space:nowrap'+(neg?';color:var(--bad)':'')+'">'+(neg?'− ':'')+inr(v)+'</td></tr>'};
  h+='<div class="card" style="margin-top:12px"><h3>Real profit</h3><div class="tw"><table style="max-width:620px">'
@@ -368,7 +427,7 @@ function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+
  $('#main').innerHTML=h;
  $('#main').onclick=function(e){var r=e.target.closest('[data-rr]');if(r){RVN.range=r.dataset.rr;loadRevenue()}};
  $('#rv_rf').onclick=function(){loadRevenue('force')};
- drawAi();
+ drawAi();if(CO.data)drawCohorts();else if(!cont)loadCohorts();
  $('#rv_nfs').onclick=function(){rpc('revenue_cfg',{nimbus_freight:$('#rv_nf').value}).then(function(){toast('Saved');loadRevenue()}).catch(function(e){toast(e.message)})};
  }).catch(fail)}
 /* ---- login ---- */

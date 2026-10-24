@@ -35,6 +35,13 @@ export function carrierOf(o) {
   return t.trim() ? 'other' : '';
 }
 
+/** When the courier took the parcel: the first tracking event after booking (Shopify keeps the courier's events). */
+export function pickedOf(o) {
+  const ev = (o.fulfillments || []).filter((f) => String(f.status || '').toUpperCase() !== 'CANCELLED').flatMap((f) => f.events?.nodes || [])
+    .filter((e) => /PICKED_UP|IN_TRANSIT|OUT_FOR_DELIVERY|ATTEMPTED_DELIVERY|DELIVERED|FAILURE/i.test(String(e.status))).map((e) => iso(e.happenedAt)).filter(Boolean);
+  return ev.length ? Math.min(...ev) : 0;
+}
+
 /** One Shopify order -> a rev_orders row (pure). */
 export function rowOf(o) {
   const d = shopifyDelivery({ ...o, displayFinancialStatus: '' });   /* refunds are handled by the amount, not as "skipped" */
@@ -44,6 +51,7 @@ export function rowOf(o) {
     order_id: String(o.legacyResourceId), name: o.name, created_at: iso(o.createdAt),
     total_paise: Math.round(num(o.currentTotalPriceSet?.shopMoney?.amount) * 100), refunded_paise: Math.round(num(o.totalRefundedSet?.shopMoney?.amount) * 100),
     pay: /cash on delivery|\bcod\b/i.test(gw) ? 'cod' : 'prepaid', state, delivered_at: d.delivered_at || null, shipped_at: d.fulfilled_at || null,
+    picked_at: pickedOf(o) || d.fulfilled_at || null,
     carrier: carrierOf(o), awb: d.awb || '', units: (o.lineItems?.nodes || []).reduce((s, l) => s + num(l.currentQuantity), 0) || 1,
     tags: (o.tags || []).join(',').slice(0, 300),
   };
@@ -159,4 +167,79 @@ export async function revenueReport(env, { range = 'all' } = {}) {
   const st = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null))?.v || '{}');
   out.scan = { full_at: st.full_at || null, running: !!st.cursor, orders: rows.length, read: num(st.read) };
   return out;
+}
+
+/**
+ * Cohorts by SHIPPING date (the day the courier picked the parcel up), so a change shows up in the parcels shipped
+ * after it, whatever day they were ordered or delivered. For each day / week: parcels shipped, delivered, returned,
+ * still on the way, RTO % of the finished ones, and the cohort's profit (delivered value − stock − freight both ways
+ * − ads for each parcel shipped).
+ * Ship date: Shiprocket pickup scan, else its booking; NimbusPost: the first courier event Shopify got, else the
+ * fulfilment date.
+ */
+export async function shipCohorts(env, { group = 'day', days = 120 } = {}) {
+  const t = now(), IST = 19800, DAY = 86400;
+  const rows = (await env.DB.prepare(`SELECT r.*, s.stage AS sr_stage, s.charge_paise AS sr_charge, s.rto AS sr_rto, s.status AS sr_status, s.picked_at AS sr_picked, s.created_at AS sr_booked,
+      o.method AS ik_method, o.advance_paise, o.converted_at
+    FROM rev_orders r LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'') <> 'cancelled' LEFT JOIN orders o ON o.order_id = r.order_id`).all()).results;
+  const pf = env.SETTINGS?.profit || {};
+  const srCharges = rows.filter((r) => num(r.sr_charge) > 0).map((r) => num(r.sr_charge) / 100);
+  const srAvg = srCharges.length ? srCharges.reduce((a, b) => a + b, 0) / srCharges.length : 0;
+  const nimbusFreight = num(pf.nimbus_freight) || Math.round(srAvg) || num(pf.ship_estimate) || 65;
+  const cac = num(pf.cac), unitCost = num(pf.unit_cost);
+  const from = t - days * DAY;
+  const keyOf = (ts) => {
+    const d = Math.floor((ts + IST) / DAY);                       /* IST day number */
+    const start = group === 'week' ? d - ((d + 3) % 7) : d;      /* weeks start on Monday */
+    return new Date(start * DAY * 1000).toISOString().slice(0, 10);
+  };
+  const B = {};
+  for (const r of rows) {
+    let state = r.state, carrier = r.carrier || 'other';
+    if (r.sr_stage || r.sr_status) {
+      carrier = 'shiprocket';
+      state = r.sr_stage === 'delivered' ? 'delivered' : (r.sr_stage === 'rto' || r.sr_rto) ? 'returned' : state === 'cancelled' ? 'cancelled' : 'shipped';
+    }
+    if (!['delivered', 'returned', 'shipped'].includes(state)) continue;
+    const shipAt = (carrier === 'shiprocket' ? num(r.sr_picked) || num(r.sr_booked) : 0) || num(r.picked_at) || num(r.shipped_at);
+    if (!shipAt || shipAt < from) continue;
+    /* a Shiprocket parcel booked but not collected yet has not shipped */
+    if (carrier === 'shiprocket' && !num(r.sr_picked) && ['pickup_pending', 'pickup_failed'].includes(r.sr_stage)) continue;
+    const k = keyOf(shipAt);
+    const b = B[k] = B[k] || { date: k, shipped: 0, delivered: 0, returned: 0, transit: 0, cod: 0, cod_returned: 0, cod_finished: 0, revenue: 0, stock: 0, freight: 0, ads: 0 };
+    const pay = r.ik_method ? (r.ik_method === 'cod' && !r.converted_at ? 'cod' : 'prepaid') : r.pay;
+    const value = num(r.total_paise) / 100, freight = num(r.sr_charge) > 0 ? num(r.sr_charge) / 100 : nimbusFreight;
+    b.shipped++; b.freight += freight; b.ads += cac; if (pay === 'cod') b.cod++;
+    if (state === 'delivered') { b.delivered++; b.revenue += value; b.stock += num(r.units) * unitCost; if (pay === 'cod') b.cod_finished++; }
+    else if (state === 'returned') { b.returned++; b.freight += freight; b.revenue += num(r.advance_paise) / 100; if (pay === 'cod') { b.cod_finished++; b.cod_returned++; } }
+    else { b.transit++; b.stock += num(r.units) * unitCost; }
+  }
+  const r2 = (x) => Math.round(x);
+  const list = Object.values(B).sort((a, b) => (a.date < b.date ? -1 : 1)).map((b) => {
+    const fin = b.delivered + b.returned;
+    return { ...b, revenue: r2(b.revenue), stock: r2(b.stock), freight: r2(b.freight), ads: r2(b.ads), profit: r2(b.revenue - b.stock - b.freight - b.ads),
+      rto_pct: fin ? Math.round((b.returned * 1000) / fin) / 10 : null, cod_rto_pct: b.cod_finished ? Math.round((b.cod_returned * 1000) / b.cod_finished) / 10 : null,
+      finished_pct: b.shipped ? Math.round((fin * 100) / b.shipped) : 0 };
+  });
+  const st = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_marks'").first().catch(() => null))?.v || '[]');
+  return { group, days, cohorts: list, marks: Array.isArray(st) ? st : [], auto_marks: await autoMarks(env), cac, unit_cost: unitCost, nimbus_freight: nimbusFreight };
+}
+
+/** Changes the data itself can date: the first time each automation actually did something. */
+export async function autoMarks(env) {
+  const day = (ts) => (ts ? new Date((num(ts) + 19800) * 1000).toISOString().slice(0, 10) : '');
+  const first = async (sql, ...a) => { try { return num((await env.DB.prepare(sql).bind(...a).first())?.t); } catch { return 0; } };
+  const sent = "status IN ('sent','delivered','read')";
+  const items = [
+    ['Shiprocket bookings start', await first('SELECT MIN(created_at) AS t FROM shipments')],
+    ['WhatsApp COD confirmation', await first(`SELECT MIN(ts) AS t FROM messages WHERE trigger='cod_confirm' AND ${sent}`)],
+    ['WhatsApp tracking updates', await first(`SELECT MIN(ts) AS t FROM messages WHERE trigger IN ('ship_picked','ship_transit','ship_ofd') AND ${sent}`)],
+    ['WhatsApp NDR messages', await first(`SELECT MIN(ts) AS t FROM messages WHERE (trigger='ship_failed' OR trigger LIKE 'ndr%') AND ${sent}`)],
+    ['WhatsApp AI replies', await first(`SELECT MIN(ts) AS t FROM messages WHERE trigger='ai' AND ${sent}`)],
+    ['₹99 part-COD', await first('SELECT MIN(created_at) AS t FROM orders WHERE advance_paise > 0')],
+    ['Pay-online offer', await first(`SELECT MIN(ts) AS t FROM messages WHERE trigger='cod_to_prepaid' AND ${sent}`)],
+    ['Address check on WhatsApp', await first("SELECT MIN(ts) AS t FROM messages WHERE trigger='address'")],
+    ['COD cancel warning', await first(`SELECT MIN(ts) AS t FROM messages WHERE trigger='cod_cancel_warning' AND ${sent}`)],
+  ];
+  return items.filter(([, t]) => t > 0).map(([label, t]) => ({ date: day(t), label, auto: true }));
 }

@@ -1226,6 +1226,21 @@ const ACTIONS = {
     const { withSettings } = await import('./settings.js');
     return { ok: true, ...(await profitAdvice(await withSettings(await withSettingsFresh(env)), ACTIONS)) };
   },
+  /** RTO % and profit by shipping (pickup) date, with the owner's change markers (lib/revenue.js shipCohorts). */
+  async revenue_cohorts(env, b) {
+    const { shipCohorts } = await import('./revenue.js');
+    return { ok: true, ...(await shipCohorts(await withSettingsFresh(env), { group: b.group === 'week' ? 'week' : 'day', days: Math.min(400, Math.max(14, Number(b.days) || 120)) })) };
+  },
+  /** Change markers on the cohort charts: [{ date: 'YYYY-MM-DD', label }] */
+  async revenue_marks(env, b) {
+    const cur = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_marks'").first().catch(() => null))?.v || '[]');
+    let list = Array.isArray(cur) ? cur : [];
+    if (b.add) { const d = String(b.add.date || ''), l = String(b.add.label || '').trim().slice(0, 60); if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !l) throw new Error('Pick a date and write what changed'); list = [...list.filter((m) => !(m.date === d && m.label === l)), { date: d, label: l }]; }
+    if (b.remove) list = list.filter((m) => !(m.date === b.remove.date && m.label === b.remove.label));
+    list.sort((a, c) => (a.date < c.date ? -1 : 1));
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('rev_marks', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(list.slice(-40))).run();
+    return { ok: true, marks: list };
+  },
   async revenue_cfg(env, b) {
     const s = await getSettings(env, true), v = Number(b.nimbus_freight);
     if (!(v >= 0 && v < 1000)) throw new Error('Enter the average NimbusPost freight per parcel in rupees');
