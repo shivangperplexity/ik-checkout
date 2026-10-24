@@ -76,6 +76,11 @@ export async function refreshDue(env, { max = 25 } = {}) {
       AND COALESCE(stage,'') NOT IN ('delivered','lost','cancelled') AND created_at > ?
       AND COALESCE(tracked_at,0) < (CASE WHEN COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed') THEN ?::bigint ELSE ?::bigint END)
       ORDER BY COALESCE(tracked_at,0) LIMIT ${Math.max(1, Math.min(60, max))}`).bind(t - 45 * 86400, t - 15 * 60, t - 45 * 60).all()).results;
+  /* RTO / NDR rows whose delivery-attempt count was never read (any age): fill them in, a few per run */
+  const missing = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'
+      AND (stage IN ('rto','ndr') OR COALESCE(rto,false)) AND attempts IS NULL ORDER BY created_at DESC LIMIT 10`).all()).results;
+  const seen = new Set(rows.map((r) => r.order_id));
+  for (const r of missing) if (!seen.has(r.order_id)) rows.push(r);
   let n = 0;
   for (const r of rows) { try { await refreshShipment(env, r); n++; } catch (e) { console.error('refresh', r.order_id, e.message); } }
   return { refreshed: n };
