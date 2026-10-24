@@ -263,7 +263,7 @@ export async function autoMarks(env) {
  * (delivered or came back); the Shiprocket stage wins over Shopify's copy. range: 'all' | '30d' | '90d'.
  */
 export async function rtoBreakdown(env, { range = 'all' } = {}) {
-  const m = /^(\d+)d$/.exec(String(range)); const since = m ? now() - Number(m[1]) * 86400 : range === 'today' ? now() - 86400 : 0;
+  const m = /^(\d+)d$/.exec(String(range)); const since = m ? now() - Number(m[1]) * 86400 : range === 'month' ? Math.floor(Date.parse(new Date(Date.now() + 19800000).toISOString().slice(0, 8) + '01T00:00:00+05:30') / 1000) : 0;
   const rows = (await env.DB.prepare(`SELECT r.order_id, r.state, r.pay, r.total_paise, r.region, r.src, r.src_label, o.state_code, o.method, s.stage AS sr_stage, s.rto AS sr_rto
       FROM rev_orders r LEFT JOIN orders o ON o.order_id = r.order_id LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'')<>'cancelled'
       WHERE r.created_at >= ?`).bind(since).all()).results;
