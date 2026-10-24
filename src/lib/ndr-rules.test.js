@@ -60,8 +60,8 @@ test('rules saved before the autopilot are upgraded; a deliberate v2 choice is k
 
 test('attempt limit, prepaid never returned automatically, off does nothing', () => {
   const c2 = ndrCfg({ SETTINGS: { ndr: { ...NDR_DEFAULTS, after_max: 'return', rules: { ...NDR_DEFAULTS.rules, refused: { first: 'return', wait: 0, then: 'return' } } } } });
-  assert.equal(planNdr(c2, { reason: 'Customer not available', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'return');
-  assert.equal(planNdr(c2, { reason: 'Customer not available', attempts: 3 }, { first_seen: T }, {}, true, T).act, 'manual');
+  assert.equal(planNdr(c2, { reason: 'Customer not available', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'none', 'no re-attempt after the 3rd; the courier returns it');
+  assert.equal(planNdr(c2, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'return');
   assert.equal(planNdr(c2, { reason: 'Customer refused' }, { first_seen: T }, {}, false, T).act, 'reattempt', 'first attempt is never returned');
   assert.equal(planNdr(c2, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, true, T).act, 'manual');
   assert.equal(planNdr(ndrCfg({ SETTINGS: { ndr: { mode: 'off' } } }), { reason: 'x' }, {}, {}, false, T).act, 'none');

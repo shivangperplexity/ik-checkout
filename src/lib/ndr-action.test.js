@@ -18,7 +18,7 @@ test('no automatic return before 3 attempts', () => {
   const nd = (attempts, reason) => ({ awb: '1', reason, attempts, date: '' });
   assert.equal(planNdr(cfg, nd(1, 'Customer refused'), { first_seen: t }, {}, false, t).act, 'reattempt');
   assert.equal(planNdr(cfg, nd(2, 'Consignee Uncontactable'), { first_seen: t - 99999 }, {}, false, t).act, 'reattempt');
-  assert.equal(planNdr(cfg, nd(3, 'Consignee Uncontactable'), { first_seen: t }, {}, false, t).act, 'return');
+  assert.equal(planNdr(cfg, nd(3, 'Consignee Uncontactable'), { first_seen: t }, {}, false, t).act, 'none');
   const c2 = ndrCfg({ SETTINGS: { ndr: { v: 2, max_attempts: 5 } } });
   assert.equal(planNdr(c2, nd(2, 'Customer refused'), { first_seen: t - 99999 }, {}, false, t).act, 'reattempt');
   assert.equal(planNdr(c2, nd(3, 'Customer refused'), { first_seen: t - 99999 }, {}, false, t).act, 'return');

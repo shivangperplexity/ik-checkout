@@ -133,9 +133,11 @@ export function planNdr(cfg, nd, st, ship, paid, t = now()) {
   const att = Number(nd.attempts) || 1;
   /* fewer than MIN_ATTEMPTS tries: never return on our own, ask the courier to go again */
   const noReturn = (a) => (a === 'return' && att < MIN_ATTEMPTS ? 'reattempt' : a === 'return' && paid && cfg.protect_paid ? 'manual' : a);
-  if (nd.attempts && nd.attempts >= Math.max(cfg.max_attempts, MIN_ATTEMPTS)) {
-    const a = noReturn(cfg.after_max);
-    return { act: a, why: `${nd.attempts} failed attempts (limit ${cfg.max_attempts})`, category };
+  /* Shiprocket takes no re-attempt after the 3rd failed attempt ("Cannot Raise in 3rd Attempt"): the courier sends it
+     back on its own. Only a refusal is returned by us at that point; anything else is left to run its course. */
+  if (att >= MIN_ATTEMPTS) {
+    if (category === 'refused' && !(ship?.ndr_choice === 'reattempt' && ship?.ndr_by === 'customer')) return { act: noReturn('return'), why: `refused at attempt ${att}`, category };
+    return { act: 'none', why: `${att} attempts done: Shiprocket allows no more re-attempts`, category };
   }
   if (rule.first === 'reattempt') return { act: 'reattempt', why: CATEGORIES[category].label, category };
   if (rule.first === 'return') return { act: noReturn('return'), why: CATEGORIES[category].label, category };
@@ -183,7 +185,7 @@ export async function autoNdr(env, { dry = false } = {}) {
     /* a re-attempt we (or the customer / team) asked for that Shiprocket never applied: the parcel is still in its NDR
        list 3 h later. Until Oct 2026 every re-attempt sent without a date was rejected this way while it looked done. */
     const askedAt = st.action === 'reattempt' ? Number(st.action_at) : !st.action && s.ndr_choice === 'reattempt' && Number(s.ndr_choice_at) >= Number(st.first_seen) - 3600 ? Number(s.ndr_choice_at) : 0;
-    if (askedAt && askedAt < t - 3 * 3600 && Number(st.tries || 0) < 3) {
+    if (askedAt && askedAt < t - 3 * 3600 && Number(st.tries || 0) < 3 && (Number(nd.attempts) || 1) < MIN_ATTEMPTS) {
       if (dry) { out.actions.push({ order: s.order_name, act: 'reattempt', why: 'earlier re-attempt was not applied by Shiprocket' }); continue; }
       const want = s.ndr_date && String(s.ndr_date) > new Date(Date.now() + 19800000).toISOString().slice(0, 10) ? String(s.ndr_date) : '';
       try {
@@ -239,6 +241,12 @@ async function pushUnlisted(env, cfg, listed) {
   try {
     const { OTP_REFUSAL } = await import('./sr-scan.js');
     const t = now();
+    /* one-off: the first run of this step (25 Oct 2026) also hit parcels whose re-attempt had just gone through */
+    if (!pushUnlisted.cleaned) {
+      pushUnlisted.cleaned = true;
+      await env.DB.prepare("DELETE FROM ndr_auto WHERE k LIKE 'u%' AND first_seen < 1792886400 AND COALESCE(error,'') LIKE '%not in Action Required%'").run().catch(() => {});
+      await env.DB.prepare("DELETE FROM messages WHERE trigger='ndr-auto' AND ts < 1792886400 AND COALESCE(error,'') LIKE 'Not in Shiprocket NDR list:%'").run().catch(() => {});
+    }
     const rows = (await env.DB.prepare(`SELECT s.awb, s.order_id, s.order_name, s.sr_status, s.attempts, s.ndr_choice, s.ndr_choice_at, s.ndr_by, o.phone, o.status AS order_status
         FROM shipments s JOIN orders o ON o.order_id = s.order_id
         WHERE s.stage='ndr' AND s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND COALESCE(s.rto,false)=false AND s.tracked_at>?
@@ -247,7 +255,9 @@ async function pushUnlisted(env, cfg, listed) {
     for (const s of rows) {
       if (listed.has(String(s.awb)) || s.order_status === 'cancelled') continue;
       const att = Number(s.attempts) || 1;
-      if (OTP_REFUSAL.test(s.sr_status || '') || att >= Math.max(cfg.max_attempts, MIN_ATTEMPTS) || (s.ndr_choice === 'return' && s.ndr_by !== 'auto')) { res.skipped++; continue; }
+      /* only the courier's word "refused" (handled NDRs also leave Shiprocket's list, so they are skipped here) */
+      if (!/refus/i.test(s.sr_status || '') || OTP_REFUSAL.test(s.sr_status || '') || att >= MIN_ATTEMPTS || s.ndr_choice === 'return' && s.ndr_by !== 'auto') { res.skipped++; continue; }
+      if (s.ndr_choice === 'reattempt' && Number(s.ndr_choice_at) > t - 36 * 3600) { res.skipped++; continue; }
       const k = 'u' + att;
       if (await env.DB.prepare('SELECT 1 AS x FROM ndr_auto WHERE awb=? AND k=?').bind(s.awb, k).first()) continue;
       const reason = String(s.sr_status || '').split(' · ').pop().replace(/^pending\s*-\s*/i, '').slice(0, 200);
@@ -261,7 +271,6 @@ async function pushUnlisted(env, cfg, listed) {
       } catch (e) {
         res.failed++;
         await env.DB.prepare('UPDATE ndr_auto SET error=? WHERE awb=? AND k=?').bind(String(e.message || e).slice(0, 300), s.awb, k).run().catch(() => {});
-        await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: 'reattempt', status: 'failed', orderName: s.order_name, error: 'Not in Shiprocket NDR list: ' + String(e.message || e) });
       }
     }
     return res;
