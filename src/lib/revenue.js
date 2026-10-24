@@ -206,23 +206,34 @@ export async function shipCohorts(env, { group = 'day', days = 120 } = {}) {
     /* a Shiprocket parcel booked but not collected yet has not shipped */
     if (carrier === 'shiprocket' && !num(r.sr_picked) && ['pickup_pending', 'pickup_failed'].includes(r.sr_stage)) continue;
     const k = keyOf(shipAt);
-    const b = B[k] = B[k] || { date: k, shipped: 0, delivered: 0, returned: 0, transit: 0, cod: 0, cod_returned: 0, cod_finished: 0, revenue: 0, stock: 0, freight: 0, ads: 0 };
+    const b = B[k] = B[k] || { date: k, shipped: 0, delivered: 0, returned: 0, transit: 0, cod: 0, cod_returned: 0, cod_finished: 0, revenue: 0, stock: 0, freight: 0, ads: 0, t_value: 0, t_stock: 0, t_freight: 0 };
     const pay = r.ik_method ? (r.ik_method === 'cod' && !r.converted_at ? 'cod' : 'prepaid') : r.pay;
     const value = num(r.total_paise) / 100, freight = num(r.sr_charge) > 0 ? num(r.sr_charge) / 100 : nimbusFreight;
     b.shipped++; b.freight += freight; b.ads += cac; if (pay === 'cod') b.cod++;
     if (state === 'delivered') { b.delivered++; b.revenue += value; b.stock += num(r.units) * unitCost; if (pay === 'cod') b.cod_finished++; }
     else if (state === 'returned') { b.returned++; b.freight += freight; b.revenue += num(r.advance_paise) / 100; if (pay === 'cod') { b.cod_finished++; b.cod_returned++; } }
-    else { b.transit++; b.stock += num(r.units) * unitCost; }
+    else { b.transit++; b.stock += num(r.units) * unitCost; b.t_value += value; b.t_stock += num(r.units) * unitCost; b.t_freight += freight; }
   }
   const r2 = (x) => Math.round(x);
-  const list = Object.values(B).sort((a, b) => (a.date < b.date ? -1 : 1)).map((b) => {
+  /* Parcels still on the way are projected with that day's own success rate (delivered / finished). A day with
+     fewer than MIN_FINISHED finished parcels has no reliable rate yet, so it borrows the range's average. */
+  const MIN_FINISHED = 5;
+  const all = Object.values(B), aD = all.reduce((a, b) => a + b.delivered, 0), aF = all.reduce((a, b) => a + b.delivered + b.returned, 0);
+  const avgRate = aF ? aD / aF : 0.8;
+  const list = all.sort((a, b) => (a.date < b.date ? -1 : 1)).map((b) => {
     const fin = b.delivered + b.returned;
-    return { ...b, revenue: r2(b.revenue), stock: r2(b.stock), freight: r2(b.freight), ads: r2(b.ads), profit: r2(b.revenue - b.stock - b.freight - b.ads),
+    const own = fin >= MIN_FINISHED, rate = own ? b.delivered / fin : avgRate;
+    /* expected: on-the-way parcels deliver at `rate` (their value comes in, their stock is gone); the rest come back
+       (stock returns, freight back is paid) */
+    const projected = b.revenue + b.t_value * rate - (b.stock - b.t_stock + b.t_stock * rate) - b.freight - b.t_freight * (1 - rate) - b.ads;
+    const { t_value, t_stock, t_freight, ...rest } = b;
+    return { ...rest, revenue: r2(b.revenue), stock: r2(b.stock), freight: r2(b.freight), ads: r2(b.ads), profit: r2(b.revenue - b.stock - b.freight - b.ads),
+      projected_profit: r2(projected), projected_revenue: r2(b.revenue + t_value * rate), success_pct: Math.round(rate * 1000) / 10, rate_from: own ? 'day' : 'average',
       rto_pct: fin ? Math.round((b.returned * 1000) / fin) / 10 : null, cod_rto_pct: b.cod_finished ? Math.round((b.cod_returned * 1000) / b.cod_finished) / 10 : null,
       finished_pct: b.shipped ? Math.round((fin * 100) / b.shipped) : 0 };
   });
   const st = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_marks'").first().catch(() => null))?.v || '[]');
-  return { group, days, cohorts: list, marks: Array.isArray(st) ? st : [], auto_marks: await autoMarks(env), cac, unit_cost: unitCost, nimbus_freight: nimbusFreight };
+  return { group, days, avg_success_pct: Math.round(avgRate * 1000) / 10, min_finished: MIN_FINISHED, cohorts: list, marks: Array.isArray(st) ? st : [], auto_marks: await autoMarks(env), cac, unit_cost: unitCost, nimbus_freight: nimbusFreight };
 }
 
 /** Changes the data itself can date: the first time each automation actually did something. */
