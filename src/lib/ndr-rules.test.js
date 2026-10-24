@@ -28,49 +28,39 @@ test('courier reasons sort into categories', () => {
 const cfg = ndrCfg({ SETTINGS: { ndr: NDR_DEFAULTS } });
 const T = 1_800_000_000;
 
-test('ask first, then act after the wait; a customer / team choice wins', () => {
+test('v3: every NDR re-attempted at once; a customer / team choice wins; handled once', () => {
   const nd = { awb: 'A', reason: 'Customer not available', attempts: 1 };
-  let p = planNdr(cfg, nd, { first_seen: T }, {}, false, T + 3600);
-  assert.equal(p.act, 'wait'); assert.equal(p.due, T + 6 * 3600); assert.equal(p.then, 'reattempt');
-  p = planNdr(cfg, nd, { first_seen: T }, {}, false, T + 6 * 3600 + 1);
-  assert.equal(p.act, 'reattempt');
+  assert.equal(planNdr(cfg, nd, { first_seen: T }, {}, false, T + 60).act, 'reattempt');
   assert.equal(planNdr(cfg, nd, { first_seen: T }, { ndr_choice: 'reattempt', ndr_choice_at: T + 100, ndr_by: 'customer' }, false, T + 7 * 3600).act, 'none');
   /* a choice from the previous attempt does not count */
-  assert.equal(planNdr(cfg, nd, { first_seen: T }, { ndr_choice: 'reattempt', ndr_choice_at: T - 2 * 86400 }, false, T + 7 * 3600).act, 'reattempt');
+  assert.equal(planNdr(cfg, nd, { first_seen: T }, { ndr_choice: 'reattempt', ndr_choice_at: T - 2 * 86400 }, false, T + 60).act, 'reattempt');
   assert.equal(planNdr(cfg, nd, { first_seen: T, action: 'reattempt' }, {}, false, T + 9 * 3600).act, 'none');
 });
 
-test('courier-side reasons re-attempt at once; refused: re-attempted until 3 attempts, refused again at 3 -> return', () => {
+test('v3: courier "refused" is re-attempted; OTP refusal and the 3rd attempt are left to the courier; never returned by us', () => {
   assert.equal(planNdr(cfg, { reason: 'ODA location' }, { first_seen: T }, {}, false, T).act, 'reattempt');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 1 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'reattempt');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'reattempt', 'fewer than 3 attempts');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'return');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, true, T + 13 * 3600).act, 'manual', 'prepaid never returned');
-  /* the customer said yes after the second refusal: their choice wins */
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, { ndr_choice: 'reattempt', ndr_choice_at: T + 60 }, false, T + 13 * 3600).act, 'none');
-});
-
-test('rules saved before the autopilot are upgraded; a deliberate v2 choice is kept', () => {
-  const old = ndrCfg({ SETTINGS: { ndr: { mode: 'on', after_max: 'manual', rules: { refused: { first: 'ask', wait: 12, then: 'manual' }, phone: { first: 'manual', wait: 6, then: 'reattempt' } } } } });
-  assert.equal(old.after_max, 'return'); assert.equal(old.rules.refused.then, 'reattempt'); assert.equal(old.rules.phone.first, 'ask');
-  assert.equal(old.pilot.on, true); assert.equal(old.pilot.nudge_h, 3); assert.equal(old.v, 2);
-  const v2 = ndrCfg({ SETTINGS: { ndr: { v: 2, after_max: 'manual', rules: { refused: { first: 'ask', wait: 12, then: 'manual' } }, pilot: { on: false, nudge_h: 99 } } } });
-  assert.equal(v2.after_max, 'manual'); assert.equal(v2.rules.refused.then, 'manual'); assert.equal(v2.pilot.on, false); assert.equal(v2.pilot.nudge_h, 24);
-});
-
-test('attempt limit, prepaid never returned automatically, off does nothing', () => {
-  const c2 = ndrCfg({ SETTINGS: { ndr: { ...NDR_DEFAULTS, after_max: 'return', rules: { ...NDR_DEFAULTS.rules, refused: { first: 'return', wait: 0, then: 'return' } } } } });
-  assert.equal(planNdr(c2, { reason: 'Customer not available', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'none', 'no re-attempt after the 3rd; the courier returns it');
-  assert.equal(planNdr(c2, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'return');
-  assert.equal(planNdr(c2, { reason: 'Customer refused' }, { first_seen: T }, {}, false, T).act, 'reattempt', 'first attempt is never returned');
-  assert.equal(planNdr(c2, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, true, T).act, 'manual');
+  assert.equal(planNdr(cfg, { reason: 'Customer Refused To Accept', attempts: 1 }, { first_seen: T }, {}, false, T).act, 'reattempt');
+  assert.equal(planNdr(cfg, { reason: 'Customer Refused To Accept', attempts: 2 }, { first_seen: T }, {}, false, T).act, 'reattempt');
+  assert.equal(planNdr(cfg, { reason: 'Code verified cancellation', attempts: 1 }, { first_seen: T }, {}, false, T).act, 'none');
+  assert.equal(planNdr(cfg, { reason: 'Customer Refused To Accept', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'none');
+  assert.equal(planNdr(cfg, { reason: 'Consignee Uncontactable', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'none');
+  const c2 = ndrCfg({ SETTINGS: { ndr: { ...NDR_DEFAULTS, rules: { ...NDR_DEFAULTS.rules, refused: { first: 'return', wait: 0, then: 'return' } } } } });
+  assert.equal(planNdr(c2, { reason: 'Customer refused', attempts: 1 }, { first_seen: T }, {}, false, T).act, 'reattempt');
   assert.equal(planNdr(ndrCfg({ SETTINGS: { ndr: { mode: 'off' } } }), { reason: 'x' }, {}, {}, false, T).act, 'none');
 });
 
+test('rules saved before v3 move to the v3 defaults (no customer messages, autopilot off); on/off is kept', () => {
+  const old = ndrCfg({ SETTINGS: { ndr: { v: 2, mode: 'on', max_attempts: 5, rules: { refused: { first: 'ask', wait: 12, then: 'return' } }, pilot: { on: true } } } });
+  assert.equal(old.v, 3); assert.equal(old.message, false); assert.equal(old.pilot.on, false); assert.equal(old.rules.refused.first, 'reattempt');
+  assert.equal(ndrCfg({ SETTINGS: { ndr: { v: 2, mode: 'off' } } }).mode, 'off');
+  const v3 = ndrCfg({ SETTINGS: { ndr: { v: 3, message: true, pilot: { on: true } } } });
+  assert.equal(v3.message, true); assert.equal(v3.pilot.on, true);
+});
+
 test('settings are clamped; next working day skips Sunday', () => {
-  const c = ndrCfg({ SETTINGS: { ndr: { max_attempts: 99, rules: { phone: { first: 'nonsense', wait: 500, then: 'x' } } } } });
+  const c = ndrCfg({ SETTINGS: { ndr: { v: 3, max_attempts: 99, rules: { phone: { first: 'nonsense', wait: 500, then: 'x' } } } } });
   assert.equal(c.max_attempts, 5);
-  assert.deepEqual(c.rules.phone, { first: 'ask', wait: 72, then: 'reattempt' });
+  assert.deepEqual(c.rules.phone, { first: 'reattempt', wait: 72, then: 'reattempt' });
   /* Sat 24 Oct 2026, 10:00 IST -> Mon 26 Oct */
   assert.equal(nextWorkingDay(Date.parse('2026-10-24T04:30:00Z')), '2026-10-26');
   assert.equal(nextWorkingDay(Date.parse('2026-10-22T04:30:00Z')), '2026-10-23');

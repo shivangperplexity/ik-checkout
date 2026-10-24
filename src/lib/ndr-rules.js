@@ -16,9 +16,12 @@
  * (ndr_auto) and written to the shipment like a team choice, so the NDR card shows it as handled.
  */
 import { ndrList, ndrAction } from './shiprocket.js';
+import { OTP_REFUSAL } from './sr-scan.js';
 import { logMsg, sendText } from './whatsapp.js';
 
 const now = () => Math.floor(Date.now() / 1000);
+/* what the courier reads with every re-attempt */
+export const REATTEMPT_NOTE = (att) => `Customer has NOT refused this order. Please re-attempt delivery${att ? ` (attempt ${Number(att) + 1} of 3)` : ''} and call the customer before coming. Do not mark refused without the customer's OTP.`;
 
 export const CATEGORIES = {
   not_available: { label: 'Customer not available / door locked', re: /not\s*avail|unavail|door\s*lock|premises?\s*(closed|lock)|office\s*closed|shop\s*closed|house\s*lock|out\s*of\s*station|not\s*at\s*home|nobody|no\s*one|consignee\s*absent/i },
@@ -45,45 +48,47 @@ export function classifyNdr(reason) {
 export const MIN_ATTEMPTS = 3;
 
 export const NDR_DEFAULTS = {
-  v: 2,                  // 2 = autopilot defaults (nothing ends at "leave to me"); older saved rules are upgraded in ndrCfg
+  /* 3 = Oct 2026: no WhatsApp to the customer on a failed delivery, re-attempt every NDR at once (refusals included,
+     unless confirmed with the customer's OTP), never returned by us. Older saved rules are upgraded in ndrCfg. */
+  v: 3,
+  message: false,        // WhatsApp the customer on a failed delivery (ship_failed / "still want it?" / autopilot)
   mode: 'on',            // on | off (off = nothing automatic; the WhatsApp link still works)
   max_attempts: 3,       // failed attempts after which no more re-attempts are asked for
   after_max: 'return',   // manual | return
   protect_paid: true,    // never return prepaid / partial-COD parcels automatically
   rules: {
-    not_available: { first: 'ask', wait: 6, then: 'reattempt' },
-    phone: { first: 'ask', wait: 6, then: 'reattempt' },
-    address: { first: 'ask', wait: 8, then: 'reattempt' },
-    cash: { first: 'ask', wait: 6, then: 'reattempt' },
-    future: { first: 'ask', wait: 6, then: 'reattempt' },
-    /* refused + no answer: one more try (couriers often mark "refused" without reaching anyone); refused again -> return */
-    refused: { first: 'ask', wait: 12, then: 'reattempt' },
+    not_available: { first: 'reattempt', wait: 0, then: 'reattempt' },
+    phone: { first: 'reattempt', wait: 0, then: 'reattempt' },
+    address: { first: 'reattempt', wait: 0, then: 'reattempt' },
+    cash: { first: 'reattempt', wait: 0, then: 'reattempt' },
+    future: { first: 'reattempt', wait: 0, then: 'reattempt' },
+    /* couriers (Xpressbees above all) mark "refused" without reaching anyone: re-attempted like the rest */
+    refused: { first: 'reattempt', wait: 0, then: 'reattempt' },
     courier: { first: 'reattempt', wait: 0, then: 'reattempt' },
-    other: { first: 'ask', wait: 8, then: 'reattempt' },
+    other: { first: 'reattempt', wait: 0, then: 'reattempt' },
   },
   /* WhatsApp autopilot (lib/ndr-pilot.js): reads replies, nudges, books re-attempts, one save before a cancel */
-  pilot: { on: true, nudge_h: 3, save: true, quiet: true },
+  pilot: { on: false, nudge_h: 3, save: true, quiet: true },
 };
 const FIRST = ['ask', 'reattempt', 'return', 'manual'];
 const THEN = ['reattempt', 'return', 'manual'];
 
 export function ndrCfg(env) {
-  const s = env.SETTINGS?.ndr || {};
-  /* rules saved before the autopilot (v < 2) ended in "leave to me": those steps now run themselves */
-  const old = Number(s.v || 0) < 2;
+  const s0 = env.SETTINGS?.ndr || {};
+  /* rules saved before v3 asked the customer first: they move to the v3 defaults (only on / off is kept) */
+  const s = Number(s0.v || 0) < 3 ? { mode: s0.mode, protect_paid: s0.protect_paid, v: 3 } : s0;
   const rules = {};
   for (const k of Object.keys(CATEGORIES)) {
     const d = NDR_DEFAULTS.rules[k], r = { ...d, ...(s.rules?.[k] || {}) };
-    if (old && r.first === 'manual') r.first = d.first;
-    if (old && r.then === 'manual') r.then = d.then;
     rules[k] = { first: FIRST.includes(r.first) ? r.first : d.first, wait: Math.max(0, Math.min(72, Number(r.wait) || 0)), then: THEN.includes(r.then) ? r.then : d.then };
   }
   const p = { ...NDR_DEFAULTS.pilot, ...(s.pilot || {}) };
   return {
-    v: 2,
+    v: 3,
+    message: s.message === true,
     mode: s.mode === 'off' ? 'off' : 'on',
     max_attempts: Math.max(1, Math.min(5, Number(s.max_attempts) || NDR_DEFAULTS.max_attempts)),
-    after_max: old ? 'return' : s.after_max === 'manual' ? 'manual' : 'return',
+    after_max: s.after_max === 'manual' ? 'manual' : 'return',
     protect_paid: s.protect_paid !== false,
     rules,
     pilot: { on: p.on !== false, nudge_h: Math.max(1, Math.min(24, Number(p.nudge_h) || 3)), save: p.save !== false, quiet: p.quiet !== false },
@@ -94,6 +99,7 @@ export function ndrCfg(env) {
 export function shouldNotify(env, reason) {
   const c = ndrCfg(env);
   if (c.mode === 'off') return null;          /* not decided here: the old behaviour applies */
+  if (!c.message) return false;
   const r = c.rules[classifyNdr(reason)];
   return r.first === 'ask' || r.first === 'reattempt';
 }
@@ -131,14 +137,11 @@ export function planNdr(cfg, nd, st, ship, paid, t = now()) {
   /* a choice made after this NDR appeared (customer link / reply, or the team) wins */
   if (ship?.ndr_choice && Number(ship.ndr_choice_at) >= firstSeen - 3600) return { act: 'none', why: `${ship.ndr_by || 'someone'} chose ${ship.ndr_choice}`, category };
   const att = Number(nd.attempts) || 1;
-  /* fewer than MIN_ATTEMPTS tries: never return on our own, ask the courier to go again */
-  const noReturn = (a) => (a === 'return' && att < MIN_ATTEMPTS ? 'reattempt' : a === 'return' && paid && cfg.protect_paid ? 'manual' : a);
-  /* Shiprocket takes no re-attempt after the 3rd failed attempt ("Cannot Raise in 3rd Attempt"): the courier sends it
-     back on its own. Only a refusal is returned by us at that point; anything else is left to run its course. */
-  if (att >= MIN_ATTEMPTS) {
-    if (category === 'refused' && !(ship?.ndr_choice === 'reattempt' && ship?.ndr_by === 'customer')) return { act: noReturn('return'), why: `refused at attempt ${att}`, category };
-    return { act: 'none', why: `${att} attempts done: Shiprocket allows no more re-attempts`, category };
-  }
+  /* we never start a return: before MIN_ATTEMPTS tries the courier is asked to go again; after that Shiprocket takes
+     no more re-attempts ("Cannot Raise in 3rd Attempt") and the courier returns it on its own */
+  const noReturn = (a) => (a === 'return' ? (att < MIN_ATTEMPTS ? 'reattempt' : 'none') : a);
+  if (OTP_REFUSAL.test(String(nd.reason || ''))) return { act: 'none', why: 'customer refused with the OTP: the courier returns it', category };
+  if (att >= MIN_ATTEMPTS) return { act: 'none', why: `${att} attempts done: Shiprocket allows no more re-attempts`, category };
   if (rule.first === 'reattempt') return { act: 'reattempt', why: CATEGORIES[category].label, category };
   if (rule.first === 'return') return { act: noReturn('return'), why: CATEGORIES[category].label, category };
   if (rule.first === 'manual') return { act: 'manual', why: CATEGORIES[category].label, category };
@@ -189,7 +192,7 @@ export async function autoNdr(env, { dry = false } = {}) {
       if (dry) { out.actions.push({ order: s.order_name, act: 'reattempt', why: 'earlier re-attempt was not applied by Shiprocket' }); continue; }
       const want = s.ndr_date && String(s.ndr_date) > new Date(Date.now() + 19800000).toISOString().slice(0, 10) ? String(s.ndr_date) : '';
       try {
-        const r = await ndrAction(env, { awb: nd.awb, action: 're-attempt', deferred_date: want, comments: 'Re-attempt delivery please. Call the customer before coming.' });
+        const r = await ndrAction(env, { awb: nd.awb, action: 're-attempt', deferred_date: want, comments: REATTEMPT_NOTE(nd.attempts) });
         await env.DB.prepare('UPDATE ndr_auto SET action=?, action_at=?, note=?, error=NULL, tries=COALESCE(tries,0)+1 WHERE awb=? AND k=?').bind('reattempt', t, 're-sent: earlier request was not applied', nd.awb, k).run();
         await env.DB.prepare('UPDATE shipments SET ndr_date=?, updated_at=? WHERE awb=?').bind(r.deferred_date || null, t, nd.awb).run();
         out.reattempt++; out.resent = (out.resent || 0) + 1; out.actions.push({ order: s.order_name, act: 'reattempt', why: 're-sent (earlier one not applied)', date: r.deferred_date });
@@ -213,7 +216,7 @@ export async function autoNdr(env, { dry = false } = {}) {
     const date = p.act === 'reattempt' && p.category === 'future' ? nextWorkingDay(Date.now(), 1) : '';
     try {
       const r = await ndrAction(env, { awb: nd.awb, action: p.act === 'return' ? 'return' : 're-attempt', deferred_date: date,
-        comments: p.act === 'return' ? `Auto: ${p.why}` : `Auto re-attempt (${p.why}). Please call the customer before delivery.` });
+        comments: p.act === 'return' ? `Auto: ${p.why}` : REATTEMPT_NOTE(nd.attempts) });
       await env.DB.prepare('UPDATE ndr_auto SET action=?, action_at=?, note=?, error=NULL WHERE awb=? AND k=?').bind(p.act, t, p.why, nd.awb, k).run();
       await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, ndr_attempt=?, updated_at=? WHERE awb=?')
         .bind(p.act, t, r.deferred_date || date || null, 'auto', nd.attempts || null, t, nd.awb).run();
@@ -239,7 +242,6 @@ export async function autoNdr(env, { dry = false } = {}) {
  */
 async function pushUnlisted(env, cfg, listed) {
   try {
-    const { OTP_REFUSAL } = await import('./sr-scan.js');
     const t = now();
     /* one-off: the first run of this step (25 Oct 2026) also hit parcels whose re-attempt had just gone through */
     if (!pushUnlisted.cleaned) {
@@ -264,7 +266,7 @@ async function pushUnlisted(env, cfg, listed) {
       await env.DB.prepare('INSERT INTO ndr_auto (awb, k, order_id, order_name, attempt, category, reason, first_seen) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING')
         .bind(s.awb, k, String(s.order_id), s.order_name, att, classifyNdr(reason), reason, t).run();
       try {
-        const r = await ndrAction(env, { awb: s.awb, action: 're-attempt', comments: `Attempt ${att} of ${MIN_ATTEMPTS}: please do not return. Re-attempt delivery and call the customer before coming.` });
+        const r = await ndrAction(env, { awb: s.awb, action: 're-attempt', comments: REATTEMPT_NOTE(att) });
         await env.DB.prepare('UPDATE ndr_auto SET action=?, action_at=?, note=? WHERE awb=? AND k=?').bind('reattempt', t, 'not in Shiprocket NDR list: re-attempt asked at once', s.awb, k).run();
         await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, ndr_attempt=?, updated_at=? WHERE awb=?').bind('reattempt', t, r.deferred_date || null, 'auto', att, t, s.awb).run();
         res.pushed++;

@@ -49,6 +49,37 @@ export function pickOption(options, { policy = 'cheapest', toleranceDays = 2 } =
   return pool.slice().sort(byPrice)[0];
 }
 
+/** 'Xpressbees Surface 2kg' -> 'xpressbees', 'Blue Dart Air' -> 'bluedart' (RTO history is kept per courier company) */
+export const courierFamily = (name) => { const w = String(name || '').toLowerCase().replace(/[^a-z ]/g, ' ').trim().split(/\s+/); return w[0] === 'blue' || w[0] === 'ecom' || w[0] === 'shadow' ? w.slice(0, 2).join('') : w[0] || ''; };
+
+/**
+ * COD: pick the courier with the lowest expected cost, not the lowest freight. A courier that returns 60% of COD
+ * parcels costs its freight plus, on most parcels, the freight back and the ad money spent on the order.
+ *   expected = charge + rto% x (charge + loss)        loss = what one RTO costs besides the return freight (₹)
+ * rto% is this store's own record per courier company, pulled toward the store average when a courier has only a
+ * few finished parcels (prior weight `k`), so one lucky parcel does not win everything. Only options within the
+ * delivery-date tolerance of the fastest are compared, like pickOption.
+ * stats = { family: { delivered, rto } }. Returns { pick, note, table } or null when there is no history.
+ */
+export function pickByRisk(options, stats, { toleranceDays = 2, loss = 150, k = 10 } = {}) {
+  const priced = options.filter((o) => o.charge !== null && o.charge !== undefined);
+  if (priced.length < 2 || !stats) return null;
+  let D = 0, R = 0;
+  for (const x of Object.values(stats)) { D += x.delivered; R += x.rto; }
+  if (D + R < 20) return null;
+  const avg = R / (D + R);
+  const rate = (o) => { const x = stats[courierFamily(o.courier)] || { delivered: 0, rto: 0 }; return (x.rto + k * avg) / (x.delivered + x.rto + k); };
+  const dated = priced.filter((o) => o.eddDate);
+  const fastest = dated.length ? Math.min(...dated.map((o) => +o.eddDate)) : null;
+  const pool = fastest === null ? priced : priced.filter((o) => !o.eddDate || +o.eddDate <= fastest + toleranceDays * DAY);
+  const cost = (o) => o.charge + rate(o) * (o.charge + loss);
+  const table = pool.map((o) => ({ courier: o.courier, charge: o.charge, rto_pct: Math.round(rate(o) * 100), expected: Math.round(cost(o)) })).sort((a, b) => a.expected - b.expected);
+  const pick = pool.slice().sort((a, b) => cost(a) - cost(b))[0];
+  const cheapest = pool.slice().sort((a, b) => a.charge - b.charge)[0];
+  const note = pick.id === cheapest.id ? '' : `COD: ${pick.courier} (₹${pick.charge}, ~${Math.round(rate(pick) * 100)}% RTO) instead of ${cheapest.courier} (₹${cheapest.charge}, ~${Math.round(rate(cheapest) * 100)}% RTO on your parcels)`;
+  return { pick, note, table };
+}
+
 /**
  * Ask every connected carrier, in parallel. A carrier that is down or rejects its login is reported in `errors`
  * and the others still decide. Returns { options (cheapest first), pick, cheapest, fastest, errors, tried, connected }.

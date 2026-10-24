@@ -806,7 +806,7 @@ const ACTIONS = {
     return { ok: true, allow_never: !!b.allow_never, only_never: !!plan.onlyNever, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
       shipment: publicRec(existing && existing.awb && existing.status !== 'cancelled' ? existing : null),
       options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null, excluded: o.excluded || '' })),
-      fallback: plan.fallback || '', why: plan.why || '', excluded: plan.excluded || [], convert_on: convertCfgOf(fresh).mode === 'on' };
+      fallback: plan.fallback || '', why: plan.why || '', excluded: plan.excluded || [], convert_on: convertCfgOf(fresh).mode === 'on', risk_note: plan.risk_note || '' };
   },
   /** Book it: Shiprocket order -> AWB (cheapest courier) -> pickup -> label, then Shopify fulfilment + WhatsApp. */
   async ship_book(env, b) {

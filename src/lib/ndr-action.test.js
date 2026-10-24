@@ -12,18 +12,13 @@ test('next delivery day skips Sunday', () => {
   assert.equal(nextNdrDate('2026-10-24'), '2026-10-26');   // Sat -> Mon
   assert.equal(nextNdrDate('2026-10-26'), '2026-10-27');
 });
-test('no automatic return before 3 attempts', () => {
-  const cfg = ndrCfg({ SETTINGS: { ndr: { v: 2, max_attempts: 2, rules: { refused: { first: 'return' } } } } });
+test('no return by us; 3 attempts', () => {
+  const cfg = ndrCfg({ SETTINGS: { ndr: { v: 3, rules: { refused: { first: 'return' } } } } });
   const t = 2000000000;
   const nd = (attempts, reason) => ({ awb: '1', reason, attempts, date: '' });
   assert.equal(planNdr(cfg, nd(1, 'Customer refused'), { first_seen: t }, {}, false, t).act, 'reattempt');
-  assert.equal(planNdr(cfg, nd(2, 'Consignee Uncontactable'), { first_seen: t - 99999 }, {}, false, t).act, 'reattempt');
+  assert.equal(planNdr(cfg, nd(2, 'Consignee Uncontactable'), { first_seen: t }, {}, false, t).act, 'reattempt');
   assert.equal(planNdr(cfg, nd(3, 'Consignee Uncontactable'), { first_seen: t }, {}, false, t).act, 'none');
-  const c2 = ndrCfg({ SETTINGS: { ndr: { v: 2, max_attempts: 5 } } });
-  assert.equal(planNdr(c2, nd(2, 'Customer refused'), { first_seen: t - 99999 }, {}, false, t).act, 'reattempt');
-  assert.equal(planNdr(c2, nd(3, 'Customer refused'), { first_seen: t - 99999 }, {}, false, t).act, 'return');
-  /* customer said return on WhatsApp after the NDR: their choice stands */
-  assert.equal(planNdr(c2, nd(1, 'Customer refused'), { first_seen: t - 100 }, { ndr_choice: 'return', ndr_choice_at: t }, false, t).act, 'none');
 });
 
 test('door failures read as NDR, not cancelled; manifest address scans stay pre-pickup', async () => {
@@ -34,4 +29,16 @@ test('door failures read as NDR, not cancelled; manifest address scans stay pre-
   assert.equal(stageOf('Return To Origin', true), 'rto');
   assert.notEqual(stageOf('Manifested - Bad/Incomplete Address', true), 'ndr');
   assert.equal(stageOf('Pickup cancelled by seller', false), 'pickup_failed');
+});
+
+test('COD courier pick weighs each courier\'s RTO record', async () => {
+  const { pickByRisk, courierFamily } = await import('./rates.js');
+  assert.equal(courierFamily('Xpressbees Surface 1kg'), 'xpressbees'); assert.equal(courierFamily('Blue Dart Air'), 'bluedart'); assert.equal(courierFamily('Delhivery Surface'), 'delhivery');
+  const d = new Date(Date.now() + 3 * 86400000);
+  const opts = [{ id: 'x', courier: 'Xpressbees Surface', charge: 92, eddDate: d }, { id: 'd', courier: 'Delhivery Surface', charge: 100, eddDate: d }, { id: 'b', courier: 'Blue Dart Air', charge: 140, eddDate: d }];
+  const stats = { xpressbees: { delivered: 16, rto: 25 }, delhivery: { delivered: 10, rto: 6 }, bluedart: { delivered: 8, rto: 0 } };
+  const r = pickByRisk(opts, stats, { loss: 150 });
+  assert.notEqual(r.pick.id, 'x'); assert.match(r.note, /instead of Xpressbees/);
+  /* no history yet: leave the normal pick alone */
+  assert.equal(pickByRisk(opts, { delhivery: { delivered: 2, rto: 1 } }), null);
 });

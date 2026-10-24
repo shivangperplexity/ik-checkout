@@ -296,10 +296,22 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
         : `Shiprocket has no courier for ${pin} at all${r.message ? ' (' + r.message + ')' : ''}. Check the PIN code with the customer.`;
     } else why = `Shiprocket has no courier for ${pin}${r.message ? ' (' + r.message + ')' : ''}. Check the PIN code with the customer.`;
   }
-  const pick = pickOption(options, { policy: c.policy, toleranceDays: c.toleranceDays });
+  let pick = pickOption(options, { policy: c.policy, toleranceDays: c.toleranceDays }), riskNote = '', risk = null;
+  /* COD: weigh each courier's RTO record on this store's parcels (Settings > Shipping: cod_risk_pick, on by default) */
+  if (cod && options.length > 1 && s.cod_risk_pick !== false) {
+    try {
+      const { pickByRisk, courierFamily } = await import('./rates.js');
+      const rows = (await env.DB.prepare("SELECT courier, stage, rto FROM shipments WHERE COALESCE(status,'')<>'cancelled' AND (stage IN ('delivered','rto') OR rto=TRUE)").all()).results;
+      const stats = {};
+      for (const x of rows) { const f = courierFamily(x.courier); if (!f) continue; const st = stats[f] = stats[f] || { delivered: 0, rto: 0 }; if (x.stage === 'rto' || x.rto === true || x.rto === 1) st.rto++; else st.delivered++; }
+      const cacLoss = Number(env.SETTINGS?.profit?.cac) || 0;
+      risk = pickByRisk(options, stats, { toleranceDays: c.toleranceDays, loss: Math.max(100, cacLoss || 150) });
+      if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
+    } catch (e) { console.error('cod risk pick', e.message); }
+  }
   const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
   const onlyNever = !r.list.some((o) => !o.never) && r.list.some((o) => o.never);
-  return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever };
+  return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever, risk_note: riskNote, risk_table: risk?.table || null };
 }
 function eddOf(edd) {
   const s = String(edd || '').trim(); if (!s) return null;
