@@ -832,6 +832,13 @@ const ACTIONS = {
     return { ok: true, note: r.note };
   },
   async sr_pickups(env) { return { ok: true, pickups: await srPickups(await withSettingsFresh(env)) }; },
+  /** Read-only look at Shiprocket's raw answer (NDR list, tracking) for checking what the courier really did. */
+  async sr_peek(env, b) {
+    const p = String(b.path || '');
+    if (!/^(ndr\/all(\?[\w=&-]*)?|ndr\/[\w-]+|courier\/track\/awb\/\w+|orders\/show\/\d+)$/.test(p)) throw new Error('Only NDR / tracking paths can be read here');
+    const { sr } = await import('./shiprocket.js');
+    return { ok: true, data: await sr(await withSettingsFresh(env), 'GET', p) };
+  },
   /**
    * Shipments tab. range: today | yesterday | 7d | 30d | all (by booking date, IST); stage: one of STAGES or 'all';
    * q: order / AWB / name / phone. Counts per stage are for the range; "attention" is across all dates.
