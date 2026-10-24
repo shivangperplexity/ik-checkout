@@ -304,8 +304,11 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
       const rows = (await env.DB.prepare("SELECT courier, stage, rto FROM shipments WHERE COALESCE(status,'')<>'cancelled' AND (stage IN ('delivered','rto') OR rto=TRUE)").all()).results;
       const stats = {};
       for (const x of rows) { const f = courierFamily(x.courier); if (!f) continue; const st = stats[f] = stats[f] || { delivered: 0, rto: 0 }; if (x.stage === 'rto' || x.rto === true || x.rto === 1) st.rto++; else st.delivered++; }
-      const cacLoss = Number(env.SETTINGS?.profit?.cac) || 0;
-      risk = pickByRisk(options, stats, { toleranceDays: c.toleranceDays, loss: Math.max(100, cacLoss || 150) });
+      /* an RTO loses the margin a delivery would have earned (COD amount minus stock cost) on top of the freight back;
+         ad spend is the same either way, so it does not change which courier is better */
+      const units = (order.items || []).reduce((n, i) => n + Math.max(1, Number(i.quantity) || 1), 0) || 1;
+      const margin = codAmount - units * (Number(env.SETTINGS?.profit?.unit_cost) || 0);
+      risk = pickByRisk(options, stats, { toleranceDays: c.toleranceDays, loss: Math.max(100, Math.round(margin)) });
       if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
     } catch (e) { console.error('cod risk pick', e.message); }
   }

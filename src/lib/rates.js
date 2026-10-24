@@ -55,7 +55,7 @@ export const courierFamily = (name) => { const w = String(name || '').toLowerCas
 /**
  * COD: pick the courier with the lowest expected cost, not the lowest freight. A courier that returns 60% of COD
  * parcels costs its freight plus, on most parcels, the freight back and the ad money spent on the order.
- *   expected = charge + rto% x (charge + loss)        loss = what one RTO costs besides the return freight (₹)
+ *   expected = charge + rto% x (charge + loss)        loss = the margin an RTO loses besides the return freight (₹)
  * rto% is this store's own record per courier company, pulled toward the store average when a courier has only a
  * few finished parcels (prior weight `k`), so one lucky parcel does not win everything. Only options within the
  * delivery-date tolerance of the fastest are compared, like pickOption.
