@@ -11,7 +11,7 @@ function world() {
     run: async () => { if (/SET ndr_choice=\?/.test(q)) Object.assign(ships[a[5]], { ndr_choice: a[0], ndr_choice_at: a[1], ndr_date: a[2], ndr_by: a[3] }); if (/INSERT INTO messages/.test(q)) calls.push('log ' + a[3] + ' ' + a[4]); return {}; },
   }) }; } };
   const real = globalThis.fetch;
-  globalThis.fetch = async (u, o) => { const url = String(u); if (/auth\/login/.test(url)) return new Response('{"token":"t"}'); if (/ndr\//.test(url)) { calls.push('sr ' + JSON.parse(o.body).action + ' ' + (JSON.parse(o.body).deferred_date || '')); return new Response('{"message":"ok"}'); } if (/messages/.test(url)) { texts.push(JSON.parse(o.body)); return new Response('{"messages":[{"id":"m"}]}'); } return new Response('{}'); };
+  globalThis.fetch = async (u, o) => { const url = String(u); if (/auth\/login/.test(url)) return new Response('{"token":"t"}'); if (/ndr\//.test(url)) { calls.push('sr ' + JSON.parse(o.body).action + ' ' + (JSON.parse(o.body).deferred_date || '')); return new Response('{"message":"Data Updated Sucessfully"}'); } if (/messages/.test(url)) { texts.push(JSON.parse(o.body)); return new Response('{"messages":[{"id":"m"}]}'); } return new Response('{}'); };
   const env = { DB: db, WORKER_URL: 'https://ik.example', ADMIN_TOKEN: 'secret', SHIPROCKET_EMAIL: 'a', SHIPROCKET_PASSWORD: 'b', SETTINGS: { shipping: { shiprocket_email: 'a', shiprocket_password: 'b' }, wa: {} }, WA_PHONE_ID: 'p', WA_TOKEN: 't' };
   return { env, ships, calls, texts, done: () => { globalThis.fetch = real; } };
 }
@@ -51,6 +51,6 @@ test('the link page: bad signature refused, good one shows the choices, POST app
     const ok = await handleNdr(new Request(`https://ik.example/api/wa/ndr?o=1&s=${sig}`), w.env);
     const html = await ok.text(); assert.match(html, /Deliver again/); assert.match(html, /Return the parsel|Return the parcel/); assert.match(html, /type="date"/);
     const post = await handleNdr(new Request(`https://ik.example/api/wa/ndr?o=1&s=${sig}&d=r`, { method: 'POST', body: new URLSearchParams({ date: '' }) }), w.env);
-    assert.match(await post.text(), /re-attempted on the next working day/); assert.ok(w.calls.includes('sr re-attempt '));
+    assert.match(await post.text(), /re-attempted on the next working day/); assert.ok(w.calls.some((c) => /^sr re-attempt \d{4}-\d{2}-\d{2}$/.test(c)), 'a re-attempt always carries a date');
   } finally { w.done(); }
 });

@@ -1332,8 +1332,8 @@ const ACTIONS = {
     const r = await ndrAction(await withSettingsFresh(env), { awb: String(b.awb || ''), action, phone: String(b.phone || '').replace(/\D/g, '').slice(-10), deferred_date: date, comments: String(b.comments || '').slice(0, 200) });
     /* remember it, so the NDR card shows "re-attempt requested" instead of asking again (Shiprocket lists it until the next attempt) */
     await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, ndr_attempt=?, updated_at=? WHERE awb=?')
-      .bind(action === 'return' ? 'return' : 'reattempt', now(), date || null, 'team', Number(b.attempts) || null, now(), String(b.awb || '')).run().catch(() => {});
-    return { ok: true, response: r.message || r.status || 'sent' };
+      .bind(action === 'return' ? 'return' : 'reattempt', now(), r.deferred_date || date || null, 'team', Number(b.attempts) || null, now(), String(b.awb || '')).run().catch(() => {});
+    return { ok: true, response: (r.message || 'Sent') + (r.deferred_date ? ' · delivery on ' + r.deferred_date : ''), deferred_date: r.deferred_date || '' };
   },
   async save_wa(env, b) {
     const s = await getSettings(env, true);

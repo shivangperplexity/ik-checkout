@@ -40,11 +40,12 @@ test('ask first, then act after the wait; a customer / team choice wins', () => 
   assert.equal(planNdr(cfg, nd, { first_seen: T, action: 'reattempt' }, {}, false, T + 9 * 3600).act, 'none');
 });
 
-test('courier-side reasons re-attempt at once; refused: one more try, refused again -> return', () => {
+test('courier-side reasons re-attempt at once; refused: re-attempted until 3 attempts, refused again at 3 -> return', () => {
   assert.equal(planNdr(cfg, { reason: 'ODA location' }, { first_seen: T }, {}, false, T).act, 'reattempt');
   assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 1 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'reattempt');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'return');
-  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, {}, true, T + 13 * 3600).act, 'manual', 'prepaid never returned');
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'reattempt', 'fewer than 3 attempts');
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, false, T + 13 * 3600).act, 'return');
+  assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, true, T + 13 * 3600).act, 'manual', 'prepaid never returned');
   /* the customer said yes after the second refusal: their choice wins */
   assert.equal(planNdr(cfg, { reason: 'Customer refused', attempts: 2 }, { first_seen: T }, { ndr_choice: 'reattempt', ndr_choice_at: T + 60 }, false, T + 13 * 3600).act, 'none');
 });
@@ -61,8 +62,8 @@ test('attempt limit, prepaid never returned automatically, off does nothing', ()
   const c2 = ndrCfg({ SETTINGS: { ndr: { ...NDR_DEFAULTS, after_max: 'return', rules: { ...NDR_DEFAULTS.rules, refused: { first: 'return', wait: 0, then: 'return' } } } } });
   assert.equal(planNdr(c2, { reason: 'Customer not available', attempts: 3 }, { first_seen: T }, {}, false, T).act, 'return');
   assert.equal(planNdr(c2, { reason: 'Customer not available', attempts: 3 }, { first_seen: T }, {}, true, T).act, 'manual');
-  assert.equal(planNdr(c2, { reason: 'Customer refused' }, { first_seen: T }, {}, false, T).act, 'return');
-  assert.equal(planNdr(c2, { reason: 'Customer refused' }, { first_seen: T }, {}, true, T).act, 'manual');
+  assert.equal(planNdr(c2, { reason: 'Customer refused' }, { first_seen: T }, {}, false, T).act, 'reattempt', 'first attempt is never returned');
+  assert.equal(planNdr(c2, { reason: 'Customer refused', attempts: 3 }, { first_seen: T }, {}, true, T).act, 'manual');
   assert.equal(planNdr(ndrCfg({ SETTINGS: { ndr: { mode: 'off' } } }), { reason: 'x' }, {}, {}, false, T).act, 'none');
 });
 

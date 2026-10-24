@@ -171,21 +171,69 @@ export async function srTrack(env, awb) { return adaptTrack(await sr(env, 'GET',
 
 /* ---------- NDR (failed delivery attempts) and RTO ---------- */
 export async function ndrList(env) {
-  const j = await sr(env, 'GET', 'ndr/all');
+  const j = await sr(env, 'GET', 'ndr/all?per_page=100');
   const list = Array.isArray(j.data) ? j.data : j.data?.data || [];
   return list.map((x) => ({ awb: String(x.awb_code || x.awb || ''), order: x.order_id || x.channel_order_id || '', reason: String(x.ndr_reason || x.reason || x.remarks || ''), attempts: Number(x.ndr_attempt || x.attempts || x.total_attempts || 0) || null, date: String(x.ndr_raised_at || x.date || '') })).filter((x) => x.awb);
 }
 /** action: 're-attempt' (ask the courier to try again, optionally on a later date / new phone) or 'return' (send it back, RTO). */
+/*
+ * Shiprocket answers an NDR action with HTTP 200 even when it rejects it: a re-attempt without a date (or with a
+ * date outside its window) comes back as { message: "Please choose a valid date; Valid dates are 26 Oct,27 Oct,28 Oct" }
+ * and nothing reaches the courier. So: a re-attempt always carries a date (next working day unless asked otherwise),
+ * a "valid dates are ..." answer is retried once with the nearest valid date, and any answer that is not a success
+ * throws, so callers log it as failed instead of "done".
+ */
+const ND_OK = /success|sucess|updated|submitted|initiated|accepted|action taken/i;
+const MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+const istToday = () => new Date(Date.now() + 19800000).toISOString().slice(0, 10);
+/** "Valid dates are 26 Oct,27 Oct,28 Oct" -> ['2026-10-26', ...] (year from today, rolling over at New Year) */
+export function validNdrDates(msg, today = istToday()) {
+  const m = /valid dates? (?:are|is)\s*:?\s*(.+)$/i.exec(String(msg || ''));
+  if (!m) return [];
+  const y = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7)) - 1;
+  return [...m[1].matchAll(/(\d{1,2})\s*([a-z]{3})[a-z]*(?:\s*(\d{4}))?/gi)].map((x) => {
+    const mo = MON[x[2].toLowerCase()]; if (mo === undefined) return '';
+    const yr = x[3] ? Number(x[3]) : mo < tm - 6 ? y + 1 : y;
+    return `${yr}-${String(mo + 1).padStart(2, '0')}-${String(Number(x[1])).padStart(2, '0')}`;
+  }).filter(Boolean).sort();
+}
+/** Next delivery day (IST) after today, skipping Sundays */
+export function nextNdrDate(today = istToday()) {
+  const d = new Date(today + 'T06:00:00Z');
+  do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() === 0);
+  return d.toISOString().slice(0, 10);
+}
+const ndMsg = (j) => String(j?.message || j?.msg || j?.status_message || (typeof j?.data === 'string' ? j.data : '') || j?.error || '').trim();
+const ndOk = (j) => j?.success === true || j?.status === true || j?.status === 200 || ND_OK.test(ndMsg(j));
+
 export async function ndrAction(env, { awb, action, comments, phone, deferred_date, address1, address2 }) {
   if (!awb) throw new Error('Missing AWB');
-  const body = action === 'return' ? { action: 'return', comments: comments || 'Return to origin' }
-    : { action: 're-attempt', comments: comments || 'Please re-attempt delivery', ...(phone ? { phone } : {}), ...(deferred_date ? { deferred_date } : {}), ...(address1 ? { address1 } : {}), ...(address2 ? { address2 } : {}) };
-  try { return await sr(env, 'POST', `ndr/${encodeURIComponent(awb)}/action`, body); }
-  catch (e) {
-    if (e.status !== 404 || action === 'return') throw e;
-    const q = new URLSearchParams({ awb, ...(phone ? { phone } : {}), ...(deferred_date ? { deferred_date } : {}), ...(address1 ? { address1 } : {}), ...(address2 ? { address2 } : {}) });
-    return sr(env, 'POST', 'ndr/reattempt?' + q, {});   // older route, same effect
+  const path = `ndr/${encodeURIComponent(awb)}/action`;
+  if (action === 'return') {
+    const j = await sr(env, 'POST', path, { action: 'return', comments: comments || 'Return to origin' });
+    if (!ndOk(j)) throw new Error('Shiprocket did not accept the return: ' + (ndMsg(j) || JSON.stringify(j).slice(0, 160)));
+    return { ...j, ok: true };
   }
+  let date = /^\d{4}-\d{2}-\d{2}$/.test(String(deferred_date || '')) && deferred_date > istToday() ? deferred_date : nextNdrDate();
+  const send = (d) => sr(env, 'POST', path, { action: 're-attempt', comments: comments || 'Please re-attempt delivery', deferred_date: d,
+    ...(phone ? { phone } : {}), ...(address1 ? { address1 } : {}), ...(address2 ? { address2 } : {}) });
+  let j;
+  try { j = await send(date); }
+  catch (e) {
+    if (e.status !== 404) throw e;
+    const q = new URLSearchParams({ awb, deferred_date: date, ...(phone ? { phone } : {}), ...(address1 ? { address1 } : {}), ...(address2 ? { address2 } : {}) });
+    j = await sr(env, 'POST', 'ndr/reattempt?' + q, {});   // older route, same effect
+  }
+  if (!ndOk(j)) {
+    const valid = validNdrDates(ndMsg(j));
+    if (valid.length) {
+      const want = date;
+      date = valid.find((d) => d >= want) || valid[valid.length - 1];
+      j = await send(date);
+    }
+  }
+  if (!ndOk(j)) throw new Error('Shiprocket did not accept the re-attempt: ' + (ndMsg(j) || JSON.stringify(j).slice(0, 160)));
+  return { ...j, ok: true, deferred_date: date };
 }
 
 /* ---------- booking ---------- */
