@@ -123,6 +123,10 @@ export const SCHEMA = [
   /* Real revenue (lib/revenue.js): every Shopify order and how it ended */
   `CREATE TABLE IF NOT EXISTS rev_orders (order_id TEXT PRIMARY KEY, name TEXT, created_at BIGINT, total_paise BIGINT, refunded_paise BIGINT, pay TEXT, state TEXT, delivered_at BIGINT, shipped_at BIGINT, carrier TEXT, awb TEXT, units INT, tags TEXT, scanned_at BIGINT)`,
   `ALTER TABLE rev_orders ADD COLUMN IF NOT EXISTS picked_at BIGINT`,
+  `ALTER TABLE rev_orders ADD COLUMN IF NOT EXISTS region TEXT`,
+  `ALTER TABLE rev_orders ADD COLUMN IF NOT EXISTS src TEXT`,
+  `ALTER TABLE rev_orders ADD COLUMN IF NOT EXISTS src_label TEXT`,
+  `ALTER TABLE rev_orders ADD COLUMN IF NOT EXISTS src_detail TEXT`,
   /* delivery attempts before RTO, from the courier's scans (lib/sr-scan.js attemptsOf) */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS attempts INT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS attempt_notes TEXT`,

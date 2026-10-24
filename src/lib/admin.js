@@ -6,6 +6,7 @@ import { orderForShipping, packingItems, activeFulfilments, updateTracking, canc
 import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
+import { normState } from './revenue.js';
 import { cfg as cfgShip, courierBlocked } from './shipping.js';
 import { isCollab } from './collab.js';
 import { labelPdf } from './labels.js';
@@ -855,8 +856,9 @@ const ACTIONS = {
           ORDER BY COALESCE(tracked_at,0) LIMIT 24`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
       if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
     } catch (e) { console.error('ship first check', e); }
-    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json, o.advance_paise, o.converted_at, o.status AS order_status
-        FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id
+    const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json, o.advance_paise, o.converted_at, o.status AS order_status, o.state_code,
+        rv.src_label, rv.src_detail, rv.region
+        FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id LEFT JOIN rev_orders rv ON rv.order_id = s.order_id
         WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
       /* not checked yet: only trust an older reading if the parcel was clearly delivered / returned */
@@ -868,6 +870,7 @@ const ACTIONS = {
         cod_mismatch: r.cod_paise != null && r.sr_total_paise != null && Math.abs(num(r.cod_paise) - num(r.sr_total_paise)) > 100 ? { ours: num(r.cod_paise) / 100, shiprocket: num(r.sr_total_paise) / 100 } : null, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
         picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null,
         attempts: r.attempts == null ? null : num(r.attempts), attempt_notes: r.attempt_notes || '',
+        source: r.src_label || '', source_detail: r.src_detail || '', state: normState(r.region, r.state_code),
         /* cash the courier collects on this parcel: what it was booked to collect (a later pay-online conversion does not change a parcel already out) */
         cod_amt: r.cod_paise != null ? num(r.cod_paise) / 100 : codDue({ ...r, status: r.order_status }) / 100 };
     });
@@ -1235,6 +1238,11 @@ const ACTIONS = {
     return { ok: true, ...(await profitAdvice(await withSettings(await withSettingsFresh(env)), ACTIONS)) };
   },
   /** RTO % and profit by shipping (pickup) date, with the owner's change markers (lib/revenue.js shipCohorts). */
+  /** RTO by where the customer came from (Instagram ad, bio link, direct...) and by state */
+  async rto_breakdown(env, b) {
+    const { rtoBreakdown } = await import('./revenue.js');
+    return { ok: true, ...(await rtoBreakdown(env, { range: String(b.range || 'all') })) };
+  },
   async revenue_cohorts(env, b) {
     const { shipCohorts } = await import('./revenue.js');
     return { ok: true, ...(await shipCohorts(await withSettingsFresh(env), { group: b.group === 'week' ? 'week' : 'day', days: Math.min(400, Math.max(14, Number(b.days) || 120)) })) };

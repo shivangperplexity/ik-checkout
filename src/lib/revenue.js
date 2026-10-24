@@ -12,6 +12,7 @@
  *                 Freight back is not reported by either courier here, so it is taken as equal to freight out;
  *                 NimbusPost freight is not known at all, so its average is a setting (default: our Shiprocket average).
  */
+import { sourceOf, attrsOf } from './attribution.js';
 import { gql } from './shopify.js';
 import { shopifyDelivery } from './reviews.js';
 
@@ -25,6 +26,7 @@ const Q = `query($after:String){ orders(first:50, after:$after, sortKey:CREATED_
   nodes{ legacyResourceId name createdAt updatedAt cancelledAt displayFinancialStatus tags paymentGatewayNames
     currentTotalPriceSet{ shopMoney{ amount } } totalRefundedSet{ shopMoney{ amount } }
     lineItems(first:20){ nodes{ currentQuantity } }
+    customAttributes{ key value } shippingAddress{ province }
     fulfillments(first:5){ status displayStatus createdAt updatedAt deliveredAt trackingInfo{ number url company }
       events(first:20, sortKey:HAPPENED_AT){ nodes{ status happenedAt } } } } } }`;
 
@@ -54,6 +56,7 @@ export function rowOf(o) {
     picked_at: pickedOf(o) || d.fulfilled_at || null,
     carrier: carrierOf(o), awb: d.awb || '', units: (o.lineItems?.nodes || []).reduce((s, l) => s + num(l.currentQuantity), 0) || 1,
     tags: (o.tags || []).join(',').slice(0, 300),
+    ...(() => { const sc = sourceOf(attrsOf(o.customAttributes)); return { region: String(o.shippingAddress?.province || '').slice(0, 60), src: sc.key, src_label: sc.label, src_detail: sc.detail }; })(),
   };
 }
 
@@ -133,7 +136,7 @@ export async function revenueReport(env, { range = 'all' } = {}) {
       const out1 = freight ?? nimbusFreight;
       rto.n++; rto.freight_out += out1; rto.freight_back += out1; rto.ads += cac; rto.advance_kept += adv; rto.value_lost += pay === 'cod' ? value - adv : 0;
       if (freight == null) rto.est_n++;
-      rto.list.push({ name: r.name, carrier, pay, value, freight: out1, est: freight == null, at: when });
+      rto.list.push({ name: r.name, carrier, pay, value, freight: out1, est: freight == null, at: when, source: r.src_label || '', state: normState(r.region, '') });
     } else if (state === 'shipped') {
       const stale = carrier !== 'shiprocket' && num(r.shipped_at) && t - num(r.shipped_at) > STALE;
       if (stale) by.unknown.n++, by.unknown.value += value; else { by.transit.n++; by.transit.value += value; C().transit++; }
@@ -253,4 +256,41 @@ export async function autoMarks(env) {
     ['COD cancel warning', await first(`SELECT MIN(ts) AS t FROM messages WHERE trigger='cod_cancel_warning' AND ${sent}`)],
   ];
   return items.filter(([, t]) => t > 0).map(([label, t]) => ({ date: day(t), label, auto: true }));
+}
+
+/**
+ * RTO by where the customer came from and by state, for the Real revenue page. An order counts once it has finished
+ * (delivered or came back); the Shiprocket stage wins over Shopify's copy. range: 'all' | '30d' | '90d'.
+ */
+export async function rtoBreakdown(env, { range = 'all' } = {}) {
+  const m = /^(\d+)d$/.exec(String(range)); const since = m ? now() - Number(m[1]) * 86400 : range === 'today' ? now() - 86400 : 0;
+  const rows = (await env.DB.prepare(`SELECT r.order_id, r.state, r.pay, r.total_paise, r.region, r.src, r.src_label, o.state_code, o.method, s.stage AS sr_stage, s.rto AS sr_rto
+      FROM rev_orders r LEFT JOIN orders o ON o.order_id = r.order_id LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'')<>'cancelled'
+      WHERE r.created_at >= ?`).bind(since).all()).results;
+  const outcome = (r) => (r.sr_stage === 'delivered' ? 'delivered' : r.sr_stage === 'rto' || r.sr_rto === true || r.sr_rto === 1 ? 'returned' : r.state);
+  const group = (keyOf, labelOf) => {
+    const g = {};
+    for (const r of rows) {
+      const o = outcome(r);
+      if (!['delivered', 'returned', 'shipped'].includes(o)) continue;
+      const k = keyOf(r); if (!k) continue;
+      const x = g[k] = g[k] || { key: k, label: labelOf(r), delivered: 0, returned: 0, in_transit: 0, cod: 0, value_paise: 0, lost_paise: 0 };
+      if (o === 'delivered') { x.delivered++; x.value_paise += Number(r.total_paise) || 0; } else if (o === 'returned') { x.returned++; x.lost_paise += Number(r.total_paise) || 0; } else x.in_transit++;
+      if ((r.method || r.pay) === 'cod') x.cod++;
+    }
+    return Object.values(g).map((x) => { const f = x.delivered + x.returned; return { ...x, finished: f, rto_pct: f ? Math.round((x.returned * 1000) / f) / 10 : null }; })
+      .sort((a, b) => (b.finished + b.in_transit) - (a.finished + a.in_transit));
+  };
+  const all = group(() => 'all', () => 'All');
+  const bySource = group((r) => r.src || 'unknown', (r) => r.src_label || 'Not recorded');
+  const byState = group((r) => normState(r.region, r.state_code), (r) => normState(r.region, r.state_code));
+  const scanned = rows.filter((r) => r.src).length;
+  return { range, overall: all[0] || null, by_source: bySource, by_state: byState, with_source: scanned, total: rows.length };
+}
+const STATE_CODES = { AP: 'Andhra Pradesh', AR: 'Arunachal Pradesh', AS: 'Assam', BR: 'Bihar', CT: 'Chhattisgarh', CG: 'Chhattisgarh', GA: 'Goa', GJ: 'Gujarat', HR: 'Haryana', HP: 'Himachal Pradesh', JH: 'Jharkhand', KA: 'Karnataka', KL: 'Kerala', MP: 'Madhya Pradesh', MH: 'Maharashtra', MN: 'Manipur', ML: 'Meghalaya', MZ: 'Mizoram', NL: 'Nagaland', OR: 'Odisha', OD: 'Odisha', PB: 'Punjab', RJ: 'Rajasthan', SK: 'Sikkim', TN: 'Tamil Nadu', TG: 'Telangana', TS: 'Telangana', TR: 'Tripura', UP: 'Uttar Pradesh', UK: 'Uttarakhand', UT: 'Uttarakhand', WB: 'West Bengal', AN: 'Andaman and Nicobar', CH: 'Chandigarh', DN: 'Dadra and Nagar Haveli and Daman and Diu', DD: 'Dadra and Nagar Haveli and Daman and Diu', DL: 'Delhi', JK: 'Jammu and Kashmir', LA: 'Ladakh', LD: 'Lakshadweep', PY: 'Puducherry' };
+export function normState(region, code) {
+  const r = String(region || '').trim();
+  if (r) return r.replace(/\b(\w)(\w*)/g, (m, a, b) => a.toUpperCase() + b.toLowerCase()).replace(/\bAnd\b/g, 'and').replace(/^Orissa$/, 'Odisha').replace(/^Nct Of Delhi$|^New Delhi$/, 'Delhi');
+  const c = String(code || '').toUpperCase().replace(/^IN-/, '');
+  return STATE_CODES[c] || (c ? c : '');
 }
