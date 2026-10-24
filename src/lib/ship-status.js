@@ -74,7 +74,7 @@ export async function refreshDue(env, { max = 25 } = {}) {
   const t = now();
   const rows = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'
       AND COALESCE(stage,'') NOT IN ('delivered','lost','cancelled') AND created_at > ?
-      AND COALESCE(tracked_at,0) < (CASE WHEN COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed') THEN ?::bigint ELSE ?::bigint END)
+      AND COALESCE(tracked_at,0) < (CASE WHEN COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed','ofd','ndr') THEN ?::bigint ELSE ?::bigint END)
       ORDER BY COALESCE(tracked_at,0) LIMIT ${Math.max(1, Math.min(60, max))}`).bind(t - 45 * 86400, t - 15 * 60, t - 45 * 60).all()).results;
   /* RTO / NDR rows whose delivery-attempt count was never read (any age): fill them in, a few per run */
   const missing = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'

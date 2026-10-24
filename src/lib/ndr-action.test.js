@@ -25,3 +25,13 @@ test('no automatic return before 3 attempts', () => {
   /* customer said return on WhatsApp after the NDR: their choice stands */
   assert.equal(planNdr(c2, nd(1, 'Customer refused'), { first_seen: t - 100 }, { ndr_choice: 'return', ndr_choice_at: t }, false, t).act, 'none');
 });
+
+test('door failures read as NDR, not cancelled; manifest address scans stay pre-pickup', async () => {
+  const { stageOf } = await import('./sr-scan.js');
+  assert.equal(stageOf('Customer Refused To Accept', true), 'ndr');
+  assert.equal(stageOf('Pending - Code verified cancellation', true), 'ndr');
+  assert.equal(stageOf('Consignee Uncontactable', true), 'ndr');
+  assert.equal(stageOf('Return To Origin', true), 'rto');
+  assert.notEqual(stageOf('Manifested - Bad/Incomplete Address', true), 'ndr');
+  assert.equal(stageOf('Pickup cancelled by seller', false), 'pickup_failed');
+});

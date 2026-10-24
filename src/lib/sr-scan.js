@@ -19,9 +19,15 @@ const MOVE = /picked|pick ?up done|pickup completed|in ?transit|rece?ie?ved at|o
 export const isPickupScan = (text) => !PRE.test(text) && MOVE.test(text);
 
 /** Stage from one status text (also used for Shiprocket's overall status and older stored values). */
+export const NDR_TXT = /refus|code verified cancel|uncontactable|consignee (unavailable|not available|absent)|customer (not available|unavailable|wants future|requested future)|future delivery|door ?lock|premises closed|(incomplete|wrong|bad) address|address (incomplete|not found)|cash not (ready|available)|cod amount not ready/;
+/** Delivery refused with the customer's OTP (Delhivery): a real refusal, not just the courier's word */
+export const OTP_REFUSAL = /code verified cancel/i;
 export function stageOf(text, scanned = false) {
   const t = String(text || '').toLowerCase().replace(/_/g, ' ');
   if (!t.trim()) return scanned ? 'transit' : 'pickup_pending';
+  /* a failed delivery at the door ("Customer Refused To Accept", Delhivery's "Code verified cancellation" = the
+     customer cancelled with the OTP) is an NDR, never a cancelled shipment */
+  if (NDR_TXT.test(t) && !/\brto\b|return to origin|return initiated|manifest/.test(t)) return 'ndr';
   if (/cancel/.test(t) && !/pickup|seller/.test(t)) return 'cancelled';
   if (/\brto\b|return to origin|returned|return initiated/.test(t)) return 'rto';
   if (/lost|damaged|destroyed|untraceable|disposed/.test(t)) return 'lost';

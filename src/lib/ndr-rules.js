@@ -154,7 +154,7 @@ export async function autoNdr(env, { dry = false } = {}) {
   if (cfg.mode === 'off') return { skipped: 'off' };
   let list;
   try { list = await ndrList(env); } catch (e) { return { error: String(e.message || e) }; }
-  if (!list.length) return dry ? { open: 0 } : { open: 0, pilot: await sweep(env, cfg) };
+  if (!list.length) return dry ? { open: 0 } : { open: 0, unlisted: await pushUnlisted(env, cfg, new Set()), pilot: await sweep(env, cfg) };
   const awbs = list.map((x) => x.awb);
   const ships = Object.fromEntries((await env.DB.prepare(`SELECT s.awb, s.order_id, s.order_name, s.ndr_choice, s.ndr_choice_at, s.ndr_by, s.stage,
       s.ndr_asked_at, o.method, o.phone, o.first_name, o.advance_paise, o.converted_at, o.status AS order_status
@@ -224,8 +224,48 @@ export async function autoNdr(env, { dry = false } = {}) {
       await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: p.act, status: 'failed', orderName: s.order_name, error: String(e.message || e) });
     }
   }
-  if (!dry) out.pilot = await sweep(env, cfg);
+  if (!dry) { out.unlisted = await pushUnlisted(env, cfg, new Set(awbs)); out.pilot = await sweep(env, cfg); }
   return out;
+}
+
+/*
+ * Failed deliveries that never reach Shiprocket's NDR list. Xpressbees marks "Customer Refused To Accept" (often on
+ * the first try) and starts the return itself 3-10 hours later, so the NDR rules above never see it. As soon as the
+ * tracking shows such a failure, ask for a re-attempt straight away, until MIN_ATTEMPTS tries, unless the customer
+ * has asked for a return. A refusal confirmed with the customer's OTP (Delhivery "Code verified cancellation") is a
+ * real refusal and is left alone. One request per failed attempt; a rejection is kept as the error on the NDR log.
+ */
+async function pushUnlisted(env, cfg, listed) {
+  try {
+    const { OTP_REFUSAL } = await import('./sr-scan.js');
+    const t = now();
+    const rows = (await env.DB.prepare(`SELECT s.awb, s.order_id, s.order_name, s.sr_status, s.attempts, s.ndr_choice, s.ndr_choice_at, s.ndr_by, o.phone, o.status AS order_status
+        FROM shipments s JOIN orders o ON o.order_id = s.order_id
+        WHERE s.stage='ndr' AND s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND COALESCE(s.rto,false)=false AND s.tracked_at>?
+        ORDER BY s.tracked_at DESC LIMIT 20`).bind(t - 3 * 3600).all()).results;
+    const res = { pushed: 0, failed: 0, skipped: 0 };
+    for (const s of rows) {
+      if (listed.has(String(s.awb)) || s.order_status === 'cancelled') continue;
+      const att = Number(s.attempts) || 1;
+      if (OTP_REFUSAL.test(s.sr_status || '') || att >= Math.max(cfg.max_attempts, MIN_ATTEMPTS) || (s.ndr_choice === 'return' && s.ndr_by !== 'auto')) { res.skipped++; continue; }
+      const k = 'u' + att;
+      if (await env.DB.prepare('SELECT 1 AS x FROM ndr_auto WHERE awb=? AND k=?').bind(s.awb, k).first()) continue;
+      const reason = String(s.sr_status || '').split(' · ').pop().replace(/^pending\s*-\s*/i, '').slice(0, 200);
+      await env.DB.prepare('INSERT INTO ndr_auto (awb, k, order_id, order_name, attempt, category, reason, first_seen) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING')
+        .bind(s.awb, k, String(s.order_id), s.order_name, att, classifyNdr(reason), reason, t).run();
+      try {
+        const r = await ndrAction(env, { awb: s.awb, action: 're-attempt', comments: `Attempt ${att} of ${MIN_ATTEMPTS}: please do not return. Re-attempt delivery and call the customer before coming.` });
+        await env.DB.prepare('UPDATE ndr_auto SET action=?, action_at=?, note=? WHERE awb=? AND k=?').bind('reattempt', t, 'not in Shiprocket NDR list: re-attempt asked at once', s.awb, k).run();
+        await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, ndr_attempt=?, updated_at=? WHERE awb=?').bind('reattempt', t, r.deferred_date || null, 'auto', att, t, s.awb).run();
+        res.pushed++;
+      } catch (e) {
+        res.failed++;
+        await env.DB.prepare('UPDATE ndr_auto SET error=? WHERE awb=? AND k=?').bind(String(e.message || e).slice(0, 300), s.awb, k).run().catch(() => {});
+        await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: 'reattempt', status: 'failed', orderName: s.order_name, error: 'Not in Shiprocket NDR list: ' + String(e.message || e) });
+      }
+    }
+    return res;
+  } catch (e) { console.error('pushUnlisted', e); return { error: String(e.message || e) }; }
 }
 
 /* WhatsApp autopilot: nudges for customers who have not answered, "delivery booked again" / final-attempt messages */
