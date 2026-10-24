@@ -860,6 +860,7 @@ const ACTIONS = {
         cod: codDue({ ...r, status: r.order_status }) > 0, cod_due: codDue({ ...r, status: r.order_status }) / 100, advance: num(r.advance_paise) / 100, total: num(r.total_paise) / 100,
         cod_mismatch: r.cod_paise != null && r.sr_total_paise != null && Math.abs(num(r.cod_paise) - num(r.sr_total_paise)) > 100 ? { ours: num(r.cod_paise) / 100, shiprocket: num(r.sr_total_paise) / 100 } : null, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
         picked_at: num(r.picked_at) || null, delivered_at: num(r.delivered_at) || null, verified_at: num(r.verified_at) || null,
+        attempts: r.attempts == null ? null : num(r.attempts), attempt_notes: r.attempt_notes || '',
         /* cash the courier collects on this parcel: what it was booked to collect (a later pay-online conversion does not change a parcel already out) */
         cod_amt: r.cod_paise != null ? num(r.cod_paise) / 100 : codDue({ ...r, status: r.order_status }) / 100 };
     });

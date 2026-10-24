@@ -71,3 +71,23 @@ export function summarize(raw) {
   return { stage, picked, current, newest, newestAt: scans[0]?.at || deliveredDate || pickupDate, pickedAt: pickScans.length ? pickScans[pickScans.length - 1].at : pickupDate,
     edd: String(td.etd || trk.edd || '').slice(0, 10), scans };
 }
+
+/**
+ * Delivery attempts the courier made before the parcel went back (or so far, if it has not): each day with an
+ * "out for delivery" or a failed-delivery scan counts once, up to the first RTO scan. reasons: the failed-attempt
+ * scans, oldest first ("Customer not available", "Consignee refused" ...).
+ */
+export function attemptsOf(scans) {
+  const asc = [...(scans || [])].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  const days = new Set(), reasons = [];
+  for (const s of asc) {
+    const txt = `${s.text} ${s.label || ''}`;
+    const st = stageOf(txt, true);
+    if (st === 'rto') break;
+    if (st !== 'ofd' && st !== 'ndr') continue;
+    const day = String(s.at || '').slice(0, 10);
+    if (day) days.add(day);
+    if (st === 'ndr') { const r = s.text.replace(/^(undelivered|ndr|delivery attempt(ed)?|failed delivery)\s*[-:]?\s*/i, '').trim(); if (r && reasons[reasons.length - 1] !== r) reasons.push(r); }
+  }
+  return { attempts: days.size, reasons: reasons.slice(-5) };
+}

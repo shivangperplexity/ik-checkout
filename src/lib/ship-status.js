@@ -13,7 +13,7 @@
 // Shipments tab. Nothing about the customer's address is stored.
 
 import { sr, srTrack } from './shiprocket.js';
-import { stageOf, summarize } from './sr-scan.js';
+import { stageOf, summarize, attemptsOf } from './sr-scan.js';
 import { cancelFulfilmentsFor } from './shopify.js';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -31,7 +31,8 @@ async function srStatus(env, rec) {
   try { sum = summarize(await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(rec.awb)}`)); } catch { /* no scans yet or tracking down */ }
   if (sum && (sum.current || sum.scans.length)) {
     const text = [sum.current, sum.newest && sum.newest.toLowerCase() !== sum.current.toLowerCase() ? sum.newest : ''].filter(Boolean).join(' · ');
-    return { stage: sum.stage, picked: sum.picked, text, edd: sum.edd, pickedTs: istTs(sum.pickedAt), lastTs: istTs(sum.newestAt) };
+    const at = attemptsOf(sum.scans);
+    return { stage: sum.stage, picked: sum.picked, text, edd: sum.edd, pickedTs: istTs(sum.pickedAt), lastTs: istTs(sum.newestAt), attempts: at.attempts, attemptNotes: at.reasons.join(' | ') };
   }
   if (rec.sr_order_id) {
     try {
@@ -56,8 +57,9 @@ export async function refreshShipment(env, rec) {
   await env.DB.prepare(`UPDATE shipments SET stage=?, sr_status=?, tracked_at=?, edd=COALESCE(NULLIF(?::text,''), edd),
       picked_at=CASE WHEN ?::boolean AND picked_at IS NULL THEN ?::bigint ELSE picked_at END,
       delivered_at=CASE WHEN ?::text='delivered' AND delivered_at IS NULL THEN ?::bigint ELSE delivered_at END,
-      rto=CASE WHEN ?::text='rto' THEN TRUE ELSE rto END WHERE order_id=?`)
-    .bind(stage, s.text.slice(0, 160), t, s.edd, picked, Math.min(t, s.pickedTs || t), stage, Math.min(t, s.lastTs || t), stage, String(rec.order_id)).run();
+      rto=CASE WHEN ?::text='rto' THEN TRUE ELSE rto END,
+      attempts=COALESCE(?::int, attempts), attempt_notes=COALESCE(NULLIF(?::text,''), attempt_notes) WHERE order_id=?`)
+    .bind(stage, s.text.slice(0, 160), t, s.edd, picked, Math.min(t, s.pickedTs || t), stage, Math.min(t, s.lastTs || t), stage, s.attempts ?? null, String(s.attemptNotes || '').slice(0, 400), String(rec.order_id)).run();
   /* cancelled in the Shiprocket panel: show it as cancelled here too and free the order to be shipped again */
   if (stage === 'cancelled' && rec.status !== 'cancelled') {
     await env.DB.prepare("UPDATE shipments SET status='cancelled', cancel_state=COALESCE(cancel_state,'cancelled'), cancel_note=COALESCE(cancel_note,'Cancelled in Shiprocket'), updated_at=? WHERE order_id=?").bind(t, String(rec.order_id)).run();
