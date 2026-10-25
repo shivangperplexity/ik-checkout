@@ -146,7 +146,7 @@ function orderOut(o, all) {
     advance: num(o.advance_paise) / 100, cod_due: codDue(o) / 100,
     /* pay-online offer: paid (converted, with what they paid), or open until convert_expires_at */
     converted: !!o.converted_at, paid_online: o.converted_at ? num(o.paid_paise) / 100 : 0, marked_prepaid: /^manual/.test(String(o.convert_txnid || '')),
-    collab: isCollab(o.source_url),
+    collab: isCollab(o.source_url), otp: !!o.otp_at,
     offer_until: !o.converted_at && num(o.convert_expires_at) > now() ? num(o.convert_expires_at) : null, offer_sent: num(o.convert_offer_at) || null,
     nudge_count: num(o.nudge_count), nudged_at: num(o.nudged_at) || null, last_msg_at: lastMsgAt(o), nudge_block: o.method === 'cod' && !o.confirmed_at ? nudgeBlock(o) : '',
   };
@@ -1325,6 +1325,17 @@ const ACTIONS = {
     const have = await metaTemplate(await withSettings(await withSettingsFresh(env)), W.WARN_TEMPLATE).catch(() => null);
     if (have && have.status !== 'REJECTED' && !b?.force) return { ok: true, created: [{ name: W.WARN_TEMPLATE, status: have.status }] };
     const r = await ACTIONS.wa_create_templates(env, { templates: [W.warningTemplate()] });
+    clearMetaCache();
+    return { ok: true, ...r };
+  },
+  /** WhatsApp OTP for COD: submit the authentication template (lib/cod-otp.js) if it is not in WhatsApp Manager yet. */
+  async cod_otp_template(env, b) {
+    const O = await import('./cod-otp.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const have = await metaTemplate(await withSettings(await withSettingsFresh(env)), O.OTP_TEMPLATE).catch(() => null);
+    if (have && have.status !== 'REJECTED' && !b?.force) return { ok: true, created: [{ name: O.OTP_TEMPLATE, status: have.status }] };
+    const r = await ACTIONS.wa_create_templates(env, { templates: [O.otpTemplate()] });
     clearMetaCache();
     return { ok: true, ...r };
   },

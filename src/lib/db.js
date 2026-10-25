@@ -120,6 +120,9 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_started_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS addr_tagged_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS warned_at BIGINT`,
+  /* WhatsApp OTP for COD (lib/cod-otp.js): one row per phone, the code only as an HMAC */
+  `CREATE TABLE IF NOT EXISTS cod_otps (phone TEXT PRIMARY KEY, code_hash TEXT, sent_at BIGINT, expires_at BIGINT, tries INT DEFAULT 0, sends INT DEFAULT 0, window_start BIGINT, verified_at BIGINT)`,
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS otp_at BIGINT`,
   /* "Nudge again" (lib/cod-nudge.js) */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS nudged_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS nudge_count INT`,

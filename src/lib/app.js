@@ -3,6 +3,7 @@ import { isCollab, COLLAB_TAG } from './collab.js';
 import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees } from './pricing.js';
+import { sendOtp, checkOtp, otpOn } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
@@ -48,7 +49,7 @@ async function handleQuote(req, env) {
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
-  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), px: metaPx(env), mystery: { on: false } /* Build 043 still asks: keeps its old mystery-gift lines hidden */, ...q });
+  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), px: metaPx(env), mystery: { on: false } /* Build 043 still asks: keeps its old mystery-gift lines hidden */, otp: otpOn(env), ...q });
 }
 
 /** Partial COD: does this address / number pay the advance first? The checkout asks once the delivery details are in. */
@@ -139,6 +140,14 @@ async function handleOrder(req, env, ctx) {
       partial = { advance: d.advance, reasons: d.reasons.length ? d.reasons : ['chosen'] };
     }
   }
+  /* COD with a WhatsApp OTP (Build 044+): the order is created only with the right code, and counts as confirmed.
+     Without a code (older theme, or the code could not be sent) the old flow runs: WhatsApp confirmation after. */
+  let otpOk = false;
+  if (method === 'cod' && !partial && b.otp != null && String(b.otp) !== '') {
+    const v = await checkOtp(env, buyer.phone, String(b.otp));
+    if (!v.ok) return json({ ok: false, otp_invalid: true, expired: !!v.expired, error: v.error });
+    otpOk = true;
+  }
   const txnid = `IK${Date.now().toString(36)}${rand()}`.toUpperCase();
   const eventId = `ik_${txnid}`;
   const a = b.attribution || {};
@@ -147,11 +156,12 @@ async function handleOrder(req, env, ctx) {
     { key: 'Payment choice', value: partial ? `Partial COD (₹${partial.advance / 100} online + rest on delivery)` : method === 'cod' ? 'COD' : 'Prepaid' },
     ...(method === 'prepaid' || partial ? [{ key: 'PayU txn id', value: txnid }] : []),
     ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
+    ...(otpOk ? [{ key: 'COD verified', value: 'WhatsApp OTP at checkout' }] : []),
     ...(buyer.edd ? [{ key: 'Promised delivery', value: buyer.edd }] : []),
     ...(a.sid ? [{ key: 'Session', value: String(a.sid).slice(0, 40) }] : []),
     ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'landing'].filter((k) => a[k]).map((k) => ({ key: k, value: String(a[k]).slice(0, 250) })),
   ];
-  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : [])];
+  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : otpOk ? ['cod-confirmed', 'cod-otp-verified'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : [])];
   const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes });
   if (Math.abs(draft.total - price.total) > 100) {
     console.error('total mismatch', { ours: price.total, shopify: draft.total, draft: draft.id });
@@ -162,7 +172,7 @@ async function handleOrder(req, env, ctx) {
   const row = {
     sid: String(a.sid || '').slice(0, 40), idem, txnid, eventId, draftId: draft.id, method, total: draft.total, buyer, a, contents,
     ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim().slice(0, 64) || null, ua: String(req.headers.get('User-Agent') || '').slice(0, 400) || null,
-    sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
+    otp: otpOk, sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
   };
 
   if (partial) {
@@ -197,8 +207,9 @@ async function handleOrder(req, env, ctx) {
 
   const order = await completeDraft(env, draft.id, true);
   await saveOrder(env, row, order, 'placed');
+  if (otpOk) await env.DB.prepare('UPDATE orders SET confirmed_at=?, otp_at=? WHERE idem=?').bind(now(), now(), idem).run();
   ctx.waitUntil(afterCod(env, req, row, order));
-  return json({ ok: true, method, orderName: order.name, statusUrl: order.statusPageUrl, eventId, value: Number(rupees(draft.total)) });
+  return json({ ok: true, method, orderName: order.name, statusUrl: order.statusPageUrl, eventId, value: Number(rupees(draft.total)), otp_verified: otpOk });
 }
 
 async function saveOrder(env, r, order, status) {
@@ -237,7 +248,7 @@ async function afterCod(env, req, row, order) {
   const ua = req.headers.get('User-Agent');
   const results = await Promise.allSettled([
     purchaseEvent(env, row, order.name, ip, ua),
-    fireTrigger(env, 'cod_confirm', { to: row.buyer.phone, vars: { name: row.buyer.firstName, order: order.name, total: rupees(row.total) }, orderId: order.legacyResourceId, orderName: order.name }),
+    row.otp ? Promise.resolve({ skipped: 'otp verified' }) : fireTrigger(env, 'cod_confirm', { to: row.buyer.phone, vars: { name: row.buyer.firstName, order: order.name, total: rupees(row.total) }, orderId: order.legacyResourceId, orderName: order.name }),
     markSessionOrdered(env, row.sid, order.name),
   ]);
   results.forEach((r, i) => r.status === 'rejected' && console.error(['capi', 'whatsapp', 'session'][i], r.reason));
@@ -444,6 +455,11 @@ export async function handle(req, env0, ctx) {
       else if (path === '/api/track' && req.method === 'POST') res = await handleTrack(req, env);
       else if (path === '/api/order' && req.method === 'POST') res = await handleOrder(req, env, ctx);
       else if (path === '/api/cod-check' && req.method === 'POST') res = await handleCodCheck(req, env);
+      else if (path === '/api/otp/send' && req.method === 'POST') {
+        const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+        if (!(await rateLimit(env, 'otp:' + ip, 30))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
+        else { const b = await req.json().catch(() => ({})); res = json(await sendOtp(env, cleanPhone(b.phone), { log: (m) => logMsg(env, m) })); }
+      }
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
       else if (path.startsWith('/api/pincode/')) res = await handlePincode(path.split('/').pop());
       else if (path === '/api/shipping' && req.method === 'GET') res = await shippingEstimate(req, env);
