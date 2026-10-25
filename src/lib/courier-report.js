@@ -116,8 +116,11 @@ export function buildReport(parcels) {
 export async function courierReport(env) {
   const rows = (await env.DB.prepare(`SELECT r.name, r.pay, r.state, r.region, r.carrier, r.courier, r.shipped_at, r.picked_at, r.delivered_at,
       s.awb AS sr_awb, s.courier AS sr_courier, s.stage AS sr_stage, s.rto AS sr_rto, s.status AS sr_status, s.created_at AS sr_created, s.picked_at AS sr_picked,
-      s.delivered_at AS sr_delivered_at, s.charge_paise AS sr_charge, s.attempts AS sr_attempts
-    FROM rev_orders r LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'') <> 'cancelled' AND s.awb IS NOT NULL AND s.awb <> ''`).all()).results;
+      s.delivered_at AS sr_delivered_at, s.charge_paise AS sr_charge, s.attempts AS sr_attempts, o.method AS ik_method, o.converted_at
+    FROM rev_orders r LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'') <> 'cancelled' AND s.awb IS NOT NULL AND s.awb <> ''
+    LEFT JOIN orders o ON o.order_id = r.order_id`).all()).results;
+  /* orders from our own checkout reach Shopify as "manual" payments: their real method is in our orders table */
+  for (const r of rows) if (r.ik_method) r.pay = r.ik_method === 'cod' && !r.converted_at ? 'cod' : 'prepaid';
   const t = now(), parcels = rows.map((r) => parcelOf(r, t)).filter(Boolean);
   const missing = rows.filter((r) => !r.courier && r.carrier === 'nimbuspost').length;
   return { ok: true, at: t, parcels: parcels.length, missing_courier: missing, ...buildReport(parcels) };
