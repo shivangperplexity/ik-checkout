@@ -19,6 +19,7 @@ import { fireTrigger, waGet, logMsg, viaG4w, metaFromDashboard, clearMetaCache, 
 import * as g4w from './go4whatsup.js';
 import { rupees } from './pricing.js';
 import { metaCfg, pixelInfo, capiStats, resendDue, resendPurchases, META_DEFAULTS } from './meta.js';
+import { nudgeOrders, nudgeBlock, lastMsgAt } from './cod-nudge.js';
 import { codDue, cfg as partialCfg, decide as partialDecide, riskyPins, reasonText as partialReason, DEFAULTS as PARTIAL_DEFAULTS } from './partial-cod.js';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -149,6 +150,7 @@ function orderOut(o, all) {
     converted: !!o.converted_at, paid_online: o.converted_at ? num(o.paid_paise) / 100 : 0, marked_prepaid: /^manual/.test(String(o.convert_txnid || '')),
     collab: isCollab(o.source_url),
     offer_until: !o.converted_at && num(o.convert_expires_at) > now() ? num(o.convert_expires_at) : null, offer_sent: num(o.convert_offer_at) || null,
+    nudge_count: num(o.nudge_count), nudged_at: num(o.nudged_at) || null, last_msg_at: lastMsgAt(o), nudge_block: o.method === 'cod' && !o.confirmed_at ? nudgeBlock(o) : '',
   };
 }
 
@@ -660,6 +662,13 @@ const ACTIONS = {
     await removeTags(env, gid, ['cod-unconfirmed']); await addTags(env, gid, ['cod-confirmed', 'Address confirmed']);
     await env.DB.prepare('UPDATE orders SET confirmed_at=?, addr_tagged_at=? WHERE order_id=?').bind(now(), now(), String(b.id)).run();
     return { ok: true };
+  },
+  /** Unconfirmed COD: send the WhatsApp confirmation again (Yes / Cancel buttons). ids: Shopify order ids. */
+  async cod_nudge(env, b) {
+    const ids = Array.isArray(b.ids) ? b.ids : b.id ? [b.id] : [];
+    if (!ids.length) throw new Error('No orders to nudge');
+    const results = await nudgeOrders(env, ids);
+    return { results, sent: results.filter((r) => r.ok).length };
   },
   async cancel(env, b) { const c = await cancelOne(await withSettingsFresh(env), b.id); return { ok: true, queued: !!c?.queued, note: c?.note || '' }; },
   /** Shipments tab: cancel these orders (Shiprocket pickup first, then Shopify). Per-order results, nothing stops the batch. */
