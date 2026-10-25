@@ -223,6 +223,23 @@
     if (k === 'any') return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>';
     return '<b>' + (k === 'gpay' ? 'G' : k === 'phonepe' ? 'P' : 'Pt') + '</b>';
   }
+  /* Free mystery tattoo with online payment (server: quote.mystery = { on, title, worth }). Remembered for the visit,
+     so the first paint from the local estimate already shows it. */
+  var MYS = null;
+  try { MYS = JSON.parse(sessionStorage.getItem('ikx_mys') || 'null'); } catch (e) {}
+  function mys() {
+    var m = state.quote && state.quote.mystery;
+    if (m && JSON.stringify(m) !== JSON.stringify(MYS)) { MYS = m; try { sessionStorage.setItem('ikx_mys', JSON.stringify(m)); } catch (e) {} }
+    return MYS && MYS.on ? MYS : null;
+  }
+  /* With Cash on delivery chosen: one tap to switch to UPI, saying exactly what they get (no surprise, no fine print) */
+  function mysNudge() {
+    var m = mys(); if (!m || state.method !== 'cod' || !state.quote || state.busy) return '';
+    var to = methods().filter(function (x) { return x !== 'cod'; })[0]; if (!to) return '';
+    var pre = state.quote.prepaid, off = pre && pre.prepaid ? 'save ' + money(pre.prepaid) + ' + ' : '';
+    return '<button type="button" data-ikx-method="' + to + '" style="display:block;width:100%;text-align:left;margin:10px 0 0;padding:10px 12px;border:1px dashed #12b76a;border-radius:12px;background:#f6fef9;color:#05603a;font:inherit;font-size:13px;line-height:1.45;cursor:pointer">' +
+      '<b>Pay online instead: ' + off + 'a FREE mystery tattoo 🎁</b><br><span style="color:#344054">A surprise design picked by us, packed in the same parcel. Extra to your Buy 1 Get 1. Tap to pay ' + (to === 'upi' ? 'by UPI' : 'online') + '.</span></button>';
+  }
   function paintPay() {
     var box = $('.ikx-pay', root); if (!box) return;
     if (!state.quote) {
@@ -236,8 +253,9 @@
       var name = m === 'upi' ? 'UPI' : m === 'card' ? 'Card / Netbanking' : pc ? 'Pay ' + money(pcAdv()) + ' now' : 'Cash on delivery';
       var sub = m === 'upi' && !IS_MOBILE ? 'Scan QR with any UPI app' : m === 'upi' ? '<span class="ikx-logos">' + UPI_APPS.slice(0, 3).map(function (a) { return LOGO_URL[a[0]] ? '<img src="' + esc(LOGO_URL[a[0]]) + '" alt="' + a[1] + '">' : a[1]; }).join('') + '</span>' : m === 'card' ? 'Debit, credit, wallets' : pc ? 'after delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
       var save = m !== 'cod' && pre.prepaid ? '<span class="ikx-tile__save">Save ' + money(pre.prepaid) + '</span>' : '';
+      if (m !== 'cod' && mys()) save += '<span class="ikx-tile__save" style="display:block;margin-top:4px">+ 🎁 FREE mystery tattoo</span>';
       return '<button type="button" role="radio" aria-checked="' + on + '" class="ikx-tile' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (state.busy ? ' disabled' : '') + '>' +
         '<b>' + name + '</b><span class="ikx-tile__amt' + (m !== 'cod' ? ' ikx-green' : '') + '">' + (m === 'cod' && pc ? '+ ' + money(cod.total - pcAdv()) : money(q.total)) + '</span><span class="ikx-m">' + sub + '</span>' + save + '</button>';
-    }).join('') + '</div>' + pcNote() +
+    }).join('') + '</div>' + pcNote() + mysNudge() +
     ((state.method === 'upi' || (state.method === 'cod' && pc)) && IS_MOBILE ? '<div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_APPS.map(function (a) {
 /* end of part 3 */

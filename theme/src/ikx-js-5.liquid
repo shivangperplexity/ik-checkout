@@ -87,6 +87,7 @@
     screen('<div class="ikx-tick">' + ICON.check + '</div><h3>' + (cod && !part ? 'Order placed' : cod ? 'Order confirmed' : 'Thank you, you’re all set') + (r.orderName ? ' · ' + esc(r.orderName) : '') + '</h3>' +
       '<p>' + (part ? (r.advance ? 'Advance of ' + money(r.advance) + ' received. Pay ' + money(r.balance) + ' when your order arrives.' : 'Advance received. Pay the rest when your order arrives.') : cod ? 'Your Cash on delivery order is placed.' : 'Payment received' + (r.value ? ' · ' + money(Math.round(r.value * 100)) : '') + '.') + (cod && !part ? '' : ' We’ll pack it today and send tracking on WhatsApp.') + '</p>' +
       confirmNote + (items ? '<ul class="ikx-done__items">' + items + '</ul>' : '') + when + addr +
+      (!cod && mys() ? '<div class="ikx-tip" style="background:#f6fef9;border:1px solid #a6f4c5;color:#05603a"><b>🎁 Your FREE mystery tattoo is on its way</b><span>A surprise design, packed in the same parcel. Thank you for paying online!</span></div>' : '') +
       '<div class="ikx-tip"><b>For the best result</b><span>Apply on clean, dry skin. The ink darkens over 24 hours.</span></div>' +
       (r.statusUrl ? '<a class="ikx-btn" href="' + esc(r.statusUrl) + '">Track order</a>' : '') +
       '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-close>Continue shopping</button>');

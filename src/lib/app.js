@@ -3,6 +3,7 @@ import { isCollab, COLLAB_TAG } from './collab.js';
 import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees } from './pricing.js';
+import { mysteryCfg, mysteryLine, MYSTERY_TAG, MYSTERY_NOTE } from './mystery.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
@@ -48,7 +49,7 @@ async function handleQuote(req, env) {
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
-  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), px: metaPx(env), ...q });
+  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), px: metaPx(env), mystery: mysteryCfg(env), ...q });
 }
 
 /** Partial COD: does this address / number pay the advance first? The checkout asks once the delivery details are in. */
@@ -152,7 +153,10 @@ async function handleOrder(req, env, ctx) {
     ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'landing'].filter((k) => a[k]).map((k) => ({ key: k, value: String(a[k]).slice(0, 250) })),
   ];
   const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : [])];
-  const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes });
+  /* free mystery tattoo on fully prepaid orders (not part-paid COD) */
+  const gift = method === 'prepaid' && mysteryCfg(env).on;
+  if (gift) { tags.push(MYSTERY_TAG); attributes.push({ key: 'Free gift', value: MYSTERY_NOTE }); }
+  const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes, extraLines: gift ? [mysteryLine(env)] : [] });
   if (Math.abs(draft.total - price.total) > 100) {
     console.error('total mismatch', { ours: price.total, shopify: draft.total, draft: draft.id });
     return json({ ok: false, error: 'Price changed, please reload your cart' }, 409);
