@@ -253,7 +253,7 @@
       var name = m === 'upi' ? 'UPI' : m === 'card' ? 'Card / Netbanking' : pc ? 'Pay ' + money(pcAdv()) + ' now' : 'Cash on delivery';
       var sub = m === 'upi' && !IS_MOBILE ? 'Scan QR with any UPI app' : m === 'upi' ? '<span class="ikx-logos">' + UPI_APPS.slice(0, 3).map(function (a) { return LOGO_URL[a[0]] ? '<img src="' + esc(LOGO_URL[a[0]]) + '" alt="' + a[1] + '">' : a[1]; }).join('') + '</span>' : m === 'card' ? 'Debit, credit, wallets' : pc ? 'after delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
       var save = m !== 'cod' && pre.prepaid ? '<span class="ikx-tile__save">Save ' + money(pre.prepaid) + '</span>' : '';
-      if (m !== 'cod' && mys()) save += '<span class="ikx-tile__save" style="display:block;margin-top:4px">+ 🎁 FREE mystery tattoo</span>';
+      if (m !== 'cod' && mys()) save += '<span style="display:block;margin-top:6px;font-size:12px;font-weight:700;line-height:1.3;color:#05603a">+ 🎁 FREE mystery tattoo</span>';
       return '<button type="button" role="radio" aria-checked="' + on + '" class="ikx-tile' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (state.busy ? ' disabled' : '') + '>' +
         '<b>' + name + '</b><span class="ikx-tile__amt' + (m !== 'cod' ? ' ikx-green' : '') + '">' + (m === 'cod' && pc ? '+ ' + money(cod.total - pcAdv()) : money(q.total)) + '</span><span class="ikx-m">' + sub + '</span>' + save + '</button>';
     }).join('') + '</div>' + pcNote() + mysNudge() +
