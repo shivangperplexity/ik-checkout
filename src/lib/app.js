@@ -3,7 +3,7 @@ import { isCollab, COLLAB_TAG } from './collab.js';
 import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees } from './pricing.js';
-import { sendOtp, checkOtp, otpOn } from './cod-otp.js';
+import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
@@ -375,7 +375,10 @@ async function handleWa(req, env, ctx) {
       /* Meta can deliver one message twice: act on each inbound message id once. */
       const payload = await dedupeInbound(env, payload0);
       const replies = parseReplies(payload);
-      for (const st of parseStatuses(payload)) await env.DB.prepare('UPDATE messages SET status=?, error=CASE WHEN ?<>\'\' THEN ? ELSE error END WHERE wamid=?').bind(st.status, st.error, st.error, st.id).run();
+      for (const st of parseStatuses(payload)) {
+        await env.DB.prepare('UPDATE messages SET status=?, error=CASE WHEN ?<>\'\' THEN ? ELSE error END WHERE wamid=?').bind(st.status, st.error, st.error, st.id).run();
+        await otpStatus(env, st.id, st.status).catch((e) => console.error('otp status', e.message));
+      }
       /* Typed replies ("yes", "cancel", STOP) and buttons whose payload was lost go through the same safe rules as
          Go4WhatsUp: whole-message match only, applied to the order we last asked that number about. */
       const others = [];
@@ -459,6 +462,11 @@ export async function handle(req, env0, ctx) {
         const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
         if (!(await rateLimit(env, 'otp:' + ip, 30))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
         else { const b = await req.json().catch(() => ({})); res = json(await sendOtp(env, cleanPhone(b.phone), { log: (m) => logMsg(env, m) })); }
+      }
+      else if (path === '/api/otp/status' && req.method === 'POST') {
+        const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+        if (!(await rateLimit(env, 'otps:' + ip, 600))) res = json({ ok: false, error: 'Too many attempts' }, 429);
+        else { const b = await req.json().catch(() => ({})); res = json(await otpDelivery(env, cleanPhone(b.phone))); }
       }
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
       else if (path.startsWith('/api/pincode/')) res = await handlePincode(path.split('/').pop());

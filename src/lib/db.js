@@ -123,6 +123,10 @@ export const SCHEMA = [
   /* WhatsApp OTP for COD (lib/cod-otp.js): one row per phone, the code only as an HMAC */
   `CREATE TABLE IF NOT EXISTS cod_otps (phone TEXT PRIMARY KEY, code_hash TEXT, sent_at BIGINT, expires_at BIGINT, tries INT DEFAULT 0, sends INT DEFAULT 0, window_start BIGINT, verified_at BIGINT)`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS otp_at BIGINT`,
+  /* which WhatsApp message carried the code, and how far it got (webhook: sent 1, delivered 2, read 3, failed 9) */
+  `ALTER TABLE cod_otps ADD COLUMN IF NOT EXISTS wamid TEXT`,
+  `ALTER TABLE cod_otps ADD COLUMN IF NOT EXISTS dstatus TEXT`,
+  `ALTER TABLE cod_otps ADD COLUMN IF NOT EXISTS drank INT`,
   /* "Nudge again" (lib/cod-nudge.js) */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS nudged_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS nudge_count INT`,

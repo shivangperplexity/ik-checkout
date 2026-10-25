@@ -70,12 +70,32 @@ export async function sendOtp(env, phone, { send = metaSendOtp, log = null } = {
     if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'failed', error: String(e.message || e).slice(0, 300), preview: 'COD verification code' }).catch(() => {});
     return { ok: false, fallback: true, error: String(e.message || e).slice(0, 200) };
   }
-  await env.DB.prepare(`INSERT INTO cod_otps (phone, code_hash, sent_at, expires_at, tries, sends, window_start, verified_at) VALUES (?,?,?,?,0,1,?,NULL)
-      ON CONFLICT (phone) DO UPDATE SET code_hash=EXCLUDED.code_hash, sent_at=EXCLUDED.sent_at, expires_at=EXCLUDED.expires_at, tries=0, verified_at=NULL,
+  await env.DB.prepare(`INSERT INTO cod_otps (phone, code_hash, sent_at, expires_at, tries, sends, window_start, verified_at, wamid, dstatus, drank) VALUES (?,?,?,?,0,1,?,NULL,?,NULL,0)
+      ON CONFLICT (phone) DO UPDATE SET code_hash=EXCLUDED.code_hash, sent_at=EXCLUDED.sent_at, expires_at=EXCLUDED.expires_at, tries=0, verified_at=NULL, wamid=EXCLUDED.wamid, dstatus=NULL, drank=0,
       sends=CASE WHEN cod_otps.window_start < ? THEN 1 ELSE cod_otps.sends + 1 END, window_start=CASE WHEN cod_otps.window_start < ? THEN EXCLUDED.window_start ELSE cod_otps.window_start END`)
-    .bind(phone, await hashOf(env, phone, code), t, t + OTP_TTL, t, t - 3600, t - 3600).run();
+    .bind(phone, await hashOf(env, phone, code), t, t + OTP_TTL, t, String(wamid || ''), t - 3600, t - 3600).run();
   if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'sent', wamid, preview: 'COD verification code (4 digits, not stored)' }).catch(() => {});
   return { ok: true, resend_in: RESEND_GAP, ttl: OTP_TTL };
+}
+
+/* WhatsApp delivery statuses can arrive out of order: keep the furthest one (failed is final). */
+export const STATUS_RANK = { sent: 1, delivered: 2, read: 3, failed: 9 };
+/** Webhook: a delivery status for a message; updates the code it carried, if it carried one. */
+export async function otpStatus(env, wamid, status) {
+  const r = STATUS_RANK[String(status || '')];
+  if (!r || !wamid) return;
+  await env.DB.prepare('UPDATE cod_otps SET dstatus=?, drank=? WHERE wamid=? AND COALESCE(drank,0) < ?').bind(String(status), r, String(wamid), r).run();
+}
+/**
+ * Checkout poll: has the code reached the phone? state: 'delivered' (or read) = ask for it; 'failed' = WhatsApp could
+ * not deliver it (number not on WhatsApp...), place the order the old way; 'pending' = keep waiting (the checkout
+ * gives up after ~15 s and also falls back).
+ */
+export async function otpDelivery(env, phone) {
+  const row = await env.DB.prepare('SELECT sent_at, dstatus, drank FROM cod_otps WHERE phone=?').bind(String(phone || '')).first();
+  if (!row) return { ok: true, state: 'none' };
+  const r = Number(row.drank) || 0;
+  return { ok: true, state: r >= 9 ? 'failed' : r >= 2 ? 'delivered' : 'pending', age: now() - Number(row.sent_at) };
 }
 
 /** Check a code. The right code stays valid until it expires (a retry after a network error must not need a new one). */
