@@ -1250,6 +1250,15 @@ const ACTIONS = {
   },
   /** RTO % and profit by shipping (pickup) date, with the owner's change markers (lib/revenue.js shipCohorts). */
   /** Checkout A/B test (theme PV 'a' = current sheet, 'b' = trust strip + "no spam" note + Checkout button). */
+  /** Courier report (lib/courier-report.js). scan: read Shopify again first (fills the courier name on old orders). */
+  async courier_report(env, b) {
+    const R = await import('./revenue.js');
+    let scan = null;
+    if (b.scan) scan = await R.revenueScan(await withSettingsFresh(env), { pages: 40, force: !!b.force, budgetMs: 20000 });
+    const { courierReport } = await import('./courier-report.js');
+    const st = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rev_scan'").first().catch(() => null))?.v || '{}');
+    return { ...(await courierReport(env)), scan, scanning: !!st.cursor };
+  },
   async ab_checkout(env, b) {
     const days = Math.min(60, Math.max(1, Number(b.days) || 14));
     const since = now() - days * 86400;

@@ -37,6 +37,12 @@ export function carrierOf(o) {
   return t.trim() ? 'other' : '';
 }
 
+/** The courier's own name on the live shipment ("Blue Dart Surface", "Xpressbees Air"), as the aggregator reported it */
+export function courierName(o) {
+  const ff = (o.fulfillments || []).filter((f) => String(f.displayStatus || '').toUpperCase() !== 'CANCELED' && String(f.status || '').toUpperCase() !== 'CANCELLED');
+  return String(ff.flatMap((f) => f.trackingInfo || []).map((x) => x.company || '').find(Boolean) || '').slice(0, 60);
+}
+
 /** When the courier took the parcel: the first tracking event after booking (Shopify keeps the courier's events). */
 export function pickedOf(o) {
   const ev = (o.fulfillments || []).filter((f) => String(f.status || '').toUpperCase() !== 'CANCELLED').flatMap((f) => f.events?.nodes || [])
@@ -54,7 +60,7 @@ export function rowOf(o) {
     total_paise: Math.round(num(o.currentTotalPriceSet?.shopMoney?.amount) * 100), refunded_paise: Math.round(num(o.totalRefundedSet?.shopMoney?.amount) * 100),
     pay: /cash on delivery|\bcod\b/i.test(gw) ? 'cod' : 'prepaid', state, delivered_at: d.delivered_at || null, shipped_at: d.fulfilled_at || null,
     picked_at: pickedOf(o) || d.fulfilled_at || null,
-    carrier: carrierOf(o), awb: d.awb || '', units: (o.lineItems?.nodes || []).reduce((s, l) => s + num(l.currentQuantity), 0) || 1,
+    carrier: carrierOf(o), courier: courierName(o), awb: d.awb || '', units: (o.lineItems?.nodes || []).reduce((s, l) => s + num(l.currentQuantity), 0) || 1,
     tags: (o.tags || []).join(',').slice(0, 300),
     ...(() => { const sc = sourceOf(attrsOf(o.customAttributes)); return { region: String(o.shippingAddress?.province || '').slice(0, 60), src: sc.key, src_label: sc.label, src_detail: sc.detail }; })(),
   };
