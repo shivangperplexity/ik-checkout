@@ -1,0 +1,287 @@
+/* ik-express.js part 2 of 5 (rendered inline by snippets/ik-checkout.liquid) */
+      pill.addEventListener('click', function () { openSheet('cart', pill); });
+      document.body.appendChild(pill);
+    }
+    var c = CART;
+    pill.classList.remove('is-adding');
+    if (!c || !c.item_count || isOpen()) { pill.hidden = true; return; }
+    var b = bogo(c.items), first = c.items[0] || {};
+    var badge = b.odd ? '+1 FREE' : (b.free ? b.free + ' FREE' : '');
+    pill.innerHTML = '<span class="ikx-pill__img">' + (first.image ? '<img src="' + esc(img(first.image, 96)) + '" alt="">' : '') + '</span>' +
+      '<span class="ikx-pill__txt"><b>View cart</b><span>' + c.item_count + ' item' + (c.item_count > 1 ? 's' : '') + ' · ' + money(c.total_price) + '</span></span>' +
+      (badge ? '<span class="ikx-pill__badge">' + badge + '</span>' : '') + '<span class="ikx-ic">' + ICON.chev + '</span>';
+    pill.setAttribute('aria-label', 'View cart, ' + c.item_count + ' items, ' + money(c.total_price) + (b.odd ? ', add one more tattoo free' : ''));
+    pill.hidden = false;
+  }
+  function bumpPill() {
+    if (!pill || pill.hidden) return;
+    pill.classList.remove('is-bump'); void pill.offsetWidth; pill.classList.add('is-bump');
+  }
+
+  /* ---------- sheet shell ---------- */
+  var root = null, opener = null;
+  var state = { upiApp: 'gpay', quote: null, lines: [], method: 'upi', idem: '', busy: false, done: false, leadTimer: null, built: false, ups: [], logos: {}, pinOk: false, final: false, quoteSig: '' };
+  function isOpen() { return !!(root && root.classList.contains('is-open')); }
+  function scroller() { return $('.ikx-scroll', root); }
+  function form() { return root && $('.ikx-form', root); }
+  function closeModals() {
+    $$('dialog[open]').forEach(function (d) { if (!d.closest('.ikx-root')) { try { d.close(); } catch (e) {} } });
+    document.documentElement.style.overflow = '';
+  }
+  function shell() {
+    if (root) return;
+    root = el('div', { class: 'ikx-root', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your cart and checkout' },
+      '<div class="ikx-backdrop" data-ikx-close></div>' +
+      '<div class="ikx-sheet">' +
+        '<div class="ikx-scroll"></div>' +
+        '<div class="ikx-foot"></div>' +
+      '</div>');
+    document.body.appendChild(root);
+    root.addEventListener('click', onClick);
+    root.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
+  }
+  function openSheet(where, from) {
+    closeModals(); shell();
+    opener = from || document.activeElement;
+    var wasOpen = isOpen();
+    root.classList.add('is-open'); document.documentElement.style.overflow = 'hidden';
+    if (pill) pill.hidden = true;
+    if (!wasOpen) { state.done = false; sentStep = {}; }
+    function settle() {
+      var x = $('.ikx-x', root); if (x && !wasOpen) x.focus({ preventScroll: true });
+      if (where === 'checkout') goCheckout(false);
+    }
+    var instant = !!(CART && CART.item_count);
+    if (instant) { render(CART); settle(); }
+    else if (!state.built) loadingView('Loading your cart…');
+    return getCart().then(function (c) {
+      if (!instant || sigOf(linesOf(c)) !== sigOf(linesOf(CART_SHOWN || c))) render(c);
+      if (!instant) settle();
+    }).catch(function (err) {
+      if (instant) return;
+      console.warn('[ik-express] could not load the cart', err);
+      if (where === 'checkout') { native(); return; }
+      screen('<h3>Couldn’t load your cart</h3><p>Please check your connection and try again.</p><a class="ikx-btn" href="' + R + 'cart">Open cart page</a>');
+    });
+  }
+  function closeSheet() {
+    if (!root) return;
+    root.classList.remove('is-open');
+    document.documentElement.style.overflow = '';
+    if (state.done) { location.reload(); return; } /* cart was emptied; refresh counts */
+    sendLead('closed', true);
+    paintPill();
+    if (opener && opener.focus) try { opener.focus({ preventScroll: true }); } catch (e) {}
+  }
+  function loadingView(msg) {
+    state.built = false;
+    scroller().innerHTML = '<div class="ikx-load"><i class="ikx-spin"></i><p>' + esc(msg) + '</p></div>';
+    $('.ikx-foot', root).innerHTML = '';
+  }
+  function screen(html) {
+    state.built = false;
+    scroller().innerHTML = '<button type="button" class="ikx-x ikx-x--abs" data-ikx-close aria-label="Close">' + ICON.close + '</button><div class="ikx-done">' + html + '</div>';
+    $('.ikx-foot', root).innerHTML = '';
+    scroller().scrollTop = 0;
+  }
+  function overlay(msg) {
+    var o = $('.ikx-ov', root);
+    if (!o) { o = el('div', { class: 'ikx-ov', role: 'status', 'aria-live': 'polite' }, '<div class="ikx-ov__card"><i class="ikx-spin"></i><p></p></div>'); $('.ikx-sheet', root).appendChild(o); }
+    $('p', o).textContent = msg || 'Please wait…'; o.classList.add('is-on');
+  }
+  function hideOverlay() { var o = root && $('.ikx-ov', root); if (o) o.classList.remove('is-on'); }
+
+  /* ---------- paint now, confirm the price in the background ---------- */
+  var renderSeq = 0, CART_SHOWN = null;
+  function setQuote(q, final) {
+    state.quote = q; state.final = !!final; state.quoteSig = sigOf(state.lines);
+    if (q.px) setPx(q.px);
+    if (final) { state.ups = q.upsells || []; state.logos = q.upi_logos || {}; }
+  }
+  function render(c) {
+    var seq = ++renderSeq;
+    CART = c; CART_SHOWN = c;
+    if (!c.item_count) { state.quote = null; state.final = false; return emptyView(); }
+    var ups = state.lines.filter(function (l) { return l.upsell; });
+    state.lines = linesOf(c).concat(ups);
+    var sig = sigOf(state.lines), hit = cachedQuote(state.lines), firstPaint = !state.built;
+    if (hit) setQuote(hit, true);
+    else if (!state.quote || state.quoteSig !== sig || !state.final) setQuote(estimate(c), false);
+    if (!state.idem) state.idem = uuid();
+    if (firstPaint) {
+      tk('open', { cart: c.items.map(function (i) { return { t: i.product_title, q: i.quantity, p: i.original_price }; }) });
+      track('InitiateCheckout', { currency: 'INR', value: state.quote.cod.afterBogo / 100, num_items: c.item_count });
+    }
+    paintAll();
+    if (state.final) return;
+    fetchQuote(state.lines).then(function (q) {
+      if (seq !== renderSeq) return;
+      setQuote(q, true); paintUps(); paintPay(); paintBill(); paintFoot();
+    }).catch(function (err) {
+      if (seq !== renderSeq) return;
+      console.warn('[ik-express] quote unavailable, offering Shopify checkout', err);
+      state.quote = null; state.final = false; paintAll();
+    });
+  }
+  function refresh() { return getCart().then(function (c) { render(c); }); }
+
+  function emptyView() {
+    state.built = false;
+    scroller().innerHTML = '<div class="ikx-head"><h2 class="ikx-h">Your cart</h2><button type="button" class="ikx-x" data-ikx-close aria-label="Close">' + ICON.close + '</button></div>' +
+      '<div class="ikx-empty"><p>Your cart is empty.</p><p class="ikx-m">Buy 1 Get 1 FREE on every design.</p><a class="ikx-btn" href="' + R + 'collections/all">Shop tattoos</a></div>';
+    $('.ikx-foot', root).innerHTML = '';
+  }
+
+  function paintAll() {
+    if (!state.built) buildMain();
+    paintCart(); paintUps(); paintPay(); paintBill(); paintFoot();
+  }
+
+  /* ---------- main sheet (built once per open, so typed details survive cart changes) ---------- */
+  /* Build 036: the form follows Shopify checkout's order and data exactly, in IK's own UI.
+       1. Contact      → phone (Shopify: email or phone), optional email for the receipt
+       2. Delivery     → name, address, apartment/landmark, PIN → city + state (country fixed: India)
+       3. Shipping     → one row that shows the method and price once the address is in (Shopify's "Shipping method")
+       4. Payment      → tiles (Shopify's payment list; billing address = delivery address)
+       5. Summary      → bill rows, then ONE "Pay now" / "Complete order" button (Shopify never uses a slider)
+     Like Shopify, a returning shopper's contact + address is pre-filled (kept on this device only, see REMEMBER). */
+  function buildMain() {
+    var opts = STATES.map(function (s) { return '<option>' + s + '</option>'; }).join('');
+    /* Shopify-style field: placeholder shows when empty, the label floats up once there is a value. */
+    function field(name, label, extra, type) {
+      var inner = type === 'select'
+        ? '<select name="' + name + '" ' + (extra || '') + '><option value="" disabled>' + label + '</option>' + opts + '</select>'
+        : '<input name="' + name + '" placeholder=" " ' + (extra || '') + '>';
+      return '<label class="ikx-in ikx-in--float" data-f="' + name + '">' + inner + '<span>' + label + '</span><em class="ikx-ferr" hidden></em></label>';
+    }
+    scroller().innerHTML =
+      '<div class="ikx-grab" aria-hidden="true"></div>' +
+      '<div class="ikx-head"><h2 class="ikx-h">Your cart</h2><span class="ikx-secure">' + ICON.lock + 'Secure checkout</span><button type="button" class="ikx-x" data-ikx-close aria-label="Close">' + ICON.close + '</button></div>' +
+      '<div class="ikx-offer"></div>' +
+      '<ul class="ikx-items" aria-label="Items in your cart"></ul>' +
+      '<div class="ikx-picks"></div>' +
+      '<form class="ikx-form" id="ikx-co" method="post" action="#" autocomplete="on" novalidate>' +
+        /* Delivery: name first, then the mobile number (compulsory; the COD code goes to its WhatsApp), then the address.
+           Email is optional, at the end. */
+        '<div class="ikx-sec"><h3 class="ikx-h3">Delivery</h3>' +
+          '<label class="ikx-in ikx-in--float is-filled" data-f="country"><select name="country" autocomplete="shipping country"><option value="IN" selected>India</option></select><span>Country/Region</span><i class="ikx-ic ikx-in__chev">' + ICON.down + '</i></label>' +
+          '<div class="ikx-row2">' + field('first_name', 'First name', 'autocomplete="shipping given-name" required') + field('last_name', 'Last name', 'autocomplete="shipping family-name" required') + '</div>' +
+          '<label class="ikx-in ikx-in--float" data-f="phone"><span class="ikx-cc">+91</span><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder=" " required><span>Mobile number (WhatsApp)</span><em class="ikx-ferr" hidden></em></label>' +
+          '<label class="ikx-check"><input type="checkbox" name="news" checked><span>Send me order updates and offers on WhatsApp</span></label>' +
+          field('address1', 'Address', 'autocomplete="shipping address-line1" required') +
+          field('address2', 'Apartment, suite, etc.', 'autocomplete="shipping address-line2"') +
+          '<div class="ikx-row3">' + field('city', 'City', 'autocomplete="shipping address-level2" required') + field('state', 'State', 'autocomplete="shipping address-level1" required', 'select') + field('pincode', 'PIN code', 'inputmode="numeric" autocomplete="shipping postal-code" maxlength="6" required') + '</div>' +
+          '<label class="ikx-check"><input type="checkbox" name="remember" ' + (REMEMBER ? 'checked' : '') + '><span>Save this information for next time</span></label>' +
+          field('email', 'Email (optional, for your order receipt)', 'type="email" inputmode="email" autocomplete="email"') +
+        '</div>' +
+        /* 3. Shipping method — real options from NimbusPost once the address is in */
+        '<div class="ikx-sec"><h3 class="ikx-h3">Shipping method</h3><div class="ikx-ship" role="radiogroup" aria-label="Shipping method"></div></div>' +
+        '<div class="ikx-ups"></div>' +
+        /* 4. Payment */
+        '<div class="ikx-sec"><h3 class="ikx-h3">Payment</h3><p class="ikx-m ikx-h3sub">All transactions are secure and encrypted.</p>' +
+          '<div class="ikx-pay" role="radiogroup" aria-label="Payment method"></div>' +
+          '<p class="ikx-m ikx-billing">Billing address: same as shipping address</p>' +
+        '</div>' +
+        /* 5. Order summary */
+        '<details class="ikx-bill" open><summary>Order summary<span class="ikx-ic">' + ICON.down + '</span></summary><div class="ikx-bill__rows"></div></details>' +
+        '<p class="ikx-fine">' + ICON.lock + 'Payments secured by PayU · 7-day replacement guarantee</p>' +
+      '</form>';
+    state.built = true;
+    var f = form();
+    f.addEventListener('change', function (e) {
+      if (e.target.name === 'phone') e.target.value = tenDigits(e.target.value);
+      if (e.target.name === 'remember') { REMEMBER = e.target.checked; if (!REMEMBER) forgetBuyer(); }
+      if (e.target.name === 'state') e.target.closest('.ikx-in').classList.toggle('is-filled', !!e.target.value);
+    });
+    /* Shopify validates a field when the shopper leaves it, not while typing. */
+    f.addEventListener('focusout', function (e) { if (e.target && e.target.name) fieldError(e.target.name); });
+    f.addEventListener('input', function (e) {
+      /* Save the phone number for follow-up the moment a full 10-digit number is in (typed, pasted or autofilled). */
+      if (e.target.name === 'phone') {
+        var ph = tenDigits(f.elements.phone.value);
+        if (/^[6-9]\d{9}$/.test(ph) && ph !== state.leadPhone) { state.leadPhone = ph; sendLead('phone', true); }
+      } else sendLead('typing');
+      fieldError(e.target.name, true);
+      stepWatch(); if (e.target.name === 'pincode') onPin(); paintShip(); paintFoot(); });
+    f.addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+    if (state.draft) restoreDraft(state.draft);
+    else if (REMEMBER) restoreDraft(savedBuyer());
+    paintShip();
+  }
+
+  /* ---------- remembered buyer (this device only; what Shopify does with a saved address) ---------- */
+  var REMEMBER = true;
+  try { REMEMBER = localStorage.getItem('ikx_remember') !== '0'; } catch (e) {}
+  function savedBuyer() { try { return JSON.parse(localStorage.getItem('ikx_buyer') || 'null'); } catch (e) { return null; } }
+  function rememberBuyer(d) {
+    try {
+      localStorage.setItem('ikx_remember', REMEMBER ? '1' : '0');
+      if (!REMEMBER) return forgetBuyer();
+      var keep = {}; ['phone', 'first_name', 'last_name', 'pincode', 'city', 'state', 'address1', 'address2', 'email'].forEach(function (k) { keep[k] = d[k] || ''; });
+      localStorage.setItem('ikx_buyer', JSON.stringify(keep));
+    } catch (e) {}
+  }
+  function forgetBuyer() { try { localStorage.removeItem('ikx_buyer'); } catch (e) {} }
+
+  /* ---------- per-field errors (Shopify shows the message under the field, in red) ---------- */
+  function fieldError(name, clearOnly) {
+    var f = form(); if (!f || !name) return;
+    var wrap = $('.ikx-in[data-f="' + name + '"]', f), msg = wrap && $('.ikx-ferr', wrap); if (!wrap || !msg) return;
+    var bad = invalid(formData()), mine = bad && bad[0] === name ? bad[1] : '';
+    if (clearOnly && mine) return; /* don't shout while they're still typing */
+    wrap.classList.toggle('is-bad', !!mine); msg.textContent = mine; msg.hidden = !mine;
+  }
+
+  /* ---------- shipping method (Shopify step 3) with a live NimbusPost estimate ----------
+     GET {API}/api/shipping?pin=411001&cod=1  →  { ok, edd: "Mon, 13 Oct", days: 2 }
+     The API asks NimbusPost (Delhivery / Xpressbees, from the 410206 warehouse) and returns only the fastest
+     estimated delivery date. The shopper sees one option, "Express shipping", never the courier's name. */
+  var SHIP = { pin: '', cod: '', edd: null, busy: false };
+  function fetchShipping() {
+    var d = formData(), pin = d.pincode, cod = state.method === 'cod' ? '1' : '0';
+    if (!/^\d{6}$/.test(pin)) return;
+    if (SHIP.pin === pin && SHIP.cod === cod && (SHIP.edd !== null || SHIP.busy)) return;
+    SHIP = { pin: pin, cod: cod, edd: null, busy: true }; paintShip();
+    fetch(API + '/api/shipping?pin=' + pin + '&cod=' + cod).then(function (r) { return r.json(); }).then(function (j) {
+      if (SHIP.pin !== pin || SHIP.cod !== cod) return;
+      SHIP.busy = false; SHIP.edd = (j && j.ok && j.edd) ? String(j.edd) : '';
+      paintShip();
+      if (state.quote) track('AddShippingInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100, shipping_tier: 'Express' });
+      tkOnce('shipping', { data: { pin: pin, edd: SHIP.edd } });
+    }).catch(function () { if (SHIP.pin === pin) { SHIP.busy = false; SHIP.edd = ''; paintShip(); } });
+  }
+  function paintShip() {
+    var box = $('.ikx-ship', root); if (!box) return;
+    var d = formData(), hasAddr = /^\d{6}$/.test(d.pincode) && d.city && d.state;
+    if (!hasAddr) { box.innerHTML = '<div class="ikx-shipnote">Enter your shipping address to view available shipping methods.</div>'; return; }
+    fetchShipping();
+    var p = state.quote && state.quote[qk(state.method)], price = p ? (p.shipping ? money(p.shipping) : 'FREE') : 'FREE';
+    var when = SHIP.busy ? '<i class="ikx-spin ikx-spin--pin"></i> Checking delivery date for ' + esc(d.pincode) + '…'
+      : SHIP.edd ? 'Arrives by ' + esc(SHIP.edd) : 'Delivery in 2–5 business days';
+    box.innerHTML = '<div class="ikx-shipopt is-on" role="radio" aria-checked="true"><span class="ikx-radio" aria-hidden="true"></span>' +
+      '<span class="ikx-shipopt__t"><b>Express shipping</b><span class="ikx-m">' + when + (state.method !== 'cod' ? ' · prepaid orders ship first' : '') + '</span></span>' +
+      '<b class="' + (p && p.shipping ? '' : 'ikx-green') + '">' + price + '</b></div>';
+  }
+
+  /* ---------- cart section ---------- */
+  function paintCart() {
+    var c = CART; if (!c || !$('.ikx-items', root)) return;
+    var b = bogo(c.items);
+    var box = $('.ikx-offer', root);
+    if (b.count) {
+      var pct = Math.min(100, Math.round(b.count * 100 / 6));
+      var head = b.odd ? 'Add <b>1 more</b>, it’s <b class="ikx-green">FREE</b>' :
+        (b.count < 6 ? '<b>' + b.free + ' FREE</b> unlocked · add 2 more, get 1 more free' : '<b>' + b.free + ' tattoos FREE</b> in this order');
+      box.innerHTML = '<p class="ikx-offer__h">' + head + '</p><div class="ikx-bar" aria-hidden="true"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="ikx-steps" aria-hidden="true">' + [2, 4, 6].map(function (n) { return '<span' + (b.count >= n ? ' class="is-on"' : '') + '>' + n + ' = ' + (n / 2) + ' free' + (b.count >= n ? ' ✓' : '') + '</span>'; }).join('') + '</div>';
+      box.hidden = false;
+    } else box.hidden = true;
+
+    $('.ikx-items', root).innerHTML = c.items.map(function (it, idx) {
+      var free = b.map[idx] || 0, paid = it.original_price * (it.quantity - free);
+      var variant = it.variant_title && it.variant_title !== 'Default Title' ? '<span class="ikx-m">' + esc(it.variant_title) + '</span>' : '';
+      var price = free === it.quantity
+        ? '<s>' + money(it.original_line_price) + '</s><b class="ikx-green">FREE</b>'
+        : (free ? '<s>' + money(it.original_line_price) + '</s><b>' + money(paid) + '</b><em class="ikx-green">' + free + ' free</em>' : '<b>' + money(it.original_line_price) + '</b>');
+      return '<li class="ikx-item" data-key="' + esc(it.key) + '">' +
+/* end of part 2 */

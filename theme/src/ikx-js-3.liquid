@@ -168,10 +168,10 @@
   }
   /* Same checks and messages Shopify checkout shows: mobile first, then delivery, email last (optional). */
   function invalid(d) {
-    return !d.phone ? ['phone', 'Enter your mobile number'] :
-      !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
-      d.first_name.length < 1 ? ['first_name', 'Enter a first name'] :
+    return d.first_name.length < 1 ? ['first_name', 'Enter a first name'] :
       d.last_name.length < 1 ? ['last_name', 'Enter a last name'] :
+      !d.phone ? ['phone', 'Enter your mobile number'] :
+      !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
       d.address1.length < 5 ? ['address1', 'Enter an address'] :
       !d.city ? ['city', 'Enter a city'] :
       !d.state ? ['state', 'Select a state'] :

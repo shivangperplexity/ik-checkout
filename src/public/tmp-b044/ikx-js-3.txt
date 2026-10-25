@@ -1,0 +1,243 @@
+/* ik-express.js part 3 of 5 (rendered inline by snippets/ik-checkout.liquid) */
+        '<a class="ikx-item__img" href="' + esc(it.url) + '">' + (it.image ? '<img src="' + esc(img(it.image, 160)) + '" alt="" loading="lazy">' : '') + '</a>' +
+        '<span class="ikx-item__main"><a class="ikx-item__t" href="' + esc(it.url) + '">' + esc(it.product_title) + '</a>' + variant +
+          '<span class="ikx-step" role="group" aria-label="Quantity of ' + esc(it.product_title) + '">' +
+            '<button type="button" data-ikx-qty="-1" aria-label="Decrease quantity"' + (state.busy || /^tmp-/.test(it.key) ? ' disabled' : '') + '>' + (it.quantity > 1 ? '−' : ICON.trash) + '</button>' +
+            '<span aria-live="polite">' + it.quantity + '</span>' +
+            '<button type="button" data-ikx-qty="1" aria-label="Increase quantity"' + (state.busy || /^tmp-/.test(it.key) ? ' disabled' : '') + '>+</button>' +
+          '</span></span>' +
+        '<span class="ikx-item__p">' + price + '</span></li>';
+    }).join('');
+
+    /* Build 039: the offer is one bar above the items ("Add 1 more tattoo, get it FREE"), nothing to pick inside it.
+       The free designs to add are in the rail below the items. */
+    if (b.count && box) {
+      box.classList.remove('is-free');
+      box.setAttribute('style', 'padding:0;border:0;background:none;box-shadow:none;margin-bottom:10px');
+      box.innerHTML = '<div role="status" style="position:relative;overflow:hidden;border-radius:999px;background:#f1ece2;height:36px">' +
+        '<i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:' + (b.odd ? 50 : 100) + '%;background:' + (b.odd ? '#f6d77e' : '#cfe9d4') + ';transition:width .4s ease"></i>' +
+        '<span style="position:relative;display:flex;align-items:center;justify-content:center;height:100%;padding:0 14px;font-size:13px;font-weight:700;color:#1d1a14;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+        (b.odd ? '🎁 Add 1 more tattoo, get it FREE' : '✓ ' + b.free + ' FREE unlocked · add 2 more for 1 more free') + '</span></div>';
+    }
+    /* Build 039: the State select's empty option repeated the word "State" under the floating label (overlapping text) */
+    var stSel = form() && form().elements.state;
+    if (stSel && stSel.options[0] && stSel.options[0].value === '' && stSel.options[0].text) stSel.options[0].text = '';
+
+    var inCart = {}; c.items.forEach(function (i) { inCart[i.product_id] = 1; });
+    /* Odd count: this rail shows the designs that are free right now. */
+    var picks = b.odd ? freePicks(c, b).slice(0, 8) : PICKS.filter(function (p) { return !inCart[p.id]; }).slice(0, 8);
+    var pb = $('.ikx-picks', root);
+    if (!picks.length) { pb.innerHTML = ''; return; }
+    pb.innerHTML = '<p class="ikx-h3">' + (b.odd ? 'Pick your FREE tattoo' : 'You might have missed') + '<small>' + (b.odd ? 'Swipe →' : 'Add 2 · 1 free') + '</small></p>' +
+      '<div class="ikx-rail">' + picks.map(function (p) {
+        return '<div class="ikx-pick"><a class="ikx-pick__img" href="' + esc(p.u) + '">' + (p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '') + (b.odd ? '<span>FREE</span>' : '') + '</a>' +
+          '<span class="ikx-pick__t">' + esc(p.t) + '</span>' +
+          '<span class="ikx-pick__p">' + (b.odd ? '<s>' + money(p.p) + '</s> <b class="ikx-green">FREE</b>' : '<b>' + money(p.p) + '</b>') + '</span>' +
+          '<button type="button" class="ikx-pick__b' + (b.odd ? ' is-free' : '') + '" data-ikx-add="' + p.v + '" aria-label="Add ' + esc(p.t) + (b.odd ? ' free' : '') + '"' + (state.busy ? ' disabled' : '') + '>' + (b.odd ? '+ Add FREE' : '+ Add') + '</button></div>';
+      }).join('') +
+      '<a class="ikx-pick ikx-pick--all" href="' + R + 'collections/all"><span class="ikx-pick__all-ic">' + ICON.chev + '</span><b>View all products</b><span class="ikx-m">Buy 1 Get 1 on every design</span></a></div>';
+  }
+
+  /* Build 038: designs that are truly free right now, bestsellers first (PICKS order). With an odd number of
+     tattoos, one more is free only if it costs no more than the cheapest tattoo still being paid for (Buy 1 Get 1
+     frees the cheapest half); a pricier one would add the difference, so it is not offered as free. */
+  function freePicks(c, b) {
+    if (!c || !b || !b.odd) return [];
+    var units = [], inCart = {};
+    c.items.forEach(function (i) { inCart[i.product_id] = 1; if (i.product_type === TATTOO) for (var k = 0; k < i.quantity; k++) units.push(i.original_price); });
+    units.sort(function (x, y) { return x - y; });
+    var paidMin = units[Math.floor(units.length / 2)] || 0;
+    return PICKS.filter(function (p) { return !inCart[p.id] && p.p <= paidMin; });
+  }
+  /* One tap = added (the whole tile is the button). */
+  function freeTile(p) {
+    return '<button type="button" class="ikx-fp__i" data-ikx-add="' + p.v + '" aria-label="Add ' + esc(p.t) + ' for free"' + (state.busy ? ' disabled' : '') + '>' +
+      '<span class="ikx-fp__img">' + (p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '') + '<em>FREE</em></span>' +
+      '<span class="ikx-fp__t">' + esc(p.t) + '</span>' +
+      '<span class="ikx-fp__p"><s>' + money(p.p) + '</s><b>+ Add</b></span></button>';
+  }
+
+  /* Optimistic: the sheet updates on tap; Shopify's cart and the price catch up in the background. */
+  var cartQ = Promise.resolve(), pending = 0;
+  function clone(c) { return JSON.parse(JSON.stringify(c)); }
+  /* A request started just before the shopper switched to a UPI app can hang forever on some phones;
+     give each cart change 12 s so one stuck request never blocks the + / − / delete buttons after it. */
+  function within(ms, p) { return Promise.race([p, new Promise(function (_, bad) { setTimeout(function () { bad(new Error('timeout')); }, ms); })]); }
+  function cartOp(run) {
+    pending++; ownUntil = Date.now() + 4000;
+    cartQ = cartQ.then(function () { return within(12000, run()); }).then(function (real) {
+      if (--pending === 0) {
+        ownUntil = Date.now() + 1500;
+        /* Never redraw the cart over a payment in progress (that showed a locked cart); just keep the data. */
+        if (state.busy) { CART = real; return; }
+        render(real); notify();
+      }
+    }).catch(function (err) {
+      pending = Math.max(0, pending - 1);
+      showErr(err && err.message === 'add' ? 'That design just sold out. Please pick another.' : 'Could not update your cart. Please try again.');
+      if (state.busy) return;
+      return refresh();
+    });
+  }
+  function changeQty(key, delta) {
+    var c = clone(CART), it = c.items.filter(function (i) { return i.key === key; })[0]; if (!it) return;
+    var q = Math.max(0, it.quantity + delta);
+    it.quantity = q; it.original_line_price = it.original_price * q;
+    c.items = c.items.filter(function (i) { return i.quantity > 0; }); recount(c);
+    render(c);
+    cartOp(function () {
+      return fetch(R + 'cart/change.js', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ id: key, quantity: q }) })
+        .then(function (r) { if (!r.ok) throw new Error('change'); return r.json(); });
+    });
+  }
+  function addPick(v) {
+    var p = PICKS.filter(function (x) { return String(x.v) === String(v); })[0];
+    if (p) {
+      var c = clone(CART);
+      c.items.push({ key: 'tmp-' + v, variant_id: Number(v), product_id: p.id, quantity: 1, original_price: p.p, original_line_price: p.p, final_price: p.p, product_title: p.t, variant_title: '', product_type: TATTOO, image: p.img, url: p.u });
+      recount(c); render(c);
+    }
+    tk('method', { method: state.method, data: { pick: true } });
+    cartOp(function () {
+      return fetch(R + 'cart/add.js', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ items: [{ id: Number(v), quantity: 1 }] }) })
+        .then(function (r) { if (!r.ok) throw new Error('add'); return fetch(R + 'cart.js', { headers: { Accept: 'application/json' } }); })
+        .then(function (r) { return r.json(); });
+    });
+  }
+  /* Let the header cart count and any other listeners know the cart changed. */
+  function notify() {
+    document.dispatchEvent(new CustomEvent('cart:update', { bubbles: true }));
+    document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
+  }
+
+  /* ---------- delivery form ---------- */
+  function tenDigits(v) {
+    var d = String(v || '').replace(/\D/g, '');
+    if (d.length >= 12 && d.indexOf('91') === 0) d = d.slice(2);
+    if (d.length === 11 && d.charAt(0) === '0') d = d.slice(1);
+    return d.slice(0, 10);
+  }
+  /* PIN fills city + state; when it works, they collapse into one confirmed line (design: "Baner, Pune ✓"). */
+  var pinSeq = 0, PINS = {}; /* this page view only, never stored */
+  function onPin() {
+    var f = form(), pin = f.elements.pincode.value.trim();
+    if (!/^\d{6}$/.test(pin)) { state.pinOk = false; return; }
+    var seq = ++pinSeq;
+    function apply(d) {
+      if (seq !== pinSeq) return;
+      if (!d.ok) { state.pinOk = false; return; }
+      var match = STATES.filter(function (s) { return s.toLowerCase() === String(d.state).toLowerCase(); })[0];
+      f.elements.city.value = d.city || f.elements.city.value;
+      if (match) f.elements.state.value = match;
+      state.pinOk = !!(f.elements.city.value && f.elements.state.value);
+      if (match) f.elements.state.closest('.ikx-in').classList.add('is-filled');
+      paintShip(); paintFoot();
+    }
+    if (PINS[pin]) return apply(PINS[pin]);
+    fetch(API + '/api/pincode/' + pin).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) PINS[pin] = { ok: true, city: d.city, state: d.state };
+      apply(d);
+    }).catch(function () {});
+  }
+  function paintPinOk(text, checking) {
+    var ok = $('.ikx-pinok', root), cs = $('.ikx-cityst', root); if (!ok) return;
+    if (checking) { ok.innerHTML = '<i class="ikx-spin ikx-spin--pin"></i><span>Checking PIN…</span>'; ok.hidden = false; cs.hidden = true; return; }
+    if (text) { ok.innerHTML = '<span class="ikx-ic">' + ICON.check + '</span><span>' + esc(text) + '</span><button type="button" class="ikx-link" data-ikx-city>Change</button>'; ok.hidden = false; cs.hidden = true; }
+    else { ok.hidden = true; cs.hidden = false; }
+  }
+
+  /* What the shopper typed is kept in memory for this page only (never saved), so coming back from the UPI app,
+     "Pay another way" or a failed payment shows the same filled-in form instead of an empty one. */
+  function restoreDraft(d) {
+    var f = form(); if (!f || !d) return;
+    ['phone', 'first_name', 'last_name', 'pincode', 'city', 'state', 'address1', 'address2', 'email'].forEach(function (k) { if (d[k] && f.elements[k]) f.elements[k].value = d[k]; });
+    if (!d.first_name && d.name) { var nm = d.name.split(' '); f.elements.first_name.value = nm.shift(); f.elements.last_name.value = nm.join(' '); }
+    if (f.elements.state.value) f.elements.state.closest('.ikx-in').classList.add('is-filled');
+    if (d.city && d.state && /^\d{6}$/.test(d.pincode)) { state.pinOk = true; paintPinOk(d.city + ', ' + d.state); }
+    paintShip();
+  }
+  function formData() {
+    var f = form(), o = {};
+    ['phone', 'first_name', 'last_name', 'pincode', 'city', 'state', 'address1', 'address2', 'email'].forEach(function (k) { o[k] = (f.elements[k] && f.elements[k].value || '').trim(); });
+    o.phone = tenDigits(o.phone);
+    /* The API takes name + email + phone: derive the name from Shopify's first/last fields. */
+    o.name = (o.first_name + ' ' + o.last_name).trim();
+    o.news = !!(f.elements.news && f.elements.news.checked);
+    o.edd = SHIP.edd || '';
+    return o;
+  }
+  /* Same checks and messages Shopify checkout shows: mobile first, then delivery, email last (optional). */
+  function invalid(d) {
+    return d.first_name.length < 1 ? ['first_name', 'Enter a first name'] :
+      d.last_name.length < 1 ? ['last_name', 'Enter a last name'] :
+      !d.phone ? ['phone', 'Enter your mobile number'] :
+      !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
+      d.address1.length < 5 ? ['address1', 'Enter an address'] :
+      !d.city ? ['city', 'Enter a city'] :
+      !d.state ? ['state', 'Select a state'] :
+      !/^\d{6}$/.test(d.pincode) ? ['pincode', 'Enter a valid 6-digit PIN code'] :
+      (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) ? ['email', 'Enter a valid email, or leave it empty'] : null;
+  }
+  function ready() { return !!form() && !invalid(formData()); }
+  function stepWatch() {
+    var d = formData();
+    if (/^[6-9]\d{9}$/.test(d.phone)) tkOnce('phone', { phone: d.phone, name: d.name });
+    if (/^\d{6}$/.test(d.pincode)) tkOnce('pin');
+    if (d.name.length > 1 && d.address1.length > 4) tkOnce('address');
+    if (!invalid(d)) tkOnce('pay', { phone: d.phone, name: d.name });
+  }
+
+  /* ---------- add-on offers (set in the admin dashboard) ---------- */
+  function paintUps() {
+    var box = $('.ikx-ups', root); if (!box) return;
+    if (!state.quote) { box.innerHTML = ''; return; }
+    var added = state.lines.filter(function (l) { return l.upsell; }).map(function (l) { return String(l.variant_id); });
+    box.innerHTML = (state.ups || []).slice(0, 2).map(function (u) {
+      var on = added.indexOf(String(u.variantId)) >= 0, now = Math.round(u.price * (100 - u.pct) / 100);
+      return '<div class="ikx-up' + (on ? ' is-on' : '') + '">' + (u.image ? '<img src="' + esc(u.image) + '" alt="" loading="lazy">' : '') +
+        '<span class="ikx-up__t"><b>' + esc(u.headline || 'Add this to your order') + '</b><span>' + esc(u.title) + '</span><span>' + (u.pct ? '<s>' + money(u.price) + '</s> ' : '') + '<b>' + money(now) + '</b>' + (u.pct ? ' <em>' + u.pct + '% OFF</em>' : '') + '</span></span>' +
+        '<button type="button" class="ikx-up__b" data-ikx-up="' + u.variantId + '">' + (on ? 'Remove' : '+ Add') + '</button></div>';
+    }).join('');
+  }
+  function toggleUp(id) {
+    var i = state.lines.findIndex(function (l) { return String(l.variant_id) === String(id) && l.upsell; });
+    if (i >= 0) state.lines.splice(i, 1); else state.lines.push({ variant_id: id, quantity: 1, upsell: true });
+    state.busy = true; overlay('Updating your total…');
+    fetchQuote(state.lines).then(function (q) {
+      state.busy = false; hideOverlay();
+      setQuote(q, true); paintUps(); paintPay(); paintBill(); paintFoot();
+      tk('method', { method: state.method, data: { upsell: i < 0 } });
+    }).catch(function () { state.busy = false; hideOverlay(); if (i < 0) state.lines.pop(); paintUps(); showErr('Could not update the offer. Please try again.'); });
+  }
+
+  /* ---------- payment tiles ---------- */
+  var UPI_APPS = [['gpay', 'Google Pay'], ['phonepe', 'PhonePe'], ['paytm', 'Paytm'], ['any', 'Other UPI']];
+  function qk(m) { return m === 'cod' ? 'cod' : 'prepaid'; }
+  /* UPI is offered on every device. Phones open the chosen UPI app directly; on a computer UPI goes through
+     PayU's secure page, where the shopper scans a QR code with any UPI app (or enters a UPI ID). */
+  function methods() { return ['upi', 'card', 'cod']; }
+  var LOGO_URL = { gpay: script && script.getAttribute('data-logo-gpay'), phonepe: script && script.getAttribute('data-logo-phonepe'), paytm: script && script.getAttribute('data-logo-paytm') };
+  function upiIcon(k) {
+    var u = (state.logos || {})[k] || LOGO_URL[k];
+    if (u) return '<img src="' + esc(u) + '" alt="">';
+    if (k === 'any') return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>';
+    return '<b>' + (k === 'gpay' ? 'G' : k === 'phonepe' ? 'P' : 'Pt') + '</b>';
+  }
+  function paintPay() {
+    var box = $('.ikx-pay', root); if (!box) return;
+    if (!state.quote) {
+      box.innerHTML = '<p class="ikx-m">Our quick checkout is busy right now. You can still pay safely on Shopify’s checkout.</p>';
+      return;
+    }
+    if (methods().indexOf(state.method) < 0) state.method = methods()[0];
+    var cod = state.quote.cod, pre = state.quote.prepaid, pc = pcOn();
+    box.innerHTML = '<div class="ikx-tiles">' + methods().map(function (m) {
+      var q = state.quote[qk(m)], on = state.method === m;
+      var name = m === 'upi' ? 'UPI' : m === 'card' ? 'Card / Netbanking' : pc ? 'Pay ' + money(pcAdv()) + ' now' : 'Cash on delivery';
+      var sub = m === 'upi' && !IS_MOBILE ? 'Scan QR with any UPI app' : m === 'upi' ? '<span class="ikx-logos">' + UPI_APPS.slice(0, 3).map(function (a) { return LOGO_URL[a[0]] ? '<img src="' + esc(LOGO_URL[a[0]]) + '" alt="' + a[1] + '">' : a[1]; }).join('') + '</span>' : m === 'card' ? 'Debit, credit, wallets' : pc ? 'after delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
+      var save = m !== 'cod' && pre.prepaid ? '<span class="ikx-tile__save">Save ' + money(pre.prepaid) + '</span>' : '';
+      return '<button type="button" role="radio" aria-checked="' + on + '" class="ikx-tile' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (state.busy ? ' disabled' : '') + '>' +
+        '<b>' + name + '</b><span class="ikx-tile__amt' + (m !== 'cod' ? ' ikx-green' : '') + '">' + (m === 'cod' && pc ? '+ ' + money(cod.total - pcAdv()) : money(q.total)) + '</span><span class="ikx-m">' + sub + '</span>' + save + '</button>';
+    }).join('') + '</div>' + pcNote() +
+    ((state.method === 'upi' || (state.method === 'cod' && pc)) && IS_MOBILE ? '<div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_APPS.map(function (a) {
+/* end of part 3 */

@@ -184,6 +184,10 @@
     var a = t.closest('[data-ikx-add]');
     if (a) { e.preventDefault(); if (!state.busy) { closeAsk(); addPick(a.getAttribute('data-ikx-add')); } return; }
     if (t.closest('[data-ikx-askx]')) { e.preventDefault(); closeAsk(); return; }
+    if (t.closest('[data-otp-x]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); return; }
+    if (t.closest('[data-otp-re]')) { e.preventDefault(); otpSend(true); return; }
+    if (t.closest('[data-otp-paste]')) { e.preventDefault(); otpPaste(); return; }
+    if (t.closest('[data-otp-edit]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); var pf = form() && form().elements.phone; goCheckout(false); if (pf) setTimeout(function () { pf.focus(); pf.select && pf.select(); }, 350); return; }
     if (t.closest('[data-ikx-skip]')) { e.preventDefault(); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
     if (t.closest('[data-ikx-gofree]')) { e.preventDefault(); var ob = $('.ikx-offer', root); if (ob) ob.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     var m = t.closest('[data-ikx-method]');
@@ -220,13 +224,27 @@
     /* Build 039: no "you have 1 FREE tattoo" pop-up before paying (simpler checkout) */
     state.draft = d; rememberBuyer(d);
     var pcx = state.method === 'cod' && pcOn();
+    /* Build 044: Cash on delivery (not part-paid) is verified with a 4-digit WhatsApp code first. The code box opens
+       inside this tap (so the phone keyboard comes up) and the order is placed as soon as 4 digits are in. */
+    if (state.method === 'cod' && !pcx && state.quote.otp && !state.otpSkip) {
+      tk('submit', { phone: d.phone, name: d.name, method: state.method });
+      track('AddPaymentInfo', { currency: 'INR', value: state.quote.cod.total / 100 });
+      return otpOpen(d);
+    }
+    placeOrder(d, pcx, '');
+  }
+  function placeOrder(d, pcx, otp) {
     state.busy = true;
     if (!IS_MOBILE) paintFoot();
-    overlay(state.method === 'cod' && !pcx ? 'Placing your order…' : (state.method === 'upi' || pcx) && IS_MOBILE ? 'Opening your UPI app…' : 'Opening secure payment…');
-    tk('submit', { phone: d.phone, name: d.name, method: state.method });
-    track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
+    if (!otp) {
+      overlay(state.method === 'cod' && !pcx ? 'Placing your order…' : (state.method === 'upi' || pcx) && IS_MOBILE ? 'Opening your UPI app…' : 'Opening secure payment…');
+      tk('submit', { phone: d.phone, name: d.name, method: state.method });
+      track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
+    }
     var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
-    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1 }).then(function (r) {
+    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, otp: otp || undefined }).then(function (r) {
+      if (!r.ok && r.otp_invalid) { state.busy = false; return otpError(r.error, r.expired); }
+      otpClose();
       if (!r.ok && r.partial_required) {
         /* the API wants the advance for this address (the check had not run, or the rules changed): show it */
         state.busy = false; hideOverlay(); state.idem = uuid();
@@ -243,8 +261,103 @@
       fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
       track('Purchase', { currency: 'INR', value: r.value }, r.eventId); tk('done');
       hideOverlay(); showSuccess(r);
-    }).catch(function () { state.busy = false; hideOverlay(); paintFoot(); showErr('Network problem. Please check your connection and try again.'); });
+    }).catch(function () {
+      state.busy = false;
+      if (otp && OTP) return otpError('Network problem. Please check your connection and type the code again.');
+      hideOverlay(); paintFoot(); showErr('Network problem. Please check your connection and try again.');
+    });
   }
+
+  /* ---------- Build 044: WhatsApp OTP for Cash on delivery ---------- */
+  var OTP = null;
+  function otpPhone(p) { return String(p || '').replace(/^(\d{5})(\d{5})$/, '$1 $2'); }
+  function otpClose() { var o = root && $('.ikx-otpw', root); if (o) o.remove(); if (OTP) clearInterval(OTP.timer); OTP = null; }
+  function otpErr(m) { var e = root && $('[data-otp-err]', root); if (e) e.textContent = m || ''; }
+  function otpSentText() { return 'We sent a 4-digit code to WhatsApp <b>+91 ' + esc(otpPhone(OTP.d.phone)) + '</b>.'; }
+  function otpOpen(d) {
+    otpClose();
+    OTP = { d: d, left: 0, timer: null, sent: false };
+    var o = el('div', { class: 'ikx-otpw', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Enter the OTP sent on WhatsApp',
+      style: 'position:absolute;inset:0;z-index:60;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;box-sizing:border-box' },
+      '<div style="position:relative;width:100%;max-width:420px;background:#fff;border-radius:18px;padding:22px 18px 18px;box-shadow:0 12px 32px rgba(16,24,40,.25);box-sizing:border-box">' +
+        '<button type="button" class="ikx-x" data-otp-x aria-label="Close" style="position:absolute;top:10px;right:10px">' + ICON.close + '</button>' +
+        '<p style="margin:0 0 4px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#05603a">Cash on Delivery</p>' +
+        '<h3 style="margin:0 0 6px;font-size:19px;line-height:1.3;padding-right:32px">Enter the OTP sent on WhatsApp</h3>' +
+        '<p class="ikx-m" data-otp-st style="margin:0 0 14px;font-size:14px;line-height:1.45">Sending a 4-digit code to WhatsApp <b>+91 ' + esc(otpPhone(d.phone)) + '</b>…</p>' +
+        '<input data-otp-in type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="4" aria-label="4-digit code" ' +
+          'style="display:block;width:100%;box-sizing:border-box;height:60px;border:1.5px solid #d0d5dd;border-radius:12px;text-align:center;font:inherit;font-size:30px;font-weight:700;letter-spacing:.55em;padding:0 0 0 .55em;outline:none;background:#fff;color:#101828">' +
+        '<p data-otp-err role="alert" style="min-height:18px;margin:8px 0 0;color:#d92d20;font-size:13px;line-height:1.4"></p>' +
+        '<p class="ikx-m" style="margin:4px 0 14px;font-size:12.5px;line-height:1.45">In WhatsApp tap <b>Copy code</b>, come back and tap the code above your keyboard (or Paste). Your order is placed as soon as the 4 digits are in.</p>' +
+        '<div style="display:flex;gap:10px"><button type="button" class="ikx-btn ikx-btn--ghost" data-otp-paste style="flex:1;margin:0">Paste code</button>' +
+        '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-re style="flex:1;margin:0" disabled>Resend in 30s</button></div>' +
+        '<button type="button" class="ikx-link" data-otp-edit style="display:block;margin:12px auto 0">Change mobile number</button>' +
+      '</div>');
+    $('.ikx-sheet', root).appendChild(o);
+    var inp = $('[data-otp-in]', o);
+    try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+    inp.addEventListener('input', function () {
+      var v = inp.value.replace(/\D/g, '').slice(0, 4); if (v !== inp.value) inp.value = v;
+      otpErr(''); inp.style.borderColor = v ? '#101828' : '#d0d5dd';
+      if (v.length === 4) otpGo(v);
+    });
+    otpSend(false);
+  }
+  function otpTimer(n) {
+    if (!OTP) return; clearInterval(OTP.timer); OTP.left = Math.max(1, Math.round(n || 30));
+    var tick = function () {
+      var re = root && $('[data-otp-re]', root); if (!OTP || !re) return;
+      if (OTP.left <= 0) { clearInterval(OTP.timer); re.disabled = false; re.textContent = 'Resend code'; return; }
+      re.disabled = true; re.textContent = 'Resend in ' + (OTP.left--) + 's';
+    };
+    tick(); OTP.timer = setInterval(tick, 1000);
+  }
+  function otpSend(again) {
+    if (!OTP) return; var d = OTP.d, re = $('[data-otp-re]', root);
+    if (re) { re.disabled = true; re.textContent = 'Sending…'; }
+    api('/api/otp/send', { phone: d.phone }).then(function (r) {
+      if (!OTP) return;
+      var st = $('[data-otp-st]', root);
+      if (r.ok || r.wait) { OTP.sent = true; if (st) st.innerHTML = otpSentText(); if (again && r.ok) otpErr(''); return otpTimer(r.ok ? r.resend_in : r.wait); }
+      /* WhatsApp could not send it (template not live yet, number not on WhatsApp...): place the order the old way */
+      if (r.fallback && !OTP.sent) { state.otpSkip = true; otpClose(); return placeOrder(d, false, ''); }
+      otpErr(r.error || 'Could not send the code. Please try again.');
+      if (re) { re.disabled = false; re.textContent = 'Resend code'; }
+    }).catch(function () {
+      if (!OTP) return; otpErr('Network problem. Check your connection and tap Resend.');
+      if (re) { re.disabled = false; re.textContent = 'Resend code'; }
+    });
+  }
+  function otpGo(code) {
+    if (!OTP || state.busy) return;
+    var inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
+    inp.disabled = true; inp.blur();
+    if (st) st.innerHTML = '<i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking the code and placing your order…';
+    placeOrder(OTP.d, false, code);
+  }
+  function otpError(msg, expired) {
+    if (!OTP) return;
+    var inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
+    if (st) st.innerHTML = otpSentText();
+    inp.disabled = false; inp.value = ''; inp.style.borderColor = '#d92d20';
+    otpErr(msg || 'Wrong code. Please try again.');
+    if (expired) { OTP.left = 0; var re = $('[data-otp-re]', root); if (re) { clearInterval(OTP.timer); re.disabled = false; re.textContent = 'Resend code'; } }
+    try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+  }
+  function otpPaste() {
+    if (!OTP || !navigator.clipboard || !navigator.clipboard.readText) { var i0 = root && $('[data-otp-in]', root); if (i0) i0.focus(); return; }
+    navigator.clipboard.readText().then(function (t) {
+      var v = String(t || '').replace(/\D/g, '').slice(0, 4), inp = root && $('[data-otp-in]', root);
+      if (!inp) return;
+      if (v.length !== 4) { otpErr('Copy the code in WhatsApp first (Copy code button).'); return inp.focus(); }
+      inp.value = v; inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }).catch(function () { var inp = root && $('[data-otp-in]', root); if (inp) inp.focus(); });
+  }
+  /* back from WhatsApp: put the cursor in the code box so the keyboard offers the copied code */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || !OTP) return;
+    var inp = root && $('[data-otp-in]', root);
+    if (inp && !inp.disabled && !inp.value) setTimeout(function () { try { inp.focus({ preventScroll: true }); } catch (e) {} }, 250);
+  });
 
   /* Build 038: one last chance before paying with an unclaimed free tattoo (once per visit; "Continue without"
      is remembered for this browser tab only). */
