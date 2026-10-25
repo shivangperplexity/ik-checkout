@@ -49,7 +49,7 @@
     if (!wasOpen) { state.done = false; sentStep = {}; }
     function settle() {
       var x = $('.ikx-x', root); if (x && !wasOpen) x.focus({ preventScroll: true });
-      if (where === 'checkout') goCheckout(false);
+      if (where === 'checkout') { tkOnce('cta'); goCheckout(false); }
     }
     var instant = !!(CART && CART.item_count);
     if (instant) { render(CART); settle(); }
@@ -162,8 +162,12 @@
       '<div class="ikx-picks"></div>' +
       '<form class="ikx-form" id="ikx-co" method="post" action="#" autocomplete="on" novalidate>' +
         /* 1. Contact — Shopify's layout, but the mobile number is the contact (compulsory); email is optional, at the end */
-        '<div class="ikx-sec"><h3 class="ikx-h3">Contact<a class="ikx-link" href="' + R + 'account/login">Sign in</a></h3>' +
+        '<div class="ikx-sec" data-ikx-contact><h3 class="ikx-h3">Contact<a class="ikx-link" href="' + R + 'account/login">Sign in</a></h3>' +
+          (PV === 'b' ? '<div class="ikx-trust" style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px">' +
+            ['Cash on Delivery available', 'Delivered in 3–7 days', '7-day replacement'].map(function (t) {
+              return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;line-height:1;padding:6px 9px;border-radius:999px;background:#ecfdf3;color:#067647">✓ ' + t + '</span>'; }).join('') + '</div>' : '') +
           '<label class="ikx-in ikx-in--float" data-f="phone"><span class="ikx-cc">+91</span><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder=" " required><span>Mobile number</span><em class="ikx-ferr" hidden></em></label>' +
+          (PV === 'b' ? '<p class="ikx-m" style="margin:6px 2px 0;font-size:12px">🔒 Only for delivery updates on WhatsApp. No spam calls.</p>' : '') +
           '<label class="ikx-check"><input type="checkbox" name="news" checked><span>Send me order updates and offers on WhatsApp</span></label>' +
         '</div>' +
         /* 2. Delivery */
@@ -206,6 +210,15 @@
       fieldError(e.target.name, true);
       stepWatch(); if (e.target.name === 'pincode') onPin(); paintShip(); paintFoot(); });
     f.addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+    /* A/B funnel: "saw the checkout form" = the Contact block (mobile number) came on screen, or the field got focus */
+    f.addEventListener('focusin', function (e) { if (e.target && e.target.name === 'phone') tkOnce('form'); });
+    try {
+      var cbox = $('[data-ikx-contact]', root);
+      if (cbox && window.IntersectionObserver) {
+        var io = new IntersectionObserver(function (es) { es.forEach(function (x) { if (x.isIntersecting) { tkOnce('form'); io.disconnect(); } }); }, { threshold: 0.6 });
+        io.observe(cbox);
+      }
+    } catch (e) {}
     if (state.draft) restoreDraft(state.draft);
     else if (REMEMBER) restoreDraft(savedBuyer());
     paintShip();

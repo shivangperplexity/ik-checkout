@@ -17,6 +17,7 @@ export const SCHEMA = [
     sid TEXT PRIMARY KEY, phone TEXT, name TEXT, device TEXT, cart_json TEXT, cart_value BIGINT DEFAULT 0, step TEXT, max_step INTEGER DEFAULT 0,
     method TEXT, source TEXT, utm_json TEXT, page TEXT, first_seen BIGINT, last_seen BIGINT, ordered INTEGER DEFAULT 0, order_name TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_seen ON sessions (last_seen)`,
+  `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pv TEXT`,
   `CREATE TABLE IF NOT EXISTS events (id BIGSERIAL PRIMARY KEY, sid TEXT, ts BIGINT, type TEXT, data TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts)`,
   `CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)`,

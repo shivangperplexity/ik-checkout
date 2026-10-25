@@ -85,7 +85,7 @@
       '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + '</span>' +
       '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>';
     if (!ready()) {
-      var bad = invalid(formData()), where = bad && bad[0] === 'phone' ? 'Add your mobile number' : 'Add delivery details';
+      var bad = invalid(formData()), where = bad && bad[0] === 'phone' ? (PV === 'b' ? 'Checkout · ' + money(p.total) : 'Add your mobile number') : 'Add delivery details';
       foot.innerHTML = top + '<button type="button" class="ikx-btn" data-ikx-next>' + where + '<span class="ikx-ic">' + ICON.down + '</span></button>';
       return;
     }

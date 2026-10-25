@@ -66,7 +66,9 @@ export async function handleTrack(req, env) {
   const b = await req.json().catch(() => ({}));
   const sid = String(b.sid || '').slice(0, 40);
   const type = String(b.type || '').slice(0, 20);
-  if (!sid || !STEPS.concat(['left', 'fail', 'method', 'upi', 'ping']).includes(type)) return json({ ok: false }, 400);
+  if (!sid || !STEPS.concat(['left', 'fail', 'method', 'upi', 'ping', 'cta', 'form']).includes(type)) return json({ ok: false }, 400);
+  /* checkout A/B test (theme: PV = 'a' | 'b', kept per browser session) */
+  const pv = /^[a-z]$/.test(String(b.pv || '')) ? String(b.pv) : null;
   const t = now();
   const rank = STEPS.indexOf(type);
   const lines = Array.isArray(b.cart) ? b.cart.slice(0, 20).map((l) => ({ t: String(l.t || '').slice(0, 80), q: +l.q || 1, p: +l.p || 0 })) : null;
@@ -75,14 +77,14 @@ export async function handleTrack(req, env) {
   const src = b.utm?.utm_source ? String(b.utm.utm_source).slice(0, 40) : b.utm?.fbclid ? 'facebook' : null;
   const phone = cleanPhone(b.phone);
   await env.DB.prepare(
-    `INSERT INTO sessions (sid,phone,name,device,cart_json,cart_value,step,max_step,method,source,utm_json,page,first_seen,last_seen)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `INSERT INTO sessions (sid,phone,name,device,cart_json,cart_value,step,max_step,method,source,utm_json,page,first_seen,last_seen,pv)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(sid) DO UPDATE SET phone=COALESCE(excluded.phone,sessions.phone), name=COALESCE(NULLIF(excluded.name,''),sessions.name),
        cart_json=COALESCE(excluded.cart_json,sessions.cart_json), cart_value=COALESCE(?,sessions.cart_value),
        step=CASE WHEN ?>=0 THEN excluded.step ELSE sessions.step END, max_step=GREATEST(sessions.max_step,excluded.max_step),
        method=COALESCE(excluded.method,sessions.method), source=COALESCE(sessions.source,excluded.source), utm_json=COALESCE(sessions.utm_json,excluded.utm_json),
-       page=COALESCE(excluded.page,sessions.page), last_seen=excluded.last_seen`,
-  ).bind(sid, phone, String(b.name || '').slice(0, 60), String(b.device || '').slice(0, 10), lines ? JSON.stringify(lines) : null, value ?? 0, rank >= 0 ? type : null, Math.max(rank, 0), b.method ? String(b.method).slice(0, 10) : null, src, utm, b.page ? String(b.page).slice(0, 200) : null, t, t, value, rank)
+       page=COALESCE(excluded.page,sessions.page), last_seen=excluded.last_seen, pv=COALESCE(sessions.pv, excluded.pv)`,
+  ).bind(sid, phone, String(b.name || '').slice(0, 60), String(b.device || '').slice(0, 10), lines ? JSON.stringify(lines) : null, value ?? 0, rank >= 0 ? type : null, Math.max(rank, 0), b.method ? String(b.method).slice(0, 10) : null, src, utm, b.page ? String(b.page).slice(0, 200) : null, t, t, pv, value, rank)
     .run();
   if (type !== 'ping' && type !== 'cart') await env.DB.prepare('INSERT INTO events (sid,ts,type,data) VALUES (?,?,?,?)').bind(sid, t, type, JSON.stringify(b.data || {}).slice(0, 300)).run();
   if (type === 'done') await env.DB.prepare("UPDATE sessions SET ordered=1, max_step=7 WHERE sid=?").bind(sid).run();
@@ -1238,6 +1240,32 @@ const ACTIONS = {
     return { ok: true, ...(await profitAdvice(await withSettings(await withSettingsFresh(env)), ACTIONS)) };
   },
   /** RTO % and profit by shipping (pickup) date, with the owner's change markers (lib/revenue.js shipCohorts). */
+  /** Checkout A/B test (theme PV 'a' = current sheet, 'b' = trust strip + "no spam" note + Checkout button). */
+  async ab_checkout(env, b) {
+    const days = Math.min(60, Math.max(1, Number(b.days) || 14));
+    const since = now() - days * 86400;
+    const rows = (await env.DB.prepare('SELECT sid, pv, max_step, ordered, device FROM sessions WHERE pv IS NOT NULL AND first_seen > ?').bind(since).all()).results;
+    const ev = (await env.DB.prepare("SELECT DISTINCT sid, type FROM events WHERE ts > ? AND type IN ('cta','form')").bind(since).all()).results;
+    const has = {}; for (const e of ev) (has[e.sid] = has[e.sid] || {})[e.type] = 1;
+    const arms = {};
+    for (const r of rows) {
+      const k = r.pv, a = arms[k] = arms[k] || { arm: k, sessions: 0, opened: 0, cta: 0, form: 0, phone: 0, ordered: 0, mobile: 0 };
+      a.sessions++; if (num(r.max_step) >= 1) a.opened++; if (has[r.sid]?.cta) a.cta++; if (has[r.sid]?.form) a.form++;
+      if (num(r.max_step) >= 2) a.phone++; if (num(r.ordered)) a.ordered++; if (/mob|phone/i.test(r.device || '')) a.mobile++;
+    }
+    const list = Object.values(arms).sort((x, y) => (x.arm < y.arm ? -1 : 1)).map((a) => ({ ...a,
+      phone_of_form: a.form ? Math.round((a.phone * 1000) / a.form) / 10 : null, order_of_opened: a.opened ? Math.round((a.ordered * 1000) / a.opened) / 10 : null }));
+    /* two-proportion z-test on orders / opened sheet, A vs B */
+    let verdict = 'Not enough data yet';
+    const A = list.find((x) => x.arm === 'a'), B = list.find((x) => x.arm === 'b');
+    if (A && B && A.opened >= 100 && B.opened >= 100) {
+      const p1 = A.ordered / A.opened, p2 = B.ordered / B.opened, pp = (A.ordered + B.ordered) / (A.opened + B.opened);
+      const z = (p2 - p1) / Math.sqrt(pp * (1 - pp) * (1 / A.opened + 1 / B.opened) || 1);
+      const lift = p1 ? Math.round(((p2 - p1) / p1) * 1000) / 10 : 0;
+      verdict = Math.abs(z) >= 1.96 ? (z > 0 ? `B wins: ${lift}% more orders (95% sure)` : `A wins: B gets ${-lift}% fewer orders (95% sure)`) : `No clear winner yet (B ${lift >= 0 ? '+' : ''}${lift}%, keep running)`;
+    }
+    return { ok: true, days, arms: list, verdict };
+  },
   /** RTO by where the customer came from (Instagram ad, bio link, direct...) and by state */
   async rto_breakdown(env, b) {
     const { rtoBreakdown } = await import('./revenue.js');
