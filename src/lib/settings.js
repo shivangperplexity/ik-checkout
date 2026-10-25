@@ -78,8 +78,6 @@ const DEFAULTS = {
   convert: { ...CONVERT_DEFAULTS },
   /* How-to-apply video sent on delivery (lib/apply-guide.js) */
   apply: { video: '', bundled: false },
-  /* Free mystery tattoo with every fully prepaid order (lib/mystery.js): on, what the order line / checkout call it */
-  mystery: { on: true, title: 'Mystery Tattoo', worth: 399 },
 };
 
 let cache = { at: 0, s: null };

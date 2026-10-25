@@ -186,8 +186,7 @@ export async function handlePay(req, env0) {
     surl: `${env.WORKER_URL}/api/wa/paid`, furl: `${env.WORKER_URL}/api/wa/paid`, udf1: orderId,
   });
   const fields = Object.entries(payu.fields).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
-  const giftLine = (env.SETTINGS?.mystery?.on !== false) ? ' Plus a FREE mystery tattoo in your parcel.' : '';
-  return page(`Pay for order ${name}`, `${q.pct}% off for paying online.${giftLine} Prepaid orders are packed and shipped first.`,
+  return page(`Pay for order ${name}`, `${q.pct}% off for paying online. Prepaid orders are packed and shipped first.`,
     `<div class="was">₹${rupees(q.total)}</div><div class="amt">₹${rupees(q.payable)}</div><p>UPI, cards, netbanking · secured by PayU</p>
      <form id="f" method="POST" action="${esc(payu.action)}">${fields}<button class="y" type="submit">Pay ₹${rupees(q.payable)}</button></form>`);
 }
@@ -288,10 +287,7 @@ export async function completeConversion(env, ctx, row, { txnid, amountPaise }) 
     const expected = Number(row.convert_payable_paise) || 0;
     const issues = [];
     if (expected && Math.abs(expected - amountPaise) > 100) issues.push(`paid ₹${rupees(amountPaise)} but the offer was ₹${rupees(expected)}`);
-    const { mysteryCfg, MYSTERY_TAG, MYSTERY_NOTE } = await import('./mystery.js');
-    const gift = mysteryCfg(env).on;
-    const { problem } = await markPrepaid(env, row, { pct, paidPaise: amountPaise, txnid, tags: gift ? [MYSTERY_TAG] : [],
-      line: gift ? `COD converted to prepaid via WhatsApp: paid ₹${rupees(amountPaise)} online (${pct}% prepaid discount), PayU txn ${txnid}. ${MYSTERY_NOTE}` : undefined });
+    const { problem } = await markPrepaid(env, row, { pct, paidPaise: amountPaise, txnid });
     if (problem) issues.push(problem);
     /* Shiprocket: a parcel booked as COD in the meantime is re-booked as prepaid (new label), or flagged if it left */
     const ship = await reconcileShipment(env, row).catch((e) => ({ state: 'error', note: String(e.message || e) }));
@@ -335,9 +331,7 @@ export async function manualPrepaid(env, orderId, { amountPaise, ref = '', notif
   if (!claim) throw new Error('Already marked prepaid');
   await env.DB.prepare("UPDATE orders SET status='paid', confirmed_at=COALESCE(confirmed_at,?) WHERE order_id=?").bind(t, id).run();
   const line = `Marked prepaid from the dashboard: customer paid ₹${rupees(amt)}${cleanRef ? ` (ref ${cleanRef})` : ''}${off > 100 ? `, ₹${rupees(off)} less than the COD balance (taken as a discount)` : ''}. Nothing to collect on delivery.`;
-  const { mysteryCfg, MYSTERY_TAG, MYSTERY_NOTE } = await import('./mystery.js');
-  const gift = mysteryCfg(env).on;
-  const { problem } = await markPrepaid(env, row, { pct, paidPaise: amt, txnid: txn, line: gift ? line + ' ' + MYSTERY_NOTE : line, tags: ['marked-prepaid', ...(gift ? [MYSTERY_TAG] : [])] });
+  const { problem } = await markPrepaid(env, row, { pct, paidPaise: amt, txnid: txn, line, tags: ['marked-prepaid'] });
   const sr = await reconcileShipment(env, row).catch((e) => ({ state: 'error', note: String(e.message || e) }));
   if (sr.state === 'picked' || sr.state === 'error') await addTags(env, `gid://shopify/Order/${id}`, ['prepaid-needs-attention']).catch(() => {});
   await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(id).run().catch(() => {});
@@ -401,7 +395,7 @@ export const validity = (min) => (min % 60 === 0 ? `${min / 60} hour${min === 60
 
 /** Free in-chat message with a "Pay ₹… now" button (only inside the 24 h window, Cloud API). */
 async function sendCta(env, row, q, link, minutes) {
-  const body = `Hi ${row.first_name || 'there'}! Pay for order ${row.order_name} online now and get ${q.pct}% off: ${inr(q.payable)} instead of ${inr(q.total)} cash on delivery.\n\n${env.SETTINGS?.mystery?.on !== false ? '\n\n🎁 Plus a FREE mystery tattoo in your parcel when you pay online.' : ''}\n\nThis offer is valid for the next ${validity(minutes)} only. Prepaid orders are packed and shipped first.`;
+  const body = `Hi ${row.first_name || 'there'}! Pay for order ${row.order_name} online now and get ${q.pct}% off: ${inr(q.payable)} instead of ${inr(q.total)} cash on delivery.\n\nThis offer is valid for the next ${validity(minutes)} only. Prepaid orders are packed and shipped first.`;
   const res = await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_ID}/messages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.WA_TOKEN}` },
     body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: '91' + row.phone, type: 'interactive',

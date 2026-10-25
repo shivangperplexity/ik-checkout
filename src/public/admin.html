@@ -222,7 +222,7 @@ function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app'
 var AS={msgs:[],busy:false,props:{},loaded:false};
 function asSave(){}
 function asLoad(){if(AS.loaded)return;AS.loaded=true;ls('ik_as_msgs',null);rpc('assistant_history').then(function(j){if(AS.msgs.length)return;AS.msgs=(j.messages||[]).map(function(m){return {role:m.role,content:String(m.content||'').replace(/\n\[[^\]]*\]$/,'')}});asDraw()}).catch(function(){AS.loaded=false})}
-var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['abtest','Checkout A/B test','Current checkout vs. trust strip + “no spam” note'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
+var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
 function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
 function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
  $('#main').onclick=function(e){var b=e.target.closest('[data-go]');if(b)go(b.dataset.go)};
@@ -406,8 +406,6 @@ function drawAi(){var box=$('#rv_ai');if(!box)return;var a=RVN.ai;
   +(a.advice?'<div style="margin-top:14px;padding:14px;border-radius:10px;background:#f6f4ff;white-space:pre-wrap;line-height:1.55">'+esc(a.advice)+'</div><p class="small mut" style="margin:6px 0 0">Written by AI from the numbers above. Check the ₹ estimates before acting on them.</p>':'<p class="small" style="margin-top:12px;color:var(--warn)">'+esc(a.error||'')+'</p>');
  bindAi()}
 function bindAi(){var b=$('#rv_aib');if(b)b.onclick=function(){RVN.aiBusy=true;drawAi();rpc('revenue_ai').then(function(r){RVN.ai=r}).catch(function(e){RVN.ai={facts:null,error:e.message}}).then(function(){RVN.aiBusy=false;if(RVN.ai&&!RVN.ai.facts){var x=RVN.ai.error;RVN.ai=null;drawAi();toast(x)}else drawAi()})}}
-/* ---- Checkout A/B test (theme PV a/b; lib/admin.js ab_checkout) ---- */
-var ABD=14;
 /* ---------- Courier report (lib/courier-report.js) ---------- */
 var COUR={};
 function loadCour(scan){var m=$('#main');if(!COUR.data)m.innerHTML='<p class="mut">Loading every shipment…</p>';
@@ -425,17 +423,6 @@ function drawCour(){var j=COUR.data,m=$('#main');if(!j)return;
  h+='<div class="card"><h3>COD parcels only</h3>'+tbl(j.cod_only,'Courier')+'</div>';
  h+='<div class="card"><h3>By aggregator and service</h3>'+tbl(j.couriers,'Aggregator · courier')+'</div>';
  m.innerHTML=h;$('#cr_scan').onclick=function(){this.disabled=true;this.textContent='Reading Shopify…';loadCour('force')}}
-function loadAb(){$('#main').innerHTML='<p class="mut">Loading…</p>';
- rpc('ab_checkout',{days:ABD}).then(function(j){
-  var nm={a:'A · current checkout',b:'B · trust strip + “no spam” note + Checkout button'},pc=function(n,d){return d?Math.round(n*1000/d)/10+'%':'–'};
-  var h='<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">Checkout A/B test</h3><p class="small mut" style="margin:4px 0 0">Every visitor gets A or B (half each) for the whole visit. B adds three green ticks above the mobile number (Cash on Delivery · Delivered in 3–7 days · 7-day replacement), “Only for delivery updates on WhatsApp. No spam calls.” under it, and the bottom button reads “Checkout · ₹total” until the number is in.</p></div>'
-   +'<select id="ab_d">'+[7,14,30].map(function(d){return '<option value="'+d+'"'+(d===ABD?' selected':'')+'>Last '+d+' days</option>'}).join('')+'</select></div>'
-   +'<p style="margin:12px 0;font-weight:700">'+esc(j.verdict)+'</p>'
-   +(j.arms.length?'<div class="tw"><table><tr><th>Variant</th><th>Visits with a cart</th><th>Sheet opened</th><th>Tapped Checkout</th><th>Saw mobile field</th><th>Entered mobile</th><th>Orders</th><th>Orders ÷ sheet opened</th><th>Mobile ÷ saw field</th></tr>'
-   +j.arms.map(function(a){return '<tr><td><b>'+esc(nm[a.arm]||a.arm)+'</b></td><td>'+a.sessions+'</td><td>'+a.opened+'</td><td>'+a.cta+'</td><td>'+a.form+'</td><td>'+a.phone+'</td><td>'+a.ordered+'</td><td><b>'+pc(a.ordered,a.opened)+'</b></td><td>'+pc(a.phone,a.form)+'</td></tr>'}).join('')+'</table></div>':'<p class="small mut">No visits with the test running yet. It starts when the theme with the test (Build 042) is published.</p>')
-   +'<p class="small mut" style="margin-top:10px">The winner is called once each variant has 100+ opened sheets and the difference is 95% certain. Plan on about two weeks at today’s traffic. “Sheet opened” counts the cart sheet that opens after Add to cart; “Saw mobile field” is when the mobile number box came on screen.</p></div>';
-  $('#main').innerHTML=h;var d=$('#ab_d');if(d)d.onchange=function(){ABD=Number(d.value);loadAb()};
- }).catch(fail)}
 /* ---- Real revenue (lib/revenue.js) ---- */
 var RVN={range:'all'};
 function loadRevenue(scan,cont){if(!cont)$('#main').innerHTML='<p class="mut">'+(scan?'Reading every order from Shopify…':'Loading…')+'</p>';
@@ -498,7 +485,7 @@ function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){r
  [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t||(inMore&&b.dataset.t==='more'))});
  var ml=$('#morelbl');if(ml)ml.textContent=moreName(t)?'More · '+moreName(t):'More';$('#main').onclick=null;
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({revenue:loadRevenue,couriers:loadCour,abtest:loadAb,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
+ ({revenue:loadRevenue,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */

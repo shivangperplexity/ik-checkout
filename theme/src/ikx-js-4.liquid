@@ -13,7 +13,6 @@
     if (p.bogo) row('Buy 1 Get 1 Free', '−' + money(p.bogo), 'is-save');
     if (p.upsell) row('Add-on offer', '−' + money(p.upsell), 'is-save');
     if (p.prepaid) row('Prepaid 10% off', '−' + money(p.prepaid), 'is-save');
-    if (state.method !== 'cod' && mys()) row('🎁 ' + esc(mys().title) + ' <span class="ikx-m">(surprise design, extra)</span>', 'FREE', 'is-save');
     row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
     if (p.cod) row('COD handling', money(p.cod));
     row('To pay', money(p.total), 'is-total');
@@ -83,10 +82,10 @@
     var btnLabel = pcx ? 'Pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Complete order · ' + money(p.total) : 'Pay now · ' + money(p.total);
     var unclaimed = false; /* Build 039: the offer lives in the bar above the items only */
     var top = (unclaimed ? '<button type="button" class="ikx-freenote" data-ikx-gofree>🎁 1 FREE tattoo unclaimed · <u>Pick one</u></button>' : '') +
-      '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + (state.method !== 'cod' && mys() ? ' + 🎁' : '') + '</span>' +
+      '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + '</span>' +
       '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>';
     if (!ready()) {
-      var bad = invalid(formData()), where = bad && bad[0] === 'phone' ? (PV === 'b' ? 'Checkout · ' + money(p.total) : 'Add your mobile number') : 'Add delivery details';
+      var bad = invalid(formData()), where = bad && bad[0] === 'phone' ? 'Add your mobile number' : 'Add delivery details';
       foot.innerHTML = top + '<button type="button" class="ikx-btn" data-ikx-next>' + where + '<span class="ikx-ic">' + ICON.down + '</span></button>';
       return;
     }

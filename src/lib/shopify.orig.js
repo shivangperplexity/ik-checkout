@@ -61,7 +61,7 @@ export async function loadLines(env, cartLines) {
   });
 }
 
-export async function createDraft(env, { lines, price, method, buyer, tags, attributes, extraLines = [] }) {
+export async function createDraft(env, { lines, price, method, buyer, tags, attributes }) {
   const addr = {
     firstName: buyer.firstName,
     lastName: buyer.lastName || '',
@@ -76,7 +76,7 @@ export async function createDraft(env, { lines, price, method, buyer, tags, attr
   const discount = price.bogo + price.prepaid + (price.upsell || 0);
   const title = [price.bogo ? 'Buy 1 Get 1 Free' : '', price.upsell ? 'Add-on offer' : '', price.prepaid ? 'Prepaid 10% off' : ''].filter(Boolean).join(' + ');
   const input = {
-    lineItems: lines.map((l) => ({ variantId: l.variantId, quantity: l.qty })).concat(extraLines),
+    lineItems: lines.map((l) => ({ variantId: l.variantId, quantity: l.qty })),
     shippingAddress: addr,
     billingAddress: addr,
     phone: '+91' + buyer.phone,

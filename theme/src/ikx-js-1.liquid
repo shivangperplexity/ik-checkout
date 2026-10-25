@@ -32,20 +32,6 @@
     } catch (e) { return 'ik'; }
   })();
   if (ARM === 'shopify') return;
-  /* Checkout A/B test (Oct 2026), by browser session: 'a' = the sheet as it was, 'b' = trust strip above the mobile
-     number, a "no spam" note under it and a "Checkout · ₹X" button. ?ik_pv=a / ?ik_pv=b force a variant. Sent with
-     every /api/track as `pv`; results in IK Checkout (More > Checkout A/B test). PV_B_PCT = 0 turns B off. */
-  var PV_B_PCT = 50;
-  var PV = (function () {
-    try {
-      var f = qs.get('ik_pv');
-      if (f === 'a' || f === 'b') { sessionStorage.setItem('ikx_pv', f); return f; }
-      var v = sessionStorage.getItem('ikx_pv');
-      if (v === 'a' || v === 'b') return v;
-      v = Math.random() * 100 < PV_B_PCT ? 'b' : 'a';
-      sessionStorage.setItem('ikx_pv', v); return v;
-    } catch (e) { return 'a'; }
-  })();
 
   /* After an add-to-cart: false = show the pill (Flow 11), true = open the sheet like the old drawer did. */
   var AUTO_OPEN_ON_ADD = true; /* Build 036: open the sheet on add, as Shopify's cart drawer does */
@@ -137,7 +123,7 @@
   var sentStep = {};
   function tk(type, extra) {
     try {
-      var p = { sid: SID, type: type, device: DEVICE, utm: attribution, page: location.pathname, arm: ARM, pv: PV };
+      var p = { sid: SID, type: type, device: DEVICE, utm: attribution, page: location.pathname, arm: ARM };
       for (var k in extra || {}) p[k] = extra[k];
       var f = form();
       if (f && !p.phone) { var fd = formData(); if (/^[6-9]\d{9}$/.test(fd.phone)) { p.phone = fd.phone; p.name = fd.name; } }
