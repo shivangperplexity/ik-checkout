@@ -86,6 +86,7 @@ export function buildReport(parcels) {
       avg_charge: paid.length ? Math.round(paid.reduce((a, p) => a + p.charge, 0) / paid.length) : null,
       cost_per_delivered: paidDel ? Math.round(freight / paidDel) : null,
       rto_attempts: rtoAtt.length ? r1(rtoAtt.reduce((a, p) => a + p.attempts, 0) / rtoAtt.length) : null,
+      rto_orders: f.filter((p) => p.outcome === 'rto').map((p) => p.order).slice(0, 80), delivered_orders: f.filter((p) => p.outcome === 'delivered').map((p) => p.order).slice(0, 80),
       top_states: Object.entries(states).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([s, n]) => `${s} ${n}`).join(', '),
     };
   };
