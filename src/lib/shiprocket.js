@@ -312,9 +312,28 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
       if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
     } catch (e) { console.error('cod risk pick', e.message); }
   }
+  /* COD: the preferred courier (Settings > Shipping carriers: cod_prefer, default Blue Dart Surface, which has the lowest
+     RTO on this store's parcels; see Courier report) whenever it delivers here, costs at most cod_prefer_extra more than
+     the pick (default Rs 25) and is not more than the tolerance slower than the fastest option. */
+  const pref = preferPick(options, pick, { cod, prefer: s.cod_prefer ?? 'Blue Dart Surface', extra: s.cod_prefer_extra ?? 25, toleranceDays: c.toleranceDays });
+  if (pref && !fallback) { pick = pref.pick; riskNote = pref.note; }
   const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
   const onlyNever = !r.list.some((o) => !o.never) && r.list.some((o) => o.never);
   return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever, risk_note: riskNote, risk_table: risk?.table || null };
+}
+/** Pure: the preferred courier for a COD parcel, or null (keep the current pick). */
+export function preferPick(options, pick, { cod, prefer, extra = 25, toleranceDays = 2 } = {}) {
+  if (!cod || !prefer || !pick || !(options || []).length) return null;
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const want = String(prefer).split(/[|,]/).map(norm).filter(Boolean);
+  const cands = options.filter((o) => o.charge != null && want.some((w) => norm(o.courier).includes(w))).sort((a, b) => a.charge - b.charge);
+  const best = cands[0];
+  if (!best || best.id === pick.id) return null;
+  const more = Math.round((best.charge - (pick.charge ?? best.charge)) * 100) / 100;
+  if (more > Number(extra)) return null;
+  const fastest = options.map((o) => o.eddDate).filter(Boolean).sort((a, b) => a - b)[0];
+  if (best.eddDate && fastest && (best.eddDate - fastest) / 86400000 > Number(toleranceDays)) return null;
+  return { pick: best, note: `${best.courier}: preferred for COD (lowest RTO on your parcels)${more > 0 ? `, \u20b9${more} more than ${pick.courier}` : ''}` };
 }
 function eddOf(edd) {
   const s = String(edd || '').trim(); if (!s) return null;

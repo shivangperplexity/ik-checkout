@@ -773,7 +773,8 @@ const ACTIONS = {
       upsells: s.upsells, upi_logos: s.upi_logos, email: s.admin?.email,
       shipping: { origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password),
         shiprocket_email: s.shipping.shiprocket_email, shiprocket_password: mask(s.shipping.shiprocket_password), shiprocket_ok: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password), shiprocket_couriers: s.shipping.shiprocket_couriers,
-        policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days,
+        policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days, shiprocket_block: s.shipping.shiprocket_block ?? null,
+        cod_prefer: s.shipping.cod_prefer ?? 'Blue Dart Surface', cod_prefer_extra: s.shipping.cod_prefer_extra ?? 25,
         sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack) },
     };
   },
@@ -785,6 +786,8 @@ const ACTIONS = {
     if (b.shiprocket_email !== undefined) sh.shiprocket_email = String(b.shiprocket_email).trim().slice(0, 200);
     if (b.shiprocket_password && !String(b.shiprocket_password).startsWith('••')) sh.shiprocket_password = String(b.shiprocket_password).trim();
     if (b.shiprocket_block !== undefined) sh.shiprocket_block = String(b.shiprocket_block).replace(/[^\w |,&.-]/g, '').trim().slice(0, 200);
+    if (b.cod_prefer !== undefined) sh.cod_prefer = String(b.cod_prefer).replace(/[^\w |,&.-]/g, '').trim().slice(0, 120);
+    if (b.cod_prefer_extra !== undefined) sh.cod_prefer_extra = Math.max(0, Math.min(500, Math.round(Number(b.cod_prefer_extra) || 0)));
     for (const k of ['shiprocket_couriers']) {
       if (b[k] === undefined) continue;
       const v = String(b[k]).trim().slice(0, 200);
@@ -930,6 +933,8 @@ const ACTIONS = {
       attention: {
         pickup_failed: live.filter((x) => x.stage === 'pickup_failed').length,
         pickup_late: live.filter((x) => x.stage === 'pickup_pending' && x.booked_at < t - DAY).length,
+        /* Blue Dart has left parcels for a week (pickup exception, 15-23 Oct): flag them after 36 h so you can escalate */
+        bluedart_late: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && /blue ?dart/i.test(x.courier || '') && x.booked_at < t - 36 * 3600).map((x) => x.order_name),
         pending_pickups: live.filter((x) => x.stage === 'pickup_pending' || x.stage === 'pickup_failed').length,
         to_pack: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && !x.packed_at).sort((a, b) => a.booked_at - b.booked_at).map((x) => x.order_id),
         ndr: live.filter((x) => x.stage === 'ndr').length,
