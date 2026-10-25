@@ -70,8 +70,11 @@
     root.addEventListener('click', function h(e) { if (e.target instanceof Element && e.target.closest('[data-ikx-retry]')) { root.removeEventListener('click', h); back(''); } });
     document.addEventListener('visibilitychange', onVis);
     tk('upi', { data: { app: app } });
-    location.href = link; /* open the UPI app first; the waiting screen is drawn behind it */
+    /* Build 044: draw the waiting screen BEFORE opening the app. Some browsers pause the page the moment the UPI app
+       opens, and the screen (with its status check and "Pay another way") never appeared: the sheet stayed locked. */
+    state.lastTxn = r.txnid;
     waiting(); timer = setTimeout(check, 4000);
+    location.href = link;
   }
 
   function showSuccess(r) {
@@ -194,6 +197,45 @@
     recount(c); CART = c;
     if (!isOpen()) { paintPill(); bumpPill(); }
   });
+
+  /* ---------- Build 044: never stay locked after coming back from a UPI app ----------
+     If the sheet is still locked ("Opening payment…") with no waiting screen and no order request in flight, check
+     the last payment once: paid -> success; otherwise unlock with a fresh attempt id, so the next tap creates a new
+     UPI intent. */
+  var orderInflight = 0;
+  api = (function (orig) {
+    return function (path, body, method) {
+      if (path !== '/api/order') return orig(path, body, method);
+      orderInflight++;
+      var done = function () { orderInflight = Math.max(0, orderInflight - 1); };
+      return orig(path, body, method).then(function (r) { done(); return r; }, function (e) { done(); throw e; });
+    };
+  })(api);
+  function unstick() {
+    if (!root || !state.busy || state.done || orderInflight) return;
+    if ($('.ikx-ring', root) || root.style.visibility === 'hidden' || $('.ikx-otpw', root)) return; /* a wait screen, PayU or the OTP box has it */
+    var free = function (msg) {
+      if (!state.busy || state.done || orderInflight) return;
+      state.busy = false; state.idem = uuid(); hideOverlay(); root.style.visibility = '';
+      if (state.built) { paintPay(); paintFoot(); showErr(msg); } else if (CART && CART.item_count) { render(CART); showErr(msg); }
+    };
+    var txn = state.lastTxn;
+    if (!txn) return free('');
+    fetch(API + '/api/payu/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txnid: txn }) })
+      .then(function (x) { return x.json(); }).then(function (j) {
+        if (!state.busy || state.done) return;
+        if (j.state === 'paid') {
+          state.lastTxn = ''; tk('done'); fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+          track('Purchase', { currency: 'INR', value: j.value }, j.eventId);
+          return showSuccess({ orderName: j.orderName, statusUrl: j.statusUrl, method: j.partial ? 'partial' : 'prepaid', value: j.value, advance: j.advance, balance: j.balance });
+        }
+        if (j.state === 'review') { state.done = true; return screen('<h3>Payment received</h3><p>We got your payment and are confirming your order. You’ll hear from us shortly. Please don’t pay again.</p><button type="button" class="ikx-btn" data-ikx-close>OK</button>'); }
+        free('Payment not completed. Choose your UPI app and tap Pay again.');
+      }).catch(function () { free('Payment not completed. Choose your UPI app and tap Pay again.'); });
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(unstick, 1500); });
+  window.addEventListener('pageshow', function () { setTimeout(unstick, 1500); });
+  window.addEventListener('focus', function () { setTimeout(unstick, 1500); });
 
   takeOverDrawer();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
