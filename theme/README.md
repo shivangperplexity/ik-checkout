@@ -9,8 +9,9 @@ when `/api/quote` → `partial.mode` is `all`, or `check` and `/api/cod-check` s
 the order goes to `/api/order` with `method: 'partial'`, and the advance is paid through PayU Bolt (desktop)
 or the chosen UPI app (phones).
 
-Upload: themeFilesUpsert with body type TEXT (type URL is only honoured for assets, not snippets), then compare
-each file's checksumMd5 with `md5sum src/ikx-js-*.liquid`.
+Upload: themeFilesUpsert with body type URL pointing at the raw GitHub file of a commit (works for snippets too, as of
+Build 045) or type TEXT, then compare each file's checksumMd5 with `md5sum src/ikx-js-*.liquid`.
+Build 045 = Build 044 + `assets/ik-express-4.css`, `snippets/ik-checkout.liquid` (loads it), parts 3 and 4.
 
 ## Live reviews (Oct 2026)
 `sections/ikl-live-reviews.liquid` ("IK — Live reviews") shows the reviews put "On website" in IK Checkout
