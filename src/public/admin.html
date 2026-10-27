@@ -691,7 +691,7 @@ function ratesTable(r){
 function shipDone(sp){return '<p class="ok" style="margin:0 0 6px">'+(sp.provider==='shipprime'?'<span class="pill">ShipPrime</span> ':'')+'<b>'+esc(sp.courier)+'</b> · AWB <b>'+esc(sp.awb)+'</b> · '+rup(sp.charge)+'</p>'
  +(sp.pack&&sp.pack.label?'<p class="small mut" style="margin:0 0 6px">'+esc(sp.pack.label)+'</p>':'')
  +'<p class="small" style="margin:0 0 8px">'+(sp.pickup?esc(sp.pickup):'Pickup requested.')+'</p>'
- +'<div class="row">'+(sp.label_url?'<a class="btn sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.label_url)+'">Print label</a>':'')+'<a class="btn ghost sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.track_url)+'">Track</a><button class="btn ghost sm" id="sr_dc">Refresh label / pickup</button><button class="btn bad sm" id="sr_cx">Cancel shipment</button></div>'}
+ +'<div class="row">'+(sp.provider==='shipprime'?'<button class="btn sm" id="sp_lbl" data-id="'+esc(sp.order_id)+'">Print label</button>':sp.label_url?'<a class="btn sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.label_url)+'">Print label</a>':'')+'<a class="btn ghost sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.track_url)+'">Track</a><button class="btn ghost sm" id="sr_dc">Refresh label / pickup</button><button class="btn bad sm" id="sr_cx">Cancel shipment</button></div>'}
 function shopifyWarn(sp){return '<div class="card" style="margin:10px 0;border-color:#f3c98b"><b style="color:var(--warn)">Shopify is not marked fulfilled yet.</b><div class="small mut" style="margin-top:4px">'+esc(sp.fulfil_error||'It is retried automatically every few minutes.')+'</div><button class="btn sm" id="sr_ff" style="margin-top:8px">Fulfil in Shopify now</button></div>'}
 function shipPanel(id,o){
  var e=$('#or_rt'),o0=o;
@@ -747,6 +747,8 @@ function shipPanel(id,o){
  }
  function wireDone(sp){
   var d=$('#sr_dc'),c=$('#sr_cx'),f=$('#sr_ff');
+  /* ShipPrime label through our server: "Shipped By" shows Ink Kulture (lib/sp-label.js) */
+  var sl=$('#sp_lbl');if(sl)sl.onclick=function(){dlLabels([sl.dataset.id],sl)};
   if(f)f.onclick=function(){f.disabled=true;f.textContent='Fulfilling…';rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Shopify: '+b.fulfilment_error:'Fulfilled in Shopify');loadOrders(true);openOrder(id)}).catch(function(er){f.disabled=false;f.textContent='Fulfil in Shopify now';toast(er.message)})};
   if(d)d.onclick=function(){d.disabled=true;rpc('sr_docs',{id:id}).then(function(){toast('Updated');shipPanel(id,o)}).catch(function(er){d.disabled=false;toast(er.message)})};
   if(c)c.onclick=function(){if(!confirm('Cancel the '+(sp.provider==='shipprime'?'ShipPrime':'Shiprocket')+' shipment for '+o.name+'?'))return;c.disabled=true;rpc('sr_cancel',{id:id}).then(function(){toast('Cancelled');shipPanel(id,o)}).catch(function(er){c.disabled=false;toast(er.message)})}

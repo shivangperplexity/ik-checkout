@@ -154,24 +154,27 @@ export function spItems(items) {
 const digits10 = (s) => String(s || '').replace(/\D/g, '').slice(-10);
 const cut = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+/** Name printed as "Shipped by" on ShipPrime labels (the pickup name). */
+export const SHIPPER = 'Ink Kulture';
 /** Where the courier collects: Settings > Shipping (sp_pickup), else the Shiprocket pickup location in use. */
 let pickupCache = { key: '', at: 0, v: null };
 export async function spPickup(env) {
   const s = env.SETTINGS?.shipping || {};
   const p = s.sp_pickup;
-  if (p && p.address1 && /^\d{6}$/.test(String(p.pincode || '')) && /^\d{10}$/.test(digits10(p.phone))) return normAddr(p);
+  if (p && p.address1 && /^\d{6}$/.test(String(p.pincode || '')) && /^\d{10}$/.test(digits10(p.phone))) return normAddr({ ...p, name: p.name || SHIPPER });
   if (pickupCache.v && pickupCache.key === s.sr_pickup && Date.now() - pickupCache.at < 3600e3) return pickupCache.v;
   const { sr } = await import('./shiprocket.js');
   const j = await sr(env, 'GET', 'settings/company/pickup');
   const list = j?.data?.shipping_address || [];
   const x = list.find((a) => a.pickup_location === s.sr_pickup) || list.find((a) => Number(a.is_primary_location) === 1) || list[0];
   if (!x) throw new Error('Set the ShipPrime pickup address in Settings, Shipping carriers (no Shiprocket pickup location to copy it from).');
-  const v = normAddr({ name: x.name || x.pickup_location, phone: x.phone, address1: x.address, address2: x.address_2, city: x.city, state: x.state, pincode: x.pin_code });
+  /* the pickup contact's own name (a person) prints as "Shipped by" on ShipPrime's label: the brand goes there */
+  const v = normAddr({ name: SHIPPER, phone: x.phone, address1: x.address, address2: x.address_2, city: x.city, state: x.state, pincode: x.pin_code });
   pickupCache = { key: s.sr_pickup, at: Date.now(), v };
   return v;
 }
 function normAddr(a) {
-  return { name: cut(a.name || 'Ink Kulture', 200), phone: digits10(a.phone), address1: cut(a.address1, 250), address2: cut(a.address2, 250), city: cut(a.city, 100), state: cut(a.state, 100), pincode: String(a.pincode || '').replace(/\D/g, '').slice(0, 6), country: 'India' };
+  return { name: cut(a.name || SHIPPER, 200), phone: digits10(a.phone), address1: cut(a.address1, 250), address2: cut(a.address2, 250), city: cut(a.city, 100), state: cut(a.state, 100), pincode: String(a.pincode || '').replace(/\D/g, '').slice(0, 6), country: 'India' };
 }
 
 /** The ShipPrime create body. Pure. */

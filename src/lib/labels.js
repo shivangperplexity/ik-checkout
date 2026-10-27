@@ -22,6 +22,11 @@ export async function labelPdf(env, orderId) {
   const id = String(orderId || '');
   const rec = await env.DB.prepare("SELECT * FROM shipments WHERE order_id=? AND awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").bind(id).first();
   if (!rec) throw new Error('not booked with Shiprocket, or its shipment was cancelled');
+  if (rec.provider === 'shipprime') {
+    /* ShipPrime: "Shipped By" shows the brand, whatever name the booking carried */
+    const { rebrandShipper } = await import('./sp-label.js');
+    return rebrandShipper(await download(await ensureLabel(env, rec)));
+  }
   try { return await download(await ensureLabel(env, rec)); }
   catch (first) {
     if (!rec.sr_shipment_id) throw first;
