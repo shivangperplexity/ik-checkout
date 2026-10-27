@@ -79,7 +79,7 @@ export async function copyTemplates(env, { from, to, appId, fallbackImage, max =
 
 /** Full content of templates in one account (for writing new ones in the same format). */
 export async function templateDetails(env, waba, names = []) {
-  const rows = (await g(env, `${waba}/message_templates?fields=name,language,category,status,parameter_format,components&limit=200`)).data || [];
+  const rows = (await g(env, `${waba}/message_templates?fields=name,language,category,status,rejected_reason,parameter_format,components&limit=200`)).data || [];
   return rows.filter((t) => !names.length || names.includes(t.name));
 }
 
