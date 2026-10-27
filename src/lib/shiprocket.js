@@ -332,15 +332,18 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
       if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
     } catch (e) { console.error('cod risk pick', e.message); }
   }
-  /* COD: the preferred courier (Settings > Shipping carriers: cod_prefer, default Blue Dart Surface, which has the lowest
+  /* COD: the preferred courier (Settings > Shipping carriers: cod_prefer; off by default since 27 Oct 2026, when Blue
+     Dart's pickup delays made it a bad first choice; it had the lowest
      RTO on this store's parcels; see Courier report) whenever it delivers here, costs at most cod_prefer_extra more than
      the pick (default Rs 25) and is not more than the tolerance slower than the fastest option. */
-  const pref = preferPick(options, pick, { cod, prefer: s.cod_prefer ?? 'Blue Dart Surface', extra: s.cod_prefer_extra ?? 25, toleranceDays: c.toleranceDays });
+  const pref = preferPick(options, pick, { cod, prefer: codPrefer(s), extra: s.cod_prefer_extra ?? 25, toleranceDays: c.toleranceDays });
   if (pref && !fallback) { pick = pref.pick; riskNote = pref.note; }
   const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
   const onlyNever = !r.list.some((o) => !o.never) && r.list.some((o) => o.never);
   return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever, risk_note: riskNote, risk_table: risk?.table || null };
 }
+/** The COD preferred courier from Settings; the old Blue Dart default is off (its pickups slip). */
+export const codPrefer = (s = {}) => (s.cod_prefer == null || /^blue ?dart( surface)?$/i.test(String(s.cod_prefer).trim()) ? '' : s.cod_prefer);
 /** Pure: the preferred courier for a COD parcel, or null (keep the current pick). */
 export function preferPick(options, pick, { cod, prefer, extra = 25, toleranceDays = 2 } = {}) {
   if (!cod || !prefer || !pick || !(options || []).length) return null;

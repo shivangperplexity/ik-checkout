@@ -29,7 +29,11 @@ const now = () => Math.floor(Date.now() / 1000);
 /** ShipPrime's courier codes (from its dashboard). */
 export const SP_COURIERS = ['BLUEDART', 'BLUEDART_AIR', 'XPRESSBEES', 'XPRESSBEES_CDC', 'XPRESSBEES_PREMIUM', 'DELHIVERY', 'DELHIVERY_CDC', 'DELHIVERY_PREMIUM', 'DELHIVERY_AIR',
   'SHADOWFAX', 'SHADOWFAX_CDC', 'SHADOWFAX_PREMIUM', 'EKART', 'ECOM', 'DTDC', 'DTDC_AIR', 'SHREE_MARUTI', 'SHREE_MARUTI_AIR', 'AMAZON'];
-export const SP_DEFAULT_PREFER = 'BLUEDART|XPRESSBEES|DELHIVERY';
+/* Blue Dart last (Oct 2026: its pickups slip for days), never picked over a courier that delivers to the PIN */
+export const SP_DEFAULT_PREFER = 'XPRESSBEES|DELHIVERY|SHADOWFAX|EKART|DTDC';
+const OLD_DEFAULT = 'BLUEDART|XPRESSBEES|DELHIVERY';
+/** The courier order from Settings (the first default, Blue Dart first, is read as the new one). */
+export const spPrefer = (s = {}) => (s.shipprime_prefer == null || s.shipprime_prefer === OLD_DEFAULT ? SP_DEFAULT_PREFER : s.shipprime_prefer);
 
 export const spToken = (env) => String(env.SETTINGS?.shipping?.shipprime_token || env.SHIPPRIME_TOKEN || '').trim();
 export const spConnected = (env) => !!spToken(env);
@@ -85,7 +89,8 @@ export function parseRates(j) {
     const code = String(x.tpl || x.tplVendor || x.tpl_vendor || x.courier || x.courierCode || x.vendor || x.name || '').trim();
     const forward = num(x.forwardCharge ?? x.forward_charge), cod = num(x.codCharge ?? x.cod_charge) || 0;
     const total = num(x.totalCharge ?? x.total_charge ?? x.charge) ?? (forward != null ? forward + cod : null);
-    return { code, courier: courierLabel(code), charge: total, forward, cod, rto: num(x.rtoCharge ?? x.rto_charge) };
+    const sv = x.serviceable ?? x.isServiceable ?? x.is_serviceable;
+    return { code, courier: courierLabel(code), charge: total, forward, cod, rto: num(x.rtoCharge ?? x.rto_charge), serviceable: sv == null ? null : !!sv && sv !== 'false' };
   }).filter((x) => x.code).sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
 }
 export async function spRates(env, { from, pin, weightGrams, cod, amount }) {
@@ -94,13 +99,42 @@ export async function spRates(env, { from, pin, weightGrams, cod, amount }) {
   return parseRates(await sp(env, 'GET', '/v1/forward/rates?' + q));
 }
 
-/** Pure: the courier to book. prefer = 'BLUEDART|XPRESSBEES|DELHIVERY' (first one offered wins); empty = cheapest. */
+const prefList = (prefer) => String(prefer || '').split(/[|,\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+/**
+ * Pure: the courier to book. rates may carry `ok` (true = known to deliver to this PIN, false = known not to, null =
+ * unknown). Known-not-serviceable couriers are never picked; one confirmed to deliver beats an unknown one; then the
+ * order in `prefer`; then the cheapest that is not Blue Dart; Blue Dart only when nothing else is left.
+ */
 export function spPick(rates, prefer = SP_DEFAULT_PREFER) {
-  const list = (rates || []).filter((r) => r.code);
+  const list = (rates || []).filter((r) => r.code && r.ok !== false && r.serviceable !== false);
   if (!list.length) return null;
-  const want = String(prefer || '').split(/[|,\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
-  for (const w of want) { const hit = list.find((r) => r.code.toUpperCase() === w); if (hit) return hit; }
-  return list[0];
+  const want = prefList(prefer);
+  const rank = (r) => { const i = want.indexOf(r.code.toUpperCase()); return i < 0 ? 99 : i; };
+  const bd = (r) => (/^BLUEDART/i.test(r.code) && rank(r) === 99 ? 1 : 0);
+  const sorted = [...list].sort((a, b) => (Number(b.ok === true) - Number(a.ok === true)) || (rank(a) - rank(b)) || (bd(a) - bd(b)) || ((a.charge ?? 9e9) - (b.charge ?? 9e9)));
+  return sorted[0];
+}
+/** The order ShipPrime should try couriers in, after `first` failed: the same ranking, without `first`. */
+export function spFallbacks(rates, prefer, first) {
+  /* Blue Dart is never an automatic fallback (pickup delays): choose it by hand if you want it */
+  const out = [], left = (rates || []).filter((r) => r.code && r.code !== first && !/^BLUEDART/i.test(r.code));
+  while (left.length) { const p = spPick(left, prefer); if (!p) break; out.push(p.code); left.splice(left.indexOf(p), 1); }
+  return out;
+}
+
+/** ShipPrime's delivery estimate: days AFTER pickup (median .. 90th percentile), courier-agnostic. */
+export async function spEdd(env, from, pin) {
+  const j = await sp(env, 'GET', '/v1/forward/edd?' + new URLSearchParams({ pickupPincode: String(from), deliveryPincode: String(pin) }));
+  const d = j?.data && typeof j.data === 'object' ? j.data : j;
+  const min = num(d.minDays ?? d.min_days), max = num(d.maxDays ?? d.max_days);
+  return min == null && max == null ? null : { min: min ?? max, max: max ?? min, basedOn: String(d.basedOn || d.based_on || ''), zone: String(d.zone || '') };
+}
+/** 'YYYY-MM-DD' (IST) `days` working days after the next working day (pickup), Sundays skipped. */
+export function arrivalDate(days, from = Date.now()) {
+  const d = new Date(from + 19800000);
+  let n = -1;                                            /* -1: the first working day is the pickup */
+  while (n < Math.max(0, Math.round(days))) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() !== 0) n++; }
+  return d.toISOString().slice(0, 10);
 }
 
 /** ShipPrime line items: same SKU + price merged (one line per SKU), names / SKUs cut to ShipPrime's limits. */
@@ -157,17 +191,31 @@ export function spBody({ ref, plan, order, row, pickup, tpl }) {
   return body;
 }
 
-/** Plan: parcel + ShipPrime rates + the courier we would book. Books nothing. */
-export async function spPlan(env, order, row) {
+/**
+ * Plan: parcel + ShipPrime rates + delivery estimate + the courier we would book. Books nothing.
+ * hint: { family: { ok, date } } from Shiprocket's serviceability for the same PIN (the same courier networks):
+ * ShipPrime itself only confirms serviceability when it books.
+ */
+export async function spPlan(env, order, row, { hint = null } = {}) {
   const { planBasics } = await import('./shiprocket.js');
+  const { familyOf } = await import('./courier-report.js');
   const base = planBasics(env, order, row);
   const s = env.SETTINGS?.shipping || {};
   const pickup = await spPickup(env);
-  let rates = [], error = '';
-  try { rates = await spRates(env, { from: pickup.pincode, pin: base.pin, weightGrams: base.pack.weight_g, cod: base.cod, amount: base.codAmount }); }
-  catch (e) { error = String(e.message || e); }
-  const pick = spPick(rates, s.shipprime_prefer ?? SP_DEFAULT_PREFER);
-  return { ...base, pickup, rates, pick, error };
+  let rates = [], error = '', edd = null;
+  const [ra, ed] = await Promise.allSettled([
+    spRates(env, { from: pickup.pincode, pin: base.pin, weightGrams: base.pack.weight_g, cod: base.cod, amount: base.codAmount }),
+    spEdd(env, pickup.pincode, base.pin)]);
+  if (ra.status === 'fulfilled') rates = ra.value; else error = String(ra.reason?.message || ra.reason);
+  if (ed.status === 'fulfilled') edd = ed.value;
+  const range = edd ? { from: arrivalDate(edd.min), to: arrivalDate(edd.max) } : null;
+  rates = rates.map((r) => {
+    const h = hint ? hint[familyOf(r.courier)] : undefined;
+    const ok = r.serviceable === false ? false : r.serviceable === true || h?.ok ? true : null;
+    return { ...r, family: familyOf(r.courier), ok, via: r.serviceable != null ? 'ShipPrime' : h?.ok ? 'Shiprocket check' : '', date: h?.date || '', from: range?.from || '', to: range?.to || '' };
+  });
+  const pick = spPick(rates, spPrefer(s));
+  return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint };
 }
 
 /**
@@ -199,10 +247,20 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
   }
   const body = spBody({ ref, plan, order, row, pickup: plan.pickup, tpl: chosen ? chosen.code : '' });
   if (!body.deliveryAddress.phone || !body.deliveryAddress.address1 || !body.deliveryAddress.city || !body.deliveryAddress.state) throw new Error('The order address is incomplete (name, address, city, state and phone are needed).');
-  let j;
+  let j, note = '';
   try { j = await sp(env, 'POST', '/v1/forward', body); }
-  catch (e) {
-    if (e.code === 'DUPLICATE_CLIENT_REFERENCE') {
+  catch (e0) {
+    let e = e0;
+    /* the chosen courier does not deliver there: let ShipPrime try the others in our order (nothing was created) */
+    if (e.code === 'NOT_SERVICEABLE' && body.preferredTpls?.length === 1) {
+      const rest = spFallbacks(plan.rates, spPrefer(env.SETTINGS?.shipping || {}), body.preferredTpls[0]);
+      if (rest.length) {
+        try { j = await sp(env, 'POST', '/v1/forward', { ...body, preferredTpls: rest }); e = null; note = `${courierLabel(body.preferredTpls[0])} does not deliver to ${plan.pin}, so ShipPrime used the next courier`; }
+        catch (e2) { e = e2; }
+      }
+    }
+    if (!e) { /* booked with a fallback courier */ }
+    else if (e.code === 'DUPLICATE_CLIENT_REFERENCE') {
       const found = await spFindByRef(env, ref).catch(() => null);
       if (found?.awb) j = found;
       else throw new Error(`ShipPrime already has an order ${ref} but its AWB could not be read back. Check Manage Orders in ShipPrime before booking again.`);
@@ -220,7 +278,7 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
     .bind(ref, String(d.orderId || d.order_id || ''), awb, courier, Math.round((charge || 0) * 100), plan.cod ? Math.round(plan.codAmount) * 100 : 0, String(d.labelUrl || d.label_url || ''),
       'ShipPrime asks the courier for the pickup', now(), id).run();
   rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
-  return { ok: true, rec, pack: plan.pack, note: '' };
+  return { ok: true, rec, pack: plan.pack, note };
 }
 
 /** A ShipPrime order by our reference (after a lost reply): { awb, courier, orderId, labelUrl } or null. */

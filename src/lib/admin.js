@@ -1,14 +1,14 @@
 import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js';
-import { trackUrlOf, spConnected, spPlan, spBook, spWallet, spPickup, spWebhookUrl, spWebhookSecret, SP_COURIERS, SP_DEFAULT_PREFER } from './shipprime.js';
+import { trackUrlOf, spConnected, spPlan, spBook, spWallet, spPickup, spWebhookUrl, spWebhookSecret, SP_COURIERS, SP_DEFAULT_PREFER, spPrefer } from './shipprime.js';
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 const convertCfgOf = (f) => { try { return { mode: f.SETTINGS?.convert?.mode === 'on' ? 'on' : 'off' }; } catch { return { mode: 'off' }; } };
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderForShipping, packingItems, activeFulfilments, updateTracking, cancelFulfilmentsFor } from './shopify.js';
-import { planBasics, planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
+import { codPrefer, planBasics, planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
 import { normState } from './revenue.js';
-import { cfg as cfgShip, courierBlocked } from './shipping.js';
+import { cfg as cfgShip, courierBlocked, eddDate } from './shipping.js';
 import { isCollab } from './collab.js';
 import { labelPdf } from './labels.js';
 import { stopShipment, sweepCancelled, syncCancelledOrders, syncFulfilledOrders } from './ship-cancel.js';
@@ -774,9 +774,9 @@ const ACTIONS = {
       shipping: { origin_pin: s.shipping.origin_pin, weight_g: s.shipping.weight_g, connected: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password),
         shiprocket_email: s.shipping.shiprocket_email, shiprocket_password: mask(s.shipping.shiprocket_password), shiprocket_ok: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password), shiprocket_couriers: s.shipping.shiprocket_couriers,
         policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days, shiprocket_block: s.shipping.shiprocket_block ?? null,
-        cod_prefer: s.shipping.cod_prefer ?? 'Blue Dart Surface', cod_prefer_extra: s.shipping.cod_prefer_extra ?? 25,
+        cod_prefer: codPrefer(s.shipping), cod_prefer_extra: s.shipping.cod_prefer_extra ?? 25,
         sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack),
-        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token, shipprime_prefer: s.shipping.shipprime_prefer ?? SP_DEFAULT_PREFER,
+        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token, shipprime_prefer: spPrefer(s.shipping),
         ship_default: s.shipping.ship_default === 'shipprime' ? 'shipprime' : 'shiprocket', sp_pickup: s.shipping.sp_pickup || null,
         sp_webhook_url: spWebhookUrl(env), sp_webhook_secret: await spWebhookSecret(env), sp_couriers: SP_COURIERS },
     };
@@ -832,15 +832,6 @@ const ACTIONS = {
     const existing = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
     const spOn = spConnected(fresh);
     if (!srConnected(fresh) && !spOn) throw new Error('No carrier connected yet. Add the Shiprocket API user or the ShipPrime API token in Settings, Shipping carriers.');
-    /* ShipPrime side by side (its own rates and courier order); a ShipPrime problem never hides the Shiprocket plan */
-    let spOut = { connected: spOn };
-    if (spOn) {
-      try {
-        const p = await spPlan(fresh, order, row);
-        spOut = { connected: true, options: p.rates.map((r) => ({ code: r.code, courier: r.courier, charge: r.charge, forward: r.forward, cod_fee: r.cod, rto: r.rto })), pick: p.pick ? p.pick.code : '',
-          error: p.error || '', pickup: `${p.pickup.city} ${p.pickup.pincode}`, weight_g: p.pack.weight_g, prefer: fresh.SETTINGS.shipping.shipprime_prefer ?? SP_DEFAULT_PREFER };
-      } catch (e) { spOut = { connected: true, options: [], error: String(e.message || e) }; }
-    }
     let plan;
     try {
       if (!srConnected(fresh)) throw new Error('Shiprocket is not connected.');
@@ -849,6 +840,32 @@ const ACTIONS = {
       if (!spOn) throw e;
       const base = planBasics(fresh, order, row);
       plan = { ...base, options: [], pick: null, fallback: '', why: 'Shiprocket: ' + String(e.message || e), excluded: [], onlyNever: false, risk_note: '' };
+    }
+    /* ShipPrime side by side. It only confirms a PIN when it books, so Shiprocket's answer for the same courier
+       networks (Delhivery, Xpressbees ...) tells which ones deliver here and when; a ShipPrime problem never hides
+       the Shiprocket plan */
+    let spOut = { connected: spOn };
+    if (spOn) {
+      try {
+        let hint = null;
+        if (plan.options.length || plan.excluded.length) {
+          const { familyOf } = await import('./courier-report.js');
+          hint = {};
+          for (const o of [...plan.options, ...plan.excluded]) {
+            const f = familyOf(o.courier); if (!f) continue;
+            const d = o.eddDate || eddDate(o.edd);
+            const iso = d ? new Date(d.getTime() + 19800000).toISOString().slice(0, 10) : '';
+            const h = (hint[f] = hint[f] || { ok: true, date: '' });
+            if (iso && (!h.date || iso < h.date)) h.date = iso;
+          }
+        }
+        const p = await spPlan(fresh, order, row, { hint });
+        const day = (iso) => (iso ? dayOut(new Date(iso + 'T06:00:00Z')) : '');
+        spOut = { connected: true, pick: p.pick ? p.pick.code : '', error: p.error || '', pickup: `${p.pickup.city} ${p.pickup.pincode}`, weight_g: p.pack.weight_g, prefer: spPrefer(fresh.SETTINGS.shipping),
+          checked: !!hint, edd: p.edd ? { min: p.edd.min, max: p.edd.max, based: p.edd.basedOn, from: day(p.range.from), to: day(p.range.to) } : null,
+          options: p.rates.map((r) => ({ code: r.code, courier: r.courier, charge: r.charge, forward: r.forward, cod_fee: r.cod, rto: r.rto, ok: r.ok, via: r.via,
+            arrives: r.date ? day(r.date) : p.range ? (p.range.from === p.range.to ? day(p.range.from) : day(p.range.from) + ' – ' + day(p.range.to)) : '' })) };
+      } catch (e) { spOut = { connected: true, options: [], error: String(e.message || e) }; }
     }
     return { ok: true, allow_never: !!b.allow_never, only_never: !!plan.onlyNever, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
       sp: spOut, ship_default: fresh.SETTINGS.shipping.ship_default === 'shipprime' && spOn ? 'shipprime' : 'shiprocket',
