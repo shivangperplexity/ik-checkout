@@ -536,7 +536,8 @@ function loadOrders(quiet){if(BULK)return;var UN=tab==='unshipped';if(UN)S.filte
  $('#main').innerHTML=h;var q=$('#q');q.onkeydown=function(e){if(e.key==='Enter'){S.q=q.value;loadOrders()}};
  bulkBar();
  $('#main').onclick=function(e){var c=e.target.closest('.chip');if(c){S.filter=c.dataset.f;loadOrders();return}
-  if(e.target.id==='bulk_go'){bulkShip();return}
+  if(e.target.id==='bulk_go'){bulkShip('shiprocket');return}
+  if(e.target.id==='bulk_sp'){bulkShip('shipprime');return}
   if(e.target.id==='bulk_pk'||e.target.id==='bulk_upk'){bulkPack(e.target.id==='bulk_pk',e.target);return}
   if(e.target.id==='bulk_start'){packMode(selIds().filter(function(id){return !S.rows[id].packed_at}));return}
   if(e.target.id==='nudge_all'){var ids=nudgeable(Object.keys(S.rows).map(function(k){return S.rows[k]})).map(function(o){return o.id});if(!ids.length)return;if(!confirm('Send the COD confirmation again on WhatsApp to '+ids.length+' customer'+(ids.length===1?'':'s')+'? Each gets Yes / Cancel buttons.'))return;var nb=e.target;nb.disabled=true;nb.textContent='Sending… '+ids.length;rpc('cod_nudge',{ids:ids}).then(function(r){var sk=r.results.filter(function(x){return !x.ok});toast('Nudged '+r.sent+(sk.length?' · '+sk.length+' not sent ('+sk.slice(0,2).map(function(x){return x.name+': '+x.note}).join('; ')+')':''));go(tab)}).catch(function(er){nb.disabled=false;toast(er.message)});return}
@@ -621,7 +622,7 @@ function nudgeInfo(o){return o.nudge_count?'<div class="small mut" title="Last W
 function selIds(){return Object.keys(S.sel).filter(function(id){var o=S.rows[id];return o&&eligible(o)})}
 function bulkBar(){var b=$('#bulkbar');if(!b)return;var ids=selIds();b.classList.toggle('hide',!ids.length);
  var np=ids.filter(function(id){return !S.rows[id].packed_at}).length,pk=ids.length-np;
- b.innerHTML='<b>'+ids.length+' selected</b>'+(np?'<button class="btn sm" id="bulk_start">Start packing · '+np+'</button><button class="btn ghost sm" id="bulk_pk">Mark packed · '+np+'</button>':'')+(pk?'<button class="btn ghost sm" id="bulk_upk">Not packed · '+pk+'</button>':'')+'<button class="btn sm" id="bulk_go">Ship '+ids.length+' with Shiprocket</button><button class="btn ghost sm" id="bulk_clr">Clear</button>';
+ b.innerHTML='<b>'+ids.length+' selected</b>'+(np?'<button class="btn sm" id="bulk_start">Start packing · '+np+'</button><button class="btn ghost sm" id="bulk_pk">Mark packed · '+np+'</button>':'')+(pk?'<button class="btn ghost sm" id="bulk_upk">Not packed · '+pk+'</button>':'')+'<button class="btn sm" id="bulk_go">Ship '+ids.length+' with Shiprocket</button><button class="btn sm" id="bulk_sp">Ship '+ids.length+' with ShipPrime</button><button class="btn ghost sm" id="bulk_clr">Clear</button>';
  [].forEach.call(document.querySelectorAll('input.selall'),function(a){var tb=a.closest('table'),rd=Object.keys(S.rows).map(function(k){return S.rows[k]}).filter(function(o){return ready(o)&&(!tb||tb.querySelector('input.sel[data-id="'+o.id+'"]'))});a.checked=rd.length>0&&rd.every(function(o){return S.sel[o.id]})})}
 /* ---- packing screen: one order at a time, design images + quantities, Enter = packed & next ---- */
 function packMode(ids){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('Nothing to pack');return}var fromShip=tab==='ship';
@@ -632,8 +633,8 @@ function packMode(ids){ids=(ids||[]).filter(Boolean);if(!ids.length){toast('Noth
  function draw(){var d=$('#ov').querySelector('.drawer');if(!d)return;
   if(P.i>=P.ids.length){
    d.innerHTML='<div class="row"><b>Packing done</b><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div><p style="font-size:18px;margin:14px 0"><b>'+P.packed.length+'</b> packed'+(P.skipped.length?' · '+P.skipped.length+' skipped':'')+'</p>'
-    +(P.packed.length?(fromShip?'<div class="row"><button class="btn" id="pk_lbl">Labels (6×4 in) for '+P.packed.length+' packed</button></div>':'<div class="row"><button class="btn" id="pk_ship">Ship '+P.packed.length+' with Shiprocket</button></div><p class="small mut" style="margin-top:8px">Books the cheapest courier for each packed order, creates the AWBs and asks for pickup.</p>'):'');
-   $('#pk_x').onclick=stop;var lb=$('#pk_lbl');if(lb)lb.onclick=function(){dlLabels(P.packed.slice(),lb)};var sh=$('#pk_ship');if(sh)sh.onclick=function(){S.sel={};P.packed.forEach(function(id){S.sel[id]=1});document.removeEventListener('keydown',keys);close();rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});bulkShip()}).catch(function(er){toast(er.message)})};return}
+    +(P.packed.length?(fromShip?'<div class="row"><button class="btn" id="pk_lbl">Labels (6×4 in) for '+P.packed.length+' packed</button></div>':'<div class="row"><button class="btn" id="pk_ship">Ship '+P.packed.length+' with Shiprocket</button><button class="btn" id="pk_sp">Ship '+P.packed.length+' with ShipPrime</button></div><p class="small mut" style="margin-top:8px">Books a courier for each packed order and creates the AWBs (Shiprocket: cheapest courier; ShipPrime: your courier order, Blue Dart last).</p>'):'');
+   $('#pk_x').onclick=stop;var lb=$('#pk_lbl');if(lb)lb.onclick=function(){dlLabels(P.packed.slice(),lb)};[['#pk_ship','shiprocket'],['#pk_sp','shipprime']].forEach(function(q){var sh=$(q[0]);if(sh)sh.onclick=function(){S.sel={};P.packed.forEach(function(id){S.sel[id]=1});document.removeEventListener('keydown',keys);close();rpc('orders',{filter:S.filter,q:S.q||''}).then(function(j){S.rows={};j.orders.forEach(function(o){S.rows[o.id]=o});bulkShip(q[1])}).catch(function(er){toast(er.message)})}});return}
   var id=P.ids[P.i],o=P.data[id]||{},row=S.rows[id]||{};
   var h='<div class="row"><b>Packing '+(P.i+1)+' of '+P.ids.length+'</b><span class="small mut">'+P.packed.length+' packed'+(P.skipped.length?' · '+P.skipped.length+' skipped':'')+'</span><span class="grow"></span><button class="btn ghost sm" id="pk_x">Close</button></div>';
   if(o.missing){h+='<p class="err" style="margin-top:12px">'+esc(row.name||id)+': could not load this order from Shopify.</p><div class="row"><button class="btn ghost" id="pk_skip">Skip →</button></div>'}
@@ -658,18 +659,22 @@ function bulkPack(on,btn){var ids=selIds().filter(function(id){return on?!S.rows
  btn.disabled=true;btn.textContent=on?'Marking…':'Updating…';
  rpc('pack',{ids:ids,packed:on}).then(function(r){var ok=r.results.filter(function(x){return x.ok}).length,bad=r.results.filter(function(x){return !x.ok});
   toast((on?'Packed ':'Unpacked ')+ok+(bad.length?'. Skipped: '+bad.map(function(x){return x.name+' ('+x.note+')'}).join(', '):''));loadOrders()}).catch(function(er){btn.disabled=false;toast(er.message)})}
-function bulkShip(){var ids=selIds();if(!ids.length)return;
+var SP_OK=false;
+function bulkShip(prov){var ids=selIds();if(!ids.length)return;prov=prov==='shipprime'?'shipprime':'shiprocket';
+ /* ShipPrime: check the token is in before booking anything */
+ if(prov==='shipprime'&&!SP_OK){rpc('settings').then(function(j){if(j.shipping&&j.shipping.shipprime_ok){SP_OK=true;bulkShip(prov)}else{toast('ShipPrime is not connected yet: paste its API token in Settings, Shipping carriers');go('settings')}}).catch(function(er){toast(er.message)});return}
  var unc=ids.filter(function(id){var o=S.rows[id];return o.method==='cod'&&!o.confirmed_at}).length;
- if(!confirm('Book '+ids.length+' order'+(ids.length>1?'s':'')+' with Shiprocket (cheapest courier for each)? This creates the AWBs, asks for pickup and charges your Shiprocket wallet for every order.'+(unc?'\n\n'+unc+' of them '+(unc>1?'are COD orders':'is a COD order')+' the customer has not confirmed yet.':'')))return;
- BULK=true;S.report='';var res=[],i=0,go=$('#bulk_go');
+ var what=prov==='shipprime'?'with ShipPrime (your courier order for each, Blue Dart last)? This creates the AWBs and labels; ShipPrime charges its wallet after pickup.':'with Shiprocket (cheapest courier for each)? This creates the AWBs, asks for pickup and charges your Shiprocket wallet for every order.';
+ if(!confirm('Book '+ids.length+' order'+(ids.length>1?'s':'')+' '+what+(unc?'\n\n'+unc+' of them '+(unc>1?'are COD orders':'is a COD order')+' the customer has not confirmed yet.':'')))return;
+ BULK=true;S.report='';var res=[],i=0,gb=$(prov==='shipprime'?'#bulk_sp':'#bulk_go');
  function finish(){BULK=false;var ok=res.filter(function(r){return r.ok}),bad=res.length-ok.length;ok.forEach(function(r){delete S.sel[r.id]});
   S.report='<div class="card" style="margin-bottom:10px"><div class="row"><b>Shipped '+ok.length+' of '+res.length+'</b><span class="grow"></span>'+(ok.length?'<button class="btn sm" id="rep_lbl" data-ids="'+ok.map(function(r){return esc(r.id)}).join(',')+'">Download these labels (6×4 in)</button>':'')+'<button class="btn ghost sm" id="rep_x">Dismiss</button></div>'
    +res.map(function(r){return r.ok?'<div class="small" style="margin-top:6px"><b>'+esc(r.name)+'</b> · '+esc(r.courier)+' · AWB '+esc(r.awb)+(r.warn?'<div style="color:var(--warn)">Shopify: '+esc(r.warn)+'</div>':'')+'</div>':'<div class="small err" style="margin-top:6px"><b>'+esc(r.name)+'</b> · '+esc(r.err)+'</div>'}).join('')+'</div>';
   toast(bad?ok.length+' shipped, '+bad+' failed':'Shipped '+ok.length);loadOrders()}
  function step(){if(i>=ids.length)return finish();
-  if(go){go.disabled=true;go.textContent='Shipping '+(i+1)+' of '+ids.length+'…'}
+  if(gb){gb.disabled=true;gb.textContent='Shipping '+(i+1)+' of '+ids.length+'…'}
   var id=ids[i],nm=S.rows[id].name;
-  rpc('ship_book',{id:id}).then(function(b){res.push({id:id,name:nm,ok:true,courier:b.shipment.courier,awb:b.shipment.awb,warn:[b.note||'',b.fulfilment_error||''].filter(Boolean).join(' · ')})})
+  rpc('ship_book',{id:id,provider:prov}).then(function(b){res.push({id:id,name:nm,ok:true,courier:b.shipment.courier,awb:b.shipment.awb,warn:[b.note||'',b.fulfilment_error||''].filter(Boolean).join(' · ')})})
    .catch(function(er){res.push({id:id,name:nm,ok:false,err:er.message})}).then(function(){i++;step()})}
  step()}
 var COURIERS=['Delhivery','DTDC','Xpressbees','Ecom Express','Shadowfax','India Post','Amazon Shipping','Other'];
@@ -758,7 +763,7 @@ function openOrder(id){
   d+='<div class="card" style="margin:10px 0"><h3>Risk check</h3><div class="gauge"><i style="left:calc('+r.score+'% - 2px)"></i></div><p class="small"><b>'+esc(r.advice)+'</b></p>'+(r.factors.length?r.factors.map(function(f){return '<div class="fac"><span>'+esc(f.why)+'</span><b class="'+(f.w>0?'p':'n')+'">'+(f.w>0?'+':'')+f.w+'</b></div>'}).join(''):'<p class="mut small">No risk signals.</p>')+'</div>';
   d+='<div class="card" style="margin:10px 0"><h3>Customer & address</h3><div class="small">'+esc(a.name||o.customer)+'<br>'+esc([a.address1,a.address2,a.city,a.province,a.zip].filter(Boolean).join(', '))+'<br>+91 '+esc(o.phone)+'</div><div class="row" style="margin-top:8px"><a class="btn ghost sm" style="display:inline-grid;place-items:center" target="_blank" rel="noopener" href="https://wa.me/91'+esc(o.phone)+'">WhatsApp</a><button class="btn ghost sm" type="button" id="or_chat" data-ph="'+esc(o.phone)+'">Chat here</button><a class="btn ghost sm" style="display:inline-grid;place-items:center" href="tel:+91'+esc(o.phone)+'">Call</a></div></div>';
   d+='<div class="card" style="margin:10px 0"><h3>Items</h3>'+(items||'<p class="mut small">'+(sh.error?esc(sh.error):'-')+'</p>')+'</div>';
-  if(o.status!=='cancelled'&&!fulfilled)d+='<div class="card" style="margin:10px 0"><h3>Ship with Shiprocket</h3><div id="or_rt" class="small mut">Working out parcel size and rates…</div></div>';
+  if(o.status!=='cancelled'&&!fulfilled)d+='<div class="card" style="margin:10px 0"><h3>Ship this order</h3><div id="or_rt" class="small mut">Working out parcel size and rates…</div></div>';
   if(o.status==='cancelled')d+='<p class="pill bad">Cancelled</p>';
   else{
    d+='<div class="card" style="margin:10px 0"><h3>Actions</h3><div class="row">';
