@@ -19,3 +19,10 @@ Build 045 = Build 044 + `assets/ik-express-4.css`, `snippets/ik-checkout.liquid`
 Build 041 (live reviews) = Build 039 + this section on the home page (`ikl_live_reviews`, the old static
 `ikl_reviews` kept but disabled) and on the product page (`ikl_pdp_live_reviews`, right under the main product).
 To add it to another build: upload the section file, then add the section in the theme editor.
+
+## Build 047: product page fits Android phones (Oct 2026)
+`assets/ikl-fit.css` (loaded from `snippets/ik-checkout.liquid`, which is on every page). On 360px Android phones the product
+page was 48px wider than the screen (up to 131px with a larger phone font, which Instagram / Facebook in-app browsers apply),
+because `.ikl-pdp` / `.ikl-gallery` / `.ikl-buy` used `1fr` columns that cannot shrink below their content. All columns are
+now `minmax(0, 1fr)` and long words wrap. Checked in headless Chrome at 360 / 393 / 412px with text at 100 / 115 / 130%:
+before, every product page overflowed; after, none do.

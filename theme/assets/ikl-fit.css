@@ -1,0 +1,21 @@
+/* ikl-fit.css — Build 047: nothing may be wider than an Android phone.
+   Android in-app browsers (Instagram, Facebook) and Chrome enlarge text with the phone's font-size setting, so blocks
+   that cannot shrink (grid columns sized "1fr", the 3-step delivery panel, offer rows) pushed the product page past
+   the right edge, where it was cut off. Every column below can now shrink, and long words wrap instead. */
+/* Selectors start with "html body" so they win over ikl-styles.css whatever order the files load in. */
+@media (max-width: 989px) {
+  html body .ikl-pdp { grid-template-columns: minmax(0, 1fr); }
+  html body .ikl-gallery { grid-template-columns: minmax(0, 1fr); }
+  html body .ikl-pdp > *, html body .ikl-gallery > *, html body .ikl-buy > * { min-width: 0; }
+}
+html body .ikl-buy { grid-template-columns: minmax(0, 1fr); }
+html body .ikl-buy__title, html body .ikl-buy__bogo, html body .ikl-acc__body, html body .ikl-delivery__note, html body .ikl-delivery__result { overflow-wrap: anywhere; }
+html body .ikl-delivery__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html body .ikl-delivery__step { min-width: 0; }
+html body .ikl-delivery__k, html body .ikl-delivery__v { max-width: 100%; overflow-wrap: anywhere; }
+html body .ikl-delivery__form button { flex: none; }
+html body .ikl-offers__head > span, html body .ikl-offers__row > span { min-width: 0; overflow-wrap: anywhere; }
+html body .ikl-buy__row > * { min-width: 0; }
+html body .ikl-acc__body img, html body .ikl-acc__body iframe, html body .ikl-acc__body video, html body .ikl-acc__body table { max-width: 100%; height: auto; }
+html body .ikl-acc__body table { display: block; overflow-x: auto; }
+html body .ikl-acc > summary { min-width: 0; overflow-wrap: anywhere; }

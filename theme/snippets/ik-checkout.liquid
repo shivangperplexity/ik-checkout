@@ -2,7 +2,7 @@
   IK Express checkout is ON in this theme (Build 034, design Flow 11 "Express drawer + swipe to pay").
   A sticky "View cart" pill replaces the Horizon cart drawer. Cart and checkout live in one sheet that talks
   to the IK checkout API (ik-checkout.vercel.app), the same API the earlier popup used.
-  Code: snippets/ikx-js-1..5.liquid (one script, split only because of file-size limits) + assets/ik-express.css, ik-express-2.css, ik-express-3.css (Build 038 free-pick push), ik-express-4.css (Build 045 payment options).
+  Code: snippets/ikx-js-1..5.liquid (one script, split only because of file-size limits) + assets/ik-express.css, ik-express-2.css, ik-express-3.css (Build 038 free-pick push), ik-express-4.css (Build 045 payment options), ikl-fit.css (Build 047: product page fits Android phones; loaded here because this snippet is on every page).
   Speed: the sheet paints instantly from the cart already in memory and a locally computed price; the server
   price is cached per cart (sessionStorage, 10 min) and prefetched after page load, so the total is usually final on open.
   UPI icons: assets/ikx-gpay.png, ikx-phonepe.png, ikx-paytm.png (the apps' own icons; logos saved in the IK admin, if any, take priority).
@@ -23,6 +23,7 @@
 {{ 'ik-express-2.css' | asset_url | stylesheet_tag }}
 {{ 'ik-express-3.css' | asset_url | stylesheet_tag }}
 {{ 'ik-express-4.css' | asset_url | stylesheet_tag }}
+{{ 'ikl-fit.css' | asset_url | stylesheet_tag }}
 <script type="application/json" id="ikx-picks">
   [
   {%- for ph in picks_sources -%}
