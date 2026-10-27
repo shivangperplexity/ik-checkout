@@ -331,14 +331,14 @@ export async function handleCreator(req, env) {
 }
 
 /* ---------- WhatsApp template ---------- */
-export const APPROVED_TEMPLATE = 'ik_creator_approved_v3';
-/* v1 / v2 were rejected as UTILITY (INCORRECT_CATEGORY): Meta counts a program invite as marketing */
+export const APPROVED_TEMPLATE = 'ik_creator_status_v4';
+/* v1-v3 were rejected (INCORRECT_CATEGORY): a bare status update about their own application, nothing promotional */
 export function creatorTemplates(base) {
-  return [{ name: APPROVED_TEMPLATE, language: 'en', category: 'MARKETING',
+  return [{ name: APPROVED_TEMPLATE, language: 'en', category: 'UTILITY',
     components: [
-      { type: 'BODY', text: 'Hi {{1}}, your Ink Kulture creator application is approved.\n\nYour creator code is {{2}}. Log in to your creator dashboard with this WhatsApp number to get your link and to track your orders and earnings.',
+      { type: 'BODY', text: 'Hi {{1}}, your Ink Kulture creator application has been approved. Your creator code is {{2}}. You can log in with this WhatsApp number using the button below.',
         example: { body_text: [['Riya', 'RIYAINK']] } },
-      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Open dashboard', url: `${base}/creator` }] },
+      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Log in', url: `${base}/creator` }] },
     ] }];
 }
 
