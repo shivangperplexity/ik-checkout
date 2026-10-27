@@ -105,6 +105,7 @@ export const SCHEMA = [
   `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS told_at BIGINT`,
   `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS pilot_note TEXT`,
   `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS tries INT`,
+  `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS err_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_save_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_commit_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_fake INT`,

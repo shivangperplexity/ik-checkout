@@ -127,6 +127,21 @@ export function raisedAt(nd, t = now()) {
   return Number.isFinite(raised) && raised > t - 7 * 86400 && raised <= t ? raised : t;
 }
 
+/*
+ * A Shiprocket NDR action that failed. Some refusals are final ("courier didn't attempt delivery", "Cannot Raise in 3rd
+ * Attempt", not in Action Required): asking again every 5 minutes only fills the log (70 a day for #1464, Oct 2026).
+ * Final, or the 3rd failure: hand it to the team (action 'manual'). Otherwise try again after an hour.
+ */
+export const FINAL_NDR_ERROR = /cannot be processed|did(?:n'?t| not) attempt|cannot raise|not in action required|not eligible|already (?:been )?(?:requested|raised|initiated)/i;
+export const NDR_RETRY_GAP = 3600, NDR_MAX_TRIES = 3;
+export function ndrFailure(msg, triesBefore = 0) {
+  const tries = (Number(triesBefore) || 0) + 1;
+  const final = FINAL_NDR_ERROR.test(String(msg || ''));
+  return { tries, stop: final || tries >= NDR_MAX_TRIES, final, log: tries === 1 };
+}
+/** Still inside the wait after a failed try? */
+export const ndrBackoff = (st, t = now()) => !!(st?.err_at && !st.action && Number(st.err_at) > t - NDR_RETRY_GAP);
+
 export function planNdr(cfg, nd, st, ship, paid, t = now()) {
   const category = classifyNdr(nd.reason);
   const rule = cfg.rules[category];
@@ -188,7 +203,7 @@ export async function autoNdr(env, { dry = false } = {}) {
     /* a re-attempt we (or the customer / team) asked for that Shiprocket never applied: the parcel is still in its NDR
        list 3 h later. Until Oct 2026 every re-attempt sent without a date was rejected this way while it looked done. */
     const askedAt = st.action === 'reattempt' ? Number(st.action_at) : !st.action && s.ndr_choice === 'reattempt' && Number(s.ndr_choice_at) >= Number(st.first_seen) - 3600 ? Number(s.ndr_choice_at) : 0;
-    if (askedAt && askedAt < t - 3 * 3600 && Number(st.tries || 0) < 3 && (Number(nd.attempts) || 1) < MIN_ATTEMPTS) {
+    if (askedAt && askedAt < t - 3 * 3600 && Number(st.tries || 0) < NDR_MAX_TRIES && !ndrBackoff({ ...st, action: null }, t) && !FINAL_NDR_ERROR.test(st.error || '') && (Number(nd.attempts) || 1) < MIN_ATTEMPTS) {
       if (dry) { out.actions.push({ order: s.order_name, act: 'reattempt', why: 'earlier re-attempt was not applied by Shiprocket' }); continue; }
       const want = s.ndr_date && String(s.ndr_date) > new Date(Date.now() + 19800000).toISOString().slice(0, 10) ? String(s.ndr_date) : '';
       try {
@@ -198,13 +213,15 @@ export async function autoNdr(env, { dry = false } = {}) {
         out.reattempt++; out.resent = (out.resent || 0) + 1; out.actions.push({ order: s.order_name, act: 'reattempt', why: 're-sent (earlier one not applied)', date: r.deferred_date });
       } catch (e) {
         out.failed++;
-        await env.DB.prepare('UPDATE ndr_auto SET error=?, tries=COALESCE(tries,0)+1 WHERE awb=? AND k=?').bind(String(e.message || e).slice(0, 300), nd.awb, k).run().catch(() => {});
-        await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: 'reattempt', status: 'failed', orderName: s.order_name, error: String(e.message || e) });
+        const msg = String(e.message || e).slice(0, 300), f = ndrFailure(msg, st.tries);
+        await env.DB.prepare('UPDATE ndr_auto SET error=?, err_at=?, tries=? WHERE awb=? AND k=?').bind(msg, t, f.final ? NDR_MAX_TRIES : f.tries, nd.awb, k).run().catch(() => {});
+        if (f.log) await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: 'reattempt', status: 'failed', orderName: s.order_name, error: msg });
       }
       continue;
     }
     const p = planNdr(cfg, nd, st, s, paid, t);
     if (p.act === 'wait') { out.waiting++; continue; }
+    if ((p.act === 'reattempt' || p.act === 'return') && ndrBackoff(st, t)) { out.waiting++; continue; }
     if (p.act === 'none') continue;
     if (p.act === 'manual') {
       if (!st.action && !dry) await env.DB.prepare("UPDATE ndr_auto SET action='manual', action_at=?, note=? WHERE awb=? AND k=?").bind(t, p.why, nd.awb, k).run();
@@ -225,8 +242,12 @@ export async function autoNdr(env, { dry = false } = {}) {
       if (p.act === 'return') await tellCustomer(env, s, p.act, date).catch(() => {});
     } catch (e) {
       out.failed++;
-      await env.DB.prepare('UPDATE ndr_auto SET error=? WHERE awb=? AND k=?').bind(String(e.message || e).slice(0, 300), nd.awb, k).run().catch(() => {});
-      await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: p.act, status: 'failed', orderName: s.order_name, error: String(e.message || e) });
+      const msg = String(e.message || e).slice(0, 300), f = ndrFailure(msg, st.tries);
+      if (f.stop) await env.DB.prepare("UPDATE ndr_auto SET error=?, err_at=?, tries=?, action='manual', action_at=?, note=? WHERE awb=? AND k=?")
+        .bind(msg, t, f.tries, t, `Shiprocket refused the ${p.act}: ${msg}`.slice(0, 300), nd.awb, k).run().catch(() => {});
+      else await env.DB.prepare('UPDATE ndr_auto SET error=?, err_at=?, tries=? WHERE awb=? AND k=?').bind(msg, t, f.tries, nd.awb, k).run().catch(() => {});
+      if (f.stop) out.manual++;
+      if (f.log) await logMsg(env, { direction: 'out', phone: s.phone, trigger: 'ndr-auto', template: p.act, status: 'failed', orderName: s.order_name, error: msg });
     }
   }
   if (!dry) { out.unlisted = await pushUnlisted(env, cfg, new Set(awbs)); out.pilot = await sweep(env, cfg); }

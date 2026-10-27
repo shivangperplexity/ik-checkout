@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyNdr, planNdr, ndrCfg, nextWorkingDay, NDR_DEFAULTS } from './ndr-rules.js';
+import { classifyNdr, planNdr, ndrCfg, nextWorkingDay, NDR_DEFAULTS, ndrFailure, ndrBackoff } from './ndr-rules.js';
 
 test('courier reasons sort into categories', () => {
   const cases = {
@@ -64,4 +64,19 @@ test('settings are clamped; next working day skips Sunday', () => {
   /* Sat 24 Oct 2026, 10:00 IST -> Mon 26 Oct */
   assert.equal(nextWorkingDay(Date.parse('2026-10-24T04:30:00Z')), '2026-10-26');
   assert.equal(nextWorkingDay(Date.parse('2026-10-22T04:30:00Z')), '2026-10-23');
+});
+
+test('a refused Shiprocket action is not retried every run', () => {
+  const sr = "Reattempt request cannot be processed as the courier didn't attempt delivery.";
+  assert.deepEqual(ndrFailure(sr, 0), { tries: 1, stop: true, final: true, log: true });
+  assert.equal(ndrFailure('Cannot Raise in 3rd Attempt', 0).stop, true);
+  const net = ndrFailure('HTTP 502', 0);
+  assert.equal(net.stop, false); assert.equal(net.log, true);
+  assert.equal(ndrFailure('HTTP 502', 1).log, false);                       /* only the first failure is logged */
+  assert.equal(ndrFailure('HTTP 502', 2).stop, true);                       /* third failure: left to the team */
+  const t = 2e9;
+  assert.equal(ndrBackoff({ err_at: t - 600 }, t), true);                   /* wait an hour after a failure */
+  assert.equal(ndrBackoff({ err_at: t - 4000 }, t), false);
+  assert.equal(ndrBackoff({ err_at: t - 600, action: 'manual' }, t), false);
+  assert.equal(ndrBackoff({}, t), false);
 });
