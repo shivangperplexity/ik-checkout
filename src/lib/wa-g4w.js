@@ -132,6 +132,8 @@ export async function processInbound(env0, msgs) {
       try { const { typedAddressOk } = await import('./wa-address.js'); if (await typedAddressOk(env, m.from, m.text)) continue; } catch (e) { console.error('typed address', e.message); }
     }
     /* "Hi, I just placed order #1758. Please keep me updated." from the thank-you screen: a fixed instant reply (lib/wa-placed.js) */
+    /* creator applicants: "Hi, I applied for the Ink Kulture creator program" from the apply page, or approved but not told yet */
+    if (!action) { try { const { creatorInbound } = await import('./creators.js'); if (await creatorInbound(env, m.from, m.text)) continue; } catch (e) { console.error('creator inbound', e.message); } }
     if (!action) { try { const { handlePlaced } = await import('./wa-placed.js'); if (await handlePlaced(env, m.from, m.text)) continue; } catch (e) { console.error('wa-placed', e.message); } }
     /* a parcel in a failed-delivery episode: the NDR autopilot reads the reply, whatever the wording, and acts (lib/ndr-pilot.js) */
     try { const { handleNdrMessage } = await import('./ndr-pilot.js'); if (await handleNdrMessage(env, m.from, m.text, action)) continue; }

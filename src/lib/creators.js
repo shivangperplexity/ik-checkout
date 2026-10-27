@@ -94,10 +94,51 @@ export async function approve(env, id, { code = '' } = {}) {
   let told = { skipped: 'already told' };
   if (!c.told_at) {
     const { fireTrigger } = await import('./whatsapp.js');
-    told = await fireTrigger(env, 'creator_approved', { to: c.phone, vars: { name: String(c.name || '').split(/\s+/)[0] || 'there', code: want } }).catch((e) => ({ ok: false, error: e.message }));
+    told = await fireTrigger(env, 'creator_approved', { to: c.phone, vars: { name: firstName(c), code: want } }).catch((e) => ({ ok: false, error: e.message }));
+    /* template not usable (still in review / rejected): a plain message works if they wrote to us in the last 24h */
+    if (!told.ok) { const t = await tellInWindow(env, { ...c, code: want }); if (t.ok) told = t; }
     if (told.ok) await env.DB.prepare('UPDATE creators SET told_at=? WHERE id=?').bind(now(), c.id).run();
   }
-  return { ok: true, code: want, whatsapp: told.ok ? 'sent' : (told.error || told.skipped || 'not sent') };
+  return { ok: true, code: want, whatsapp: told.ok ? (told.via === 'window' ? 'sent (chat reply)' : 'sent') : (told.error || told.skipped || 'not sent') + (told.ok ? '' : ' · it goes out by itself when they message us') };
+}
+
+/** Our WhatsApp number for wa.me links (the one migrated to, else the main one). */
+export const waNumber = (env) => { const d = String(env.SETTINGS?.wa?.number || '').replace(/\D/g, ''); return d.length === 10 ? '91' + d : d || '917559353503'; };
+const firstName = (c) => String(c.name || '').split(/\s+/)[0] || 'there';
+export const approvedText = (c, base = 'https://ik-checkout.vercel.app') =>
+  `Hi ${firstName(c)}, your Ink Kulture creator application has been approved 🖤\n\nYour creator code: *${c.code}*\n\nLog in with this WhatsApp number to get your link, see clicks, orders and earnings:\n${base}/creator`;
+
+/** A plain message is only delivered inside the 24h window after their last message to us, on the number they wrote to. */
+async function tellInWindow(env, c) {
+  const last = await env.DB.prepare("SELECT wamid FROM messages WHERE direction='in' AND phone=? AND ts>? ORDER BY id DESC LIMIT 1")
+    .bind(c.phone, now() - 23 * 3600).first().catch(() => null);
+  if (!last) return { ok: false, error: 'no chat open' };
+  const [, via, phoneId] = String(last.wamid || '').split(':');
+  const e2 = via ? Object.assign(Object.create(null), env, { REPLY_ROUTE: { via, phoneId: phoneId || '' } }) : env;
+  const { sendText } = await import('./whatsapp.js');
+  const r = await sendText(e2, '91' + c.phone, approvedText(c));
+  return r.ok ? { ok: true, via: 'window' } : { ok: false, error: r.error };
+}
+
+/**
+ * An inbound WhatsApp message from a creator applicant (lib/wa-g4w.js processInbound).
+ * Approved but not told yet: the approval goes out now (the chat is open). A message about the program gets a status reply.
+ * Returns true when the message was about the program and is handled.
+ */
+export async function creatorInbound(env, phone, text) {
+  const c = await env.DB.prepare('SELECT * FROM creators WHERE phone=? ORDER BY id DESC LIMIT 1').bind(phone).first().catch(() => null);
+  if (!c) return false;
+  const about = /creator/i.test(String(text || ''));
+  const { sendText } = await import('./whatsapp.js');
+  if (c.status === 'approved' && !c.told_at) {
+    const r = await sendText(env, '91' + phone, approvedText(c));
+    if (r.ok) await env.DB.prepare('UPDATE creators SET told_at=? WHERE id=?').bind(now(), c.id).run();
+    return about;
+  }
+  if (!about) return false;
+  if (c.status === 'pending') { await sendText(env, '91' + phone, `Hi ${firstName(c)}, we got your Ink Kulture creator application 🖤 We check every page by hand, usually within 1-2 days. You will get your approval and creator code right here on WhatsApp.`); return true; }
+  if (c.status === 'approved') { await sendText(env, '91' + phone, `Hi ${firstName(c)}, you are an approved Ink Kulture creator. Your code is *${c.code}*. Log in here to see your link and earnings: https://ik-checkout.vercel.app/creator`); return true; }
+  return false;
 }
 export async function reject(env, id, note = '') {
   await env.DB.prepare("UPDATE creators SET status='rejected', rejected_at=?, note=? WHERE id=?").bind(now(), String(note).slice(0, 300), Number(id)).run();
@@ -268,7 +309,7 @@ export async function handleCreator(req, env) {
     return !r || Number(r.n) <= max;
   };
   try {
-    if (path === '/api/creator/rules') { const k = cfg(env); return J({ ok: true, on: !!k.on, follower_off: k.follower_off / 100, cash: k.cash / 100, credit: k.credit / 100, min_payout: k.min_payout / 100 }); }
+    if (path === '/api/creator/rules') { const k = cfg(env); return J({ ok: true, on: !!k.on, wa: waNumber(env), follower_off: k.follower_off / 100, cash: k.cash / 100, credit: k.credit / 100, min_payout: k.min_payout / 100 }); }
     if (path === '/api/creator/apply' && req.method === 'POST') {
       if (!(await limit('capply:' + ip, 10))) return J({ ok: false, error: 'Too many tries, please try again later' }, 429);
       return J(await apply(env, b));
@@ -331,14 +372,14 @@ export async function handleCreator(req, env) {
 }
 
 /* ---------- WhatsApp template ---------- */
-export const APPROVED_TEMPLATE = 'ik_creator_status_v4';
-/* v1-v3 were rejected (INCORRECT_CATEGORY): a bare status update about their own application, nothing promotional */
+export const APPROVED_TEMPLATE = 'ik_creator_status_v5';
+/* v1-v4 were rejected (INCORRECT_CATEGORY). Until v5 is approved, approve() falls back to a plain chat message when a chat is open */
 export function creatorTemplates(base) {
   return [{ name: APPROVED_TEMPLATE, language: 'en', category: 'UTILITY',
     components: [
-      { type: 'BODY', text: 'Hi {{1}}, your Ink Kulture creator application has been approved. Your creator code is {{2}}. You can log in with this WhatsApp number using the button below.',
+      { type: 'BODY', text: 'Hi {{1}}, your Ink Kulture creator application has been approved. Your creator code is {{2}}. Tap the button below to see your link, your orders and your earnings.',
         example: { body_text: [['Riya', 'RIYAINK']] } },
-      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Log in', url: `${base}/creator` }] },
+      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Open dashboard', url: `${base}/creator` }] },
     ] }];
 }
 
