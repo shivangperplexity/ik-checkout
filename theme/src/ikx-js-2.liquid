@@ -148,9 +148,11 @@
   function buildMain() {
     var opts = STATES.map(function (s) { return '<option>' + s + '</option>'; }).join('');
     /* Shopify-style field: placeholder shows when empty, the label floats up once there is a value. */
+    /* Build 048: the empty "State" option is selected (it was only disabled, so browsers showed the first state, Andaman
+       and Nicobar, under the label and could send it without the shopper picking one). */
     function field(name, label, extra, type) {
       var inner = type === 'select'
-        ? '<select name="' + name + '" ' + (extra || '') + '><option value="" disabled>' + label + '</option>' + opts + '</select>'
+        ? '<select name="' + name + '" ' + (extra || '') + '><option value="" disabled selected>' + label + '</option>' + opts + '</select>'
         : '<input name="' + name + '" placeholder=" " ' + (extra || '') + '>';
       return '<label class="ikx-in ikx-in--float" data-f="' + name + '">' + inner + '<span>' + label + '</span><em class="ikx-ferr" hidden></em></label>';
     }

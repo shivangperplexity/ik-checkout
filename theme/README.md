@@ -26,3 +26,7 @@ page was 48px wider than the screen (up to 131px with a larger phone font, which
 because `.ikl-pdp` / `.ikl-gallery` / `.ikl-buy` used `1fr` columns that cannot shrink below their content. All columns are
 now `minmax(0, 1fr)` and long words wrap. Checked in headless Chrome at 360 / 393 / 412px with text at 100 / 115 / 130%:
 before, every product page overflowed; after, none do.
+
+## Build 048: State field (Oct 2026)
+Part 2: the empty "State" option is now `disabled selected`. It was only `disabled`, so browsers picked the first state
+(Andaman and Nicobar), showed it under the floating "State" label (overlapping text) and could submit it unpicked.
