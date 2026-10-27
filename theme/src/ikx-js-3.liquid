@@ -210,18 +210,39 @@
     }).catch(function () { state.busy = false; hideOverlay(); if (i < 0) state.lines.pop(); paintUps(); showErr('Could not update the offer. Please try again.'); });
   }
 
-  /* ---------- payment tiles ---------- */
+  /* ---------- payment options (Build 045) ----------
+     One UPI card on top: the shopper's UPI apps as big tiles (tap = pay straight away in that app), "All UPI apps"
+     (the phone's own app picker) and "Pay via UPI ID" (PayU's page, where the UPI ID is typed). Under it one row
+     each for cards and netbanking (tap = PayU opens on that method), then Cash on delivery when it is switched on
+     in IK Checkout (Settings > Cash on delivery). COD is the only option picked first and paid with the footer
+     button, because it goes through the WhatsApp code. On a computer the UPI card is one "Scan QR" row instead. */
   var UPI_APPS = [['gpay', 'Google Pay'], ['phonepe', 'PhonePe'], ['paytm', 'Paytm'], ['any', 'Other UPI']];
+  var UPI_TILE = { gpay: 'G Pay', phonepe: 'PhonePe', paytm: 'Paytm' };
+  /* PayU page method for each row (PayU "enforce_paymethod"; not part of the hash) */
+  var PAYU_ONLY = { card: 'creditcard|debitcard', nb: 'netbanking', upiid: 'upi' };
   function qk(m) { return m === 'cod' ? 'cod' : 'prepaid'; }
-  /* UPI is offered on every device. Phones open the chosen UPI app directly; on a computer UPI goes through
-     PayU's secure page, where the shopper scans a QR code with any UPI app (or enters a UPI ID). */
-  function methods() { return ['upi', 'card', 'cod']; }
+  function codOn() { return !state.quote || state.quote.cod_on !== false; }
+  function methods() { return ['upi', 'upiid', 'card', 'nb'].concat(codOn() ? ['cod'] : []); }
+  function payWord() { return codOn() ? 'choose Cash on delivery' : 'pay another way'; }
   var LOGO_URL = { gpay: script && script.getAttribute('data-logo-gpay'), phonepe: script && script.getAttribute('data-logo-phonepe'), paytm: script && script.getAttribute('data-logo-paytm') };
+  var PI = {
+    upi: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3l7 9-7 9M13 3l7 9-7 9"/></svg>',
+    card: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19M7 15h3"/></svg>',
+    bank: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5M4 20h16M6 10.5v7M10 10.5v7M14 10.5v7M18 10.5v7"/></svg>',
+    cash: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01M18 14.5v.01"/></svg>',
+    qr: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17.5 20.5H21V17"/></svg>'
+  };
   function upiIcon(k) {
     var u = (state.logos || {})[k] || LOGO_URL[k];
     if (u) return '<img src="' + esc(u) + '" alt="">';
     if (k === 'any') return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>';
     return '<b>' + (k === 'gpay' ? 'G' : k === 'phonepe' ? 'P' : 'Pt') + '</b>';
+  }
+  function poRow(m, icon, name, amt, sub, cls) {
+    var on = state.method === m;
+    return '<button type="button" class="ikx-po__row' + (cls || '') + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (m === 'cod' ? ' role="radio" aria-checked="' + on + '"' : ' data-ikx-go') + (state.busy ? ' disabled' : '') + '>' +
+      '<span class="ikx-po__ic">' + icon + '</span><span class="ikx-po__t"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span>' +
+      '<span class="ikx-po__amt">' + amt + '</span>' + (m === 'cod' ? '<i class="ikx-po__radio" aria-hidden="true"></i>' : '<span class="ikx-po__chev">' + ICON.chev + '</span>') + '</button>';
   }
   function paintPay() {
     var box = $('.ikx-pay', root); if (!box) return;
@@ -229,15 +250,29 @@
       box.innerHTML = '<p class="ikx-m">Our quick checkout is busy right now. You can still pay safely on Shopify’s checkout.</p>';
       return;
     }
-    if (methods().indexOf(state.method) < 0) state.method = methods()[0];
-    var cod = state.quote.cod, pre = state.quote.prepaid, pc = pcOn();
-    box.innerHTML = '<div class="ikx-tiles">' + methods().map(function (m) {
-      var q = state.quote[qk(m)], on = state.method === m;
-      var name = m === 'upi' ? 'UPI' : m === 'card' ? 'Card / Netbanking' : pc ? 'Pay ' + money(pcAdv()) + ' now' : 'Cash on delivery';
-      var sub = m === 'upi' && !IS_MOBILE ? 'Scan QR with any UPI app' : m === 'upi' ? '<span class="ikx-logos">' + UPI_APPS.slice(0, 3).map(function (a) { return LOGO_URL[a[0]] ? '<img src="' + esc(LOGO_URL[a[0]]) + '" alt="' + a[1] + '">' : a[1]; }).join('') + '</span>' : m === 'card' ? 'Debit, credit, wallets' : pc ? 'after delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
-      var save = m !== 'cod' && pre.prepaid ? '<span class="ikx-tile__save">Save ' + money(pre.prepaid) + '</span>' : '';
-      return '<button type="button" role="radio" aria-checked="' + on + '" class="ikx-tile' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (state.busy ? ' disabled' : '') + '>' +
-        '<b>' + name + '</b><span class="ikx-tile__amt' + (m !== 'cod' ? ' ikx-green' : '') + '">' + (m === 'cod' && pc ? '+ ' + money(cod.total - pcAdv()) : money(q.total)) + '</span><span class="ikx-m">' + sub + '</span>' + save + '</button>';
-    }).join('') + '</div>' + pcNote() +
-    ((state.method === 'upi' || (state.method === 'cod' && pc)) && IS_MOBILE ? '<div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_APPS.map(function (a) {
+    if (methods().indexOf(state.method) < 0) state.method = 'upi';
+    var cod = state.quote.cod, pre = state.quote.prepaid, pc = codOn() && pcOn(), dis = state.busy ? ' disabled' : '';
+    var save = pre.prepaid ? '<span class="ikx-po__save">Save ' + money(pre.prepaid) + '</span>' : '';
+    var upi = '<div class="ikx-po__upi">' +
+      '<div class="ikx-po__h"><span class="ikx-po__ic ikx-po__ic--upi">' + PI.upi + '</span><b>UPI</b>' + save + '<span class="ikx-po__amt">' + money(pre.total) + '</span></div>';
+    if (IS_MOBILE) {
+      upi += '<div class="ikx-po__apps" role="group" aria-label="Pay with a UPI app">' + ['gpay', 'phonepe', 'paytm'].map(function (k) {
+        var on = state.method === 'upi' && state.upiApp === k;
+        return '<button type="button" class="ikx-po__app ikx-po__app--' + k + (on ? ' is-on' : '') + '" data-ikx-upi="' + k + '" data-ikx-go aria-label="Pay ' + esc(money(pre.total)) + ' with ' + UPI_TILE[k] + '"' + dis + '>' +
+          '<span class="ikx-po__logo">' + upiIcon(k) + '</span><span>' + UPI_TILE[k] + '</span></button>';
+      }).join('') + '</div>' +
+      '<button type="button" class="ikx-po__line' + (state.method === 'upi' && state.upiApp === 'any' ? ' is-on' : '') + '" data-ikx-upi="any" data-ikx-go' + dis + '><span>All UPI apps</span>' + ICON.chev + '</button>' +
+      '<div class="ikx-po__or"><span>OR</span></div>' +
+      '<button type="button" class="ikx-po__line ikx-po__line--vpa' + (state.method === 'upiid' ? ' is-on' : '') + '" data-ikx-method="upiid" data-ikx-go' + dis + '><span>Pay via UPI ID</span>' + ICON.chev + '</button>';
+    } else {
+      upi += '<button type="button" class="ikx-po__line' + (state.method === 'upi' ? ' is-on' : '') + '" data-ikx-method="upi" data-ikx-go' + dis + '><span class="ikx-po__qr">' + PI.qr + 'Scan QR with any UPI app</span>' + ICON.chev + '</button>';
+    }
+    upi += '</div>';
+    var codSub = pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
+    box.innerHTML = '<div class="ikx-po">' + upi +
+      poRow('card', PI.card, 'Debit/Credit Cards', money(pre.total), '', ' ikx-po__row--dark') +
+      poRow('nb', PI.bank, 'Netbanking', money(pre.total), '', ' ikx-po__row--dark') +
+      (codOn() ? poRow('cod', PI.cash, 'Cash on delivery', pc ? money(pcAdv()) + ' now' : money(cod.total), codSub, ' ikx-po__row--cod') : '') +
+      '</div>' + (codOn() ? pcNote() : '') +
+    ((state.method === 'cod' && pc) && IS_MOBILE ? '<p class="ikx-m ikx-po__pick">Pay the ' + money(pcAdv()) + ' with</p><div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_APPS.map(function (a) {
 /* end of part 3 */

@@ -78,8 +78,8 @@
     pcCheck(); /* background: starts once mobile, PIN and address are in */
     var p = state.quote[qk(state.method)], save = savings(p), was = p.subtotal + (p.shipping || 0) + (p.cod || 0);
     var pcx = state.method === 'cod' && pcOn();
-    var label = pcx ? 'Slide to pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Slide to place order · ' + money(p.total) : 'Slide to pay ' + money(p.total);
-    var btnLabel = pcx ? 'Pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Complete order · ' + money(p.total) : 'Pay now · ' + money(p.total);
+    var label = pcx ? 'Slide to pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Slide to place order · ' + money(p.total) : 'Slide to pay ' + money(p.total) + payVia();
+    var btnLabel = pcx ? 'Pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Complete order · ' + money(p.total) : 'Pay ' + money(p.total) + payVia();
     var unclaimed = false; /* Build 039: the offer lives in the bar above the items only */
     var top = (unclaimed ? '<button type="button" class="ikx-freenote" data-ikx-gofree>🎁 1 FREE tattoo unclaimed · <u>Pick one</u></button>' : '') +
       '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + '</span>' +
@@ -191,9 +191,14 @@
     if (t.closest('[data-ikx-skip]')) { e.preventDefault(); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
     if (t.closest('[data-ikx-gofree]')) { e.preventDefault(); var ob = $('.ikx-offer', root); if (ob) ob.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     var m = t.closest('[data-ikx-method]');
-    if (m) { e.preventDefault(); if (state.busy) return; state.method = m.getAttribute('data-ikx-method'); paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: state.method }); return; }
+    if (m) { e.preventDefault(); if (state.busy) return; state.method = m.getAttribute('data-ikx-method'); paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: state.method }); if (m.hasAttribute('data-ikx-go')) submit(); return; }
     var u = t.closest('[data-ikx-upi]');
-    if (u) { e.preventDefault(); state.upiApp = u.getAttribute('data-ikx-upi'); paintPay(); tk('method', { method: 'upi', data: { app: state.upiApp } }); return; }
+    if (u) {
+      e.preventDefault(); if (state.busy) return; state.upiApp = u.getAttribute('data-ikx-upi');
+      /* Build 045: a UPI app tile in the payment card pays straight away in that app; the ₹99 advance picker only selects */
+      if (u.hasAttribute('data-ikx-go')) { state.method = 'upi'; paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: 'upi', data: { app: state.upiApp } }); submit(); return; }
+      paintPay(); paintFoot(); tk('method', { method: 'upi', data: { app: state.upiApp } }); return;
+    }
     var up = t.closest('[data-ikx-up]');
     if (up) { e.preventDefault(); if (!state.busy) toggleUp(up.getAttribute('data-ikx-up')); return; }
     if (t.closest('[data-ikx-pay]')) { e.preventDefault(); submit(); return; }
@@ -214,6 +219,21 @@
     if (immediate) go(); else state.leadTimer = setTimeout(go, 1500);
   }
   window.addEventListener('pagehide', function () { sendLead('left', true); if (isOpen()) tk('left'); });
+
+  /* " with Google Pay" on the footer button when a UPI app is picked on a phone */
+  function payVia() {
+    if (state.method !== 'upi' || !IS_MOBILE) return '';
+    var a = (UPI_APPS.filter(function (x) { return x[0] === state.upiApp; })[0] || [])[1];
+    return a && state.upiApp !== 'any' ? ' with ' + a : ' by UPI';
+  }
+  /* The API says Cash on delivery is switched off: drop the COD option, forget the cached price, move to UPI. */
+  function codGone(msg) {
+    if (state.quote) state.quote.cod_on = false;
+    QC = {}; saveQC(); state.idem = uuid(); state.otpSkip = false;
+    if (state.method === 'cod') state.method = 'upi';
+    paintPay(); paintShip(); paintBill(); paintFoot();
+    showErr(msg || 'Cash on delivery is not available right now. Please pay by UPI or card.');
+  }
 
   /* ---------- submit ---------- */
   function submit() {
@@ -245,6 +265,7 @@
     api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, otp: otp || undefined }).then(function (r) {
       if (!r.ok && r.otp_invalid) { state.busy = false; return otpError(r.error, r.expired); }
       otpClose();
+      if (!r.ok && r.cod_off) { state.busy = false; hideOverlay(); tk('fail', { data: { error: 'cod_off' } }); return codGone(r.error); }
       if (!r.ok && r.partial_required) {
         /* the API wants the advance for this address (the check had not run, or the rules changed): show it */
         state.busy = false; hideOverlay(); state.idem = uuid();
@@ -257,6 +278,7 @@
         if (r._status === 409) { state.idem = uuid(); QC = {}; saveQC(); state.pcKey = ''; return refresh().then(function () { showErr('Your cart changed. Please check the total and confirm again.'); }); }
         return showErr(r.error || 'Could not place the order. Please try again.');
       }
+      if (r.method === 'prepaid' && PAYU_ONLY[state.method] && r.payu && r.payu.fields) r.payu.fields.enforce_paymethod = PAYU_ONLY[state.method];
       if (r.method === 'prepaid' || r.method === 'partial') return (r.upi && upiApp) ? goUpi(r, upiApp) : goPayu(r.payu);
       fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
       track('Purchase', { currency: 'INR', value: r.value }, r.eventId); tk('done');
@@ -321,6 +343,7 @@
       if (r.ok || r.wait) { if (again && r.ok) otpErr(''); return otpWatch(r.ok ? r.resend_in : r.wait, again); }
       /* WhatsApp could not send it (template not live yet, number not on WhatsApp...): place the order the old way */
       if (r.fallback && !OTP.sent) { state.otpSkip = true; otpClose(); return placeOrder(d, false, ''); }
+      if (r.cod_off) { otpClose(); state.busy = false; return codGone(r.error); }
       otpErr(r.error || 'Could not send the code. Please try again.');
       if (re) { re.disabled = false; re.textContent = 'Resend code'; }
     }).catch(function () {
@@ -441,7 +464,7 @@
         responseHandler: function (B) {
           if (done) return; done = true;
           var r = (B && B.response) || {}, st = String(r.txnStatus || r.status || '').toUpperCase();
-          if (st === 'CANCEL' || (!r.hash && st !== 'SUCCESS')) return payFailed('Payment cancelled. You can try again or choose Cash on delivery.');
+          if (st === 'CANCEL' || (!r.hash && st !== 'SUCCESS')) return payFailed('Payment cancelled. You can try again or ' + payWord() + '.');
           root.style.visibility = '';
           screen('<i class="ikx-spin"></i><h3>Confirming your payment…</h3><p>Please don’t close this window.</p>');
           var fd = new URLSearchParams(); for (var k in r) fd.append(k, r[k]);

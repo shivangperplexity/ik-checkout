@@ -7,7 +7,7 @@ import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
-import { withSettings } from './settings.js';
+import { withSettings, codOn } from './settings.js';
 import { handleLogin, handleRpc, handleLabel, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
 import { shippingEstimate } from './shipping.js';
 
@@ -49,13 +49,14 @@ async function handleQuote(req, env) {
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
-  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: quoteFlag(env), px: metaPx(env), mystery: { on: false } /* Build 043 still asks: keeps its old mystery-gift lines hidden */, otp: otpOn(env), ...q });
+  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: codOn(env) ? quoteFlag(env) : { mode: 'off' }, cod_on: codOn(env), px: metaPx(env), mystery: { on: false } /* Build 043 still asks: keeps its old mystery-gift lines hidden */, otp: otpOn(env), ...q });
 }
 
 /** Partial COD: does this address / number pay the advance first? The checkout asks once the delivery details are in. */
 async function handleCodCheck(req, env) {
   const b = await req.json().catch(() => ({}));
   const total = Math.max(0, Math.round(Number(b.total) || 0));
+  if (!codOn(env)) return json({ ok: true, partial: false, mode: 'off', cod_off: true });
   const d = await decide(env, { phone: String(b.phone || ''), pincode: String(b.pincode || ''), address1: String(b.address1 || '').slice(0, 200), address2: String(b.address2 || '').slice(0, 200) }, total);
   return json({ ok: true, partial: d.partial, mode: d.mode, advance: d.advance, balance: d.balance, hint: d.hint });
 }
@@ -120,6 +121,8 @@ async function handleOrder(req, env, ctx) {
 
   const prior = env.DB && (await env.DB.prepare('SELECT * FROM orders WHERE idem=?').bind(idem).first());
   if (prior && prior.status !== 'failed') return json(await replayResponse(env, prior));
+  /* Cash on delivery switched off in Settings > Checkout: older checkout builds still show the COD tile, so refuse here too. */
+  if ((method === 'cod' || wantPartial) && !codOn(env)) return json({ ok: false, cod_off: true, error: 'Cash on delivery is not available right now. Please pay by UPI or card.' });
 
   let buyer;
   try { buyer = validateBuyer(b.buyer || {}); } catch (e) { return json({ ok: false, error: e.message }, 400); }
@@ -461,6 +464,7 @@ export async function handle(req, env0, ctx) {
       else if (path === '/api/otp/send' && req.method === 'POST') {
         const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
         if (!(await rateLimit(env, 'otp:' + ip, 30))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
+        else if (!codOn(env)) res = json({ ok: false, cod_off: true, error: 'Cash on delivery is not available right now. Please pay by UPI or card.' });
         else { const b = await req.json().catch(() => ({})); res = json(await sendOtp(env, cleanPhone(b.phone), { log: (m) => logMsg(env, m) })); }
       }
       else if (path === '/api/otp/status' && req.method === 'POST') {

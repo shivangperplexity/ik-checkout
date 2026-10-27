@@ -58,6 +58,8 @@ const DEFAULTS = {
   templates: {},
   upsells: [],
   upi_logos: { gpay: '', phonepe: '', paytm: '', any: '' },
+  /* Checkout switches (Settings > Checkout). cod: false hides Cash on delivery (and partial COD) for everyone. */
+  checkout: { cod: true },
   /* Shiprocket login (API user) for booking, tracking and the "Express shipping" delivery estimate (lib/rates.js) */
   shipping: { origin_pin: '410206', weight_g: 50,
     shiprocket_email: '', shiprocket_password: '', shiprocket_couriers: '',
@@ -95,6 +97,7 @@ export async function getSettings(env, fresh) {
   s.meta = { ...DEFAULTS.meta, ...(s.meta || {}) };
   s.convert = { ...DEFAULTS.convert, ...(s.convert || {}) };
   s.apply = { ...DEFAULTS.apply, ...(s.apply || {}) };
+  s.checkout = { ...DEFAULTS.checkout, ...(s.checkout || {}) };
   cache = { at: Date.now(), s };
   return s;
 }
@@ -131,3 +134,6 @@ export function triggerConfig(env, key) {
     variants: Array.isArray(c.variants) && c.variants.length ? c.variants : (t.variants || []),
   };
 }
+
+/** Cash on delivery offered at checkout? Off only when switched off in Settings > Checkout. */
+export const codOn = (env) => env.SETTINGS?.checkout?.cod !== false;

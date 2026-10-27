@@ -1257,6 +1257,16 @@ function shAct(act,btn){var ids=shSel();if(!ids.length)return;
   rpc('ship_cancel',{ids:pend}).then(function(r){var ok=shReport('Cancel shipment',r.results);toast(ok+' cancelled');SH.sel={};loadShip()}).catch(function(er){btn.disabled=false;toast(er.message)});return}}
 
 /* ---- settings ---- */
+/* ---------- Checkout (Settings): Cash on delivery on / off for everyone ---------- */
+function codCard(c){var on=!c||c.cod!==false;
+ return '<div class="card grid" id="cod_card" style="align-content:start"><h3>Cash on delivery</h3>'
+ +'<label class="check" style="display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line,#e5e5e5);border-radius:10px;cursor:pointer"><input type="checkbox" id="cod_on"'+(on?' checked':'')+' style="width:20px;height:20px"> <span><b id="cod_lbl">'+(on?'On':'Off')+'</b> · <span class="small mut">offer Cash on delivery at checkout</span></span></label>'
+ +'<p class="small mut" style="margin:0" id="cod_note">'+(on?'Shoppers can pick Cash on delivery (with the WhatsApp code and partial COD rules below).':'<b style="color:var(--bad)">COD is off:</b> the checkout shows only UPI, cards and netbanking. Partial COD is off too.')+'</p></div>'}
+function codBind(){var i=$('#cod_on');if(!i)return;i.onchange=function(){var on=i.checked;
+ if(!on&&!confirm('Turn off Cash on delivery for everyone? The checkout will show only UPI, cards and netbanking.')){i.checked=true;return}
+ i.disabled=true;rpc('save_checkout',{cod:on}).then(function(r){var v=r.checkout.cod!==false;i.checked=v;$('#cod_lbl').textContent=v?'On':'Off';
+  $('#cod_note').innerHTML=v?'Shoppers can pick Cash on delivery (with the WhatsApp code and partial COD rules below).':'<b style="color:var(--bad)">COD is off:</b> the checkout shows only UPI, cards and netbanking. Partial COD is off too.';
+  toast(v?'Cash on delivery is on':'Cash on delivery is off (live within a minute)')}).catch(function(e){i.checked=!on;toast(e.message)}).then(function(){i.disabled=false})}}
 /* ---------- Partial COD (Settings): ₹99 online now, rest on delivery ---------- */
 function partialCard(p){p=p||{};var M=[['off','Off','Full cash on delivery for everyone (as before)'],['test','Test numbers only','Only the mobile numbers below get partial COD. Use this to try it on the live store'],['risky','Risky orders only','Partial COD when a rule below fires; everyone else keeps full COD'],['all','All COD orders','Every Cash on delivery order pays the advance online first']];
  function ck(id,k,l){return '<label class="check" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="'+id+'"'+(p[k]?' checked':'')+'> <span>'+l+'</span></label>'}
@@ -1308,7 +1318,7 @@ function partialBind(){
   $('#pc_pinsout').innerHTML='<p style="margin:0 0 6px">Last 30 days: <b>'+L.cod+'</b> COD orders, <b>'+L.partial+'</b> with partial COD, <b>'+L.dropped+'</b> started partial COD but did not pay the advance.</p>'
    +(r.pins.length?'<table><tr><th>PIN</th><th>Returned</th><th>Delivered</th><th>Return rate</th><th></th></tr>'+r.pins.map(function(x){return '<tr><td>'+esc(x.pin)+'</td><td>'+x.rto+'</td><td>'+x.delivered+'</td><td>'+x.rate+'%</td><td>'+(x.flagged?'<span class="pill high">flagged</span>':'')+'</td></tr>'}).join('')+'</table><p style="margin:6px 0 0">Flagged = at least '+r.rto_min+' returns and a '+r.rto_rate+'%+ return rate.</p>':'No returns recorded in the last 180 days.')}).catch(function(e){$('#pc_pinsout').textContent='Failed: '+e.message})})}
 function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},sh=j.shipping||{};
- $('#main').innerHTML='<div class="grid two"><div class="card grid" id="cv_card" style="align-content:start"><h3>Pay online before shipping</h3><p class="small mut">Loading…</p></div><div class="card grid" id="pc_card">'+partialCard(j.partial)+'</div><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
+ $('#main').innerHTML='<div class="grid two">'+codCard(j.checkout)+'<div class="card grid" id="cv_card" style="align-content:start"><h3>Pay online before shipping</h3><p class="small mut">Loading…</p></div><div class="card grid" id="pc_card">'+partialCard(j.partial)+'</div><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
  +[['gpay','Google Pay'],['phonepe','PhonePe'],['paytm','Paytm'],['any','Any UPI app']].map(function(a){return '<label class="f">'+a[1]+'<input type="url" class="lg" data-k="'+a[0]+'" value="'+esc(L[a[0]])+'" placeholder="https://cdn.shopify.com/..."></label>'}).join('')+'<button class="btn" id="lg_sv">Save logos</button></div>'
  +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Shiprocket is the carrier we ship with: booking, labels, tracking and the delivery estimate on the checkout all use this login.</p>'
  +'<h4 style="margin:6px 0 0">Shiprocket '+(sh.shiprocket_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
@@ -1341,6 +1351,7 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
   rpc('save_shipping',{shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,shiprocket_block:$('#sh_blk').value,cod_prefer:$('#sh_pref').value,cod_prefer_extra:$('#sh_prefx').value,sr_pickup:$('#sh_pk').value,sr_fallback_email:$('#sh_fe').value,pack:pk,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
  $('#rt_go').onclick=function(){var o=$('#rt_out');o.textContent='Asking the carriers…';rpc('shipping_rates',{pin:$('#rt_pin').value,cod:$('#rt_cod').checked,amount:$('#rt_amt').value}).then(function(r){o.innerHTML=ratesTable(r)}).catch(function(e){o.textContent='Failed: '+e.message})};
  scopeCheck($('#st_scope'));printerCard();
+ codBind();
  partialBind();
  metaLoad();
  convertLoad();

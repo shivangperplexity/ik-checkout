@@ -1,0 +1,58 @@
+{%- comment -%}
+  IK Express checkout is ON in this theme (Build 034, design Flow 11 "Express drawer + swipe to pay").
+  A sticky "View cart" pill replaces the Horizon cart drawer. Cart and checkout live in one sheet that talks
+  to the IK checkout API (ik-checkout.vercel.app), the same API the earlier popup used.
+  Code: snippets/ikx-js-1..5.liquid (one script, split only because of file-size limits) + assets/ik-express.css, ik-express-2.css, ik-express-3.css (Build 038 free-pick push), ik-express-4.css (Build 045 payment options).
+  Speed: the sheet paints instantly from the cart already in memory and a locally computed price; the server
+  price is cached per cart (sessionStorage, 10 min) and prefetched after page load, so the total is usually final on open.
+  UPI icons: assets/ikx-gpay.png, ikx-phonepe.png, ikx-paytm.png (the apps' own icons; logos saved in the IK admin, if any, take priority).
+  The earlier popup (assets/ik-checkout.js) is kept unchanged but not loaded here.
+  Kill switch for testing: add ?ik_native=1 to any URL to get Shopify's own drawer and checkout.
+  To go back to the earlier IK popup, replace everything below with:
+    {{ 'ik-checkout.css' | asset_url | stylesheet_tag }}
+    <script src="{{ 'ik-checkout.js' | asset_url }}" data-api="https://ik-checkout.vercel.app" data-logo="{{ 'ikl-logo-black.svg' | asset_url }}" charset="utf-8" defer></script>
+{%- endcomment -%}
+{%- comment -%} Build 038: free-pick list = bestsellers first, then the rest of all-tattoos (no repeats), max 24. {%- endcomment -%}
+{%- liquid
+  assign picks_count = 0
+  assign picks_seen = ','
+  assign picks_sources = 'bestsellers,all-tattoos' | split: ','
+-%}
+<link rel="preconnect" href="https://ik-checkout.vercel.app" crossorigin>
+{{ 'ik-express.css' | asset_url | stylesheet_tag }}
+{{ 'ik-express-2.css' | asset_url | stylesheet_tag }}
+{{ 'ik-express-3.css' | asset_url | stylesheet_tag }}
+{{ 'ik-express-4.css' | asset_url | stylesheet_tag }}
+<script type="application/json" id="ikx-picks">
+  [
+  {%- for ph in picks_sources -%}
+  {%- if picks_count >= 24 -%}{%- break -%}{%- endif -%}
+  {%- for p in collections[ph].products -%}
+    {%- if picks_count >= 24 -%}{%- break -%}{%- endif -%}
+    {%- if p.type != 'Semi-Permanent Tattoo' -%}{%- continue -%}{%- endif -%}
+    {%- assign pid_key = ',' | append: p.id | append: ',' -%}
+    {%- if picks_seen contains pid_key -%}{%- continue -%}{%- endif -%}
+    {%- assign pv = p.selected_or_first_available_variant -%}
+    {%- unless pv.available -%}{%- continue -%}{%- endunless -%}
+    {%- assign picks_seen = picks_seen | append: p.id | append: ',' -%}
+    {%- if picks_count > 0 -%},{%- endif -%}
+    {"id":{{ p.id }},"v":{{ pv.id }},"t":{{ p.title | remove: ' Tattoo' | json }},"p":{{ pv.price }},"u":{{ p.url | json }},"img":{%- if p.featured_media -%}{{ p.featured_media | image_url: width: 300 | json }}{%- else -%}""{%- endif -%}}
+    {%- assign picks_count = picks_count | plus: 1 -%}
+  {%- endfor -%}
+  {%- endfor -%}
+  ]
+</script>
+<script
+  data-ikx
+  data-api="https://ik-checkout.vercel.app"
+  data-template="{{ template.name }}"
+  data-logo-gpay="{{ 'ikx-gpay.png' | asset_url }}"
+  data-logo-phonepe="{{ 'ikx-phonepe.png' | asset_url }}"
+  data-logo-paytm="{{ 'ikx-paytm.png' | asset_url }}"
+>
+{% render 'ikx-js-1' %}
+{% render 'ikx-js-2' %}
+{% render 'ikx-js-3' %}
+{% render 'ikx-js-4' %}
+{% render 'ikx-js-5' %}
+</script>

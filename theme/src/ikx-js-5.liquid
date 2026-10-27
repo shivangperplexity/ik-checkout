@@ -1,6 +1,6 @@
 /* ik-express.js part 5 of 5 (rendered inline by snippets/ik-checkout.liquid) */
             if (j.why === 'review') { state.done = true; return screen('<h3>Payment received</h3><p>We got your payment and are confirming your order. You’ll hear from us shortly. Please don’t pay again.</p><button type="button" class="ikx-btn" data-ikx-close>OK</button>'); }
-            payFailed('Payment didn’t go through. No money was taken. Try again or choose Cash on delivery.');
+            payFailed('Payment didn’t go through. No money was taken. Try again or ' + payWord() + '.');
           }).catch(function () { state.done = true; screen('<h3>Checking your payment</h3><p>If money was deducted, your order will be confirmed shortly. Please don’t pay again.</p><button type="button" class="ikx-btn" data-ikx-close>OK</button>'); });
         },
         catchException: function () { if (done) return; done = true; payFailed('Could not open the payment window. Please try again.'); }

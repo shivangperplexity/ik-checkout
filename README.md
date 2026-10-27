@@ -34,3 +34,12 @@ Sending switches from Meta direct to Go4WhatsUp as soon as `G4W_API_KEY` + `G4W_
 - `lib/wa-g4w.js` `/api/wa/g4w?k=<G4W_WEBHOOK_SECRET>` (button taps / replies, STOP/START), `/api/wa/act` one-tap confirm page (acts only on a tap, never on link previews), `autoCancelStale` (`COD_AUTOCANCEL_HOURS`, off by default).
 - `lib/wa-convert.js` COD → prepaid: `/api/wa/pay` (PayU form, `COD_CONVERT_DISCOUNT`% off product subtotal), `/api/wa/paid` (claims once; Shopify order edit only committed if the edited total equals the payment, otherwise still marked paid and tagged `prepaid-needs-attention`), cron offer (`COD_CONVERT_HOURS`, off by default).
 - Env: `G4W_API_KEY`, `G4W_SECURE_KEY`, `G4W_WEBHOOK_SECRET`, optional `WA_HEADER_IMAGE`, `COD_CONVERT_HOURS`, `COD_CONVERT_DISCOUNT`, `COD_AUTOCANCEL_HOURS`, `WA_LINK_SECRET`.
+
+## Build 045: payment options + COD switch (Oct 2026)
+- Checkout payment section redesigned (theme `src/ikx-js-3/4/5.liquid`, new `assets/ik-express-4.css`, `snippets/ik-checkout.liquid`
+  loads it): one UPI card with Google Pay / PhonePe / Paytm tiles (tap = pay in that app), "All UPI apps", "Pay via UPI ID"
+  (PayU page), black rows for Debit/Credit Cards and Netbanking (PayU opens on that method via `enforce_paymethod`),
+  and Cash on delivery (select, then the footer button, as before) only when COD is on. Computers get "Scan QR" instead of tiles.
+- Dashboard → Settings → **Cash on delivery** on/off (`settings.checkout.cod`, default on). Off: `/api/quote` sends
+  `cod_on: false` (the checkout hides COD), and `/api/order` (COD and partial), `/api/otp/send` and `/api/cod-check` refuse COD,
+  so older theme builds can't place COD orders either.

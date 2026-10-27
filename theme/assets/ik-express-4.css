@@ -1,0 +1,55 @@
+/* IK Express — Build 045: payment options. One UPI card with big app tiles (tap = pay in that app), "All UPI apps",
+   "Pay via UPI ID", then black rows for cards and netbanking, and a light Cash on delivery row when COD is on. */
+.ikx-po{display:grid;gap:10px}
+.ikx-po__upi{display:grid;gap:12px;padding:14px;border:1px solid var(--ikx-line,#e9e5dd);border-radius:20px;background:#fff;box-shadow:0 1px 2px rgba(10,10,12,.04)}
+.ikx-po__h{display:flex;align-items:center;gap:10px;min-height:32px}
+.ikx-po__h>b{font-size:19px;font-weight:800;letter-spacing:-.01em}
+.ikx-po__h .ikx-po__amt{margin-left:auto;font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+.ikx-po__save{padding:3px 8px;border-radius:999px;background:var(--ikx-green-bg,#e8f5ec);color:var(--ikx-green,#15803d);font-size:11px;font-weight:800;white-space:nowrap}
+.ikx-po__ic{display:grid;place-items:center;width:28px;height:28px;flex:none}
+.ikx-po__ic svg{width:24px;height:24px}
+.ikx-po__ic--upi svg{width:26px;height:26px;stroke-width:2.2}
+
+/* app tiles */
+.ikx-po__apps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ikx-po__app{display:grid;justify-items:center;align-content:center;gap:8px;min-height:116px;padding:12px 4px;border:0;border-radius:18px;background:#f4f2ee;color:var(--ikx-ink,#0a0a0c);font:inherit;font-size:14px;font-weight:600;line-height:1.15;cursor:pointer;box-shadow:0 2px 6px rgba(10,10,12,.06);-webkit-tap-highlight-color:transparent;transition:transform .1s ease,box-shadow .15s ease}
+.ikx-po__app--gpay{background:#fdeceb}
+.ikx-po__app--phonepe{background:#ece7f6}
+.ikx-po__app--paytm{background:#e6f1fb}
+.ikx-po__app:active:not(:disabled){transform:scale(.96)}
+.ikx-po__app.is-on{box-shadow:0 0 0 2px var(--ikx-ink,#0a0a0c)}
+.ikx-po__app:disabled{opacity:.6;cursor:progress}
+.ikx-po__logo{display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:#fff;overflow:hidden;box-shadow:0 0 0 1px rgba(10,10,12,.06)}
+.ikx-po__logo img{width:100%;height:100%;object-fit:cover;display:block}
+.ikx-po__logo b{font-size:18px}
+.ikx-po__logo svg{width:26px;height:26px}
+
+/* "All UPI apps" / "Pay via UPI ID" / "Scan QR" */
+.ikx-po__line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:54px;padding:0 16px;border:1.5px solid #c9c4ba;border-radius:14px;background:#fff;color:var(--ikx-ink,#0a0a0c);font:inherit;font-size:15.5px;font-weight:600;text-align:left;cursor:pointer}
+.ikx-po__line.is-on{border-color:var(--ikx-ink,#0a0a0c)}
+.ikx-po__line--vpa{color:#5c5a55;font-weight:500}
+.ikx-po__line:disabled{opacity:.6;cursor:progress}
+.ikx-po__qr{display:flex;align-items:center;gap:10px}
+.ikx-po__or{display:flex;align-items:center;gap:12px;color:#8a857c;font-size:12.5px;font-weight:600;letter-spacing:.06em}
+.ikx-po__or::before,.ikx-po__or::after{content:"";flex:1;height:1px;background:#e2ddd3}
+
+/* cards / netbanking / COD rows */
+.ikx-po__row{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:10px 16px;border:0;border-radius:20px;font:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .1s ease}
+.ikx-po__row:active:not(:disabled){transform:scale(.99)}
+.ikx-po__row:disabled{opacity:.6;cursor:progress}
+.ikx-po__row--dark{background:#0a0a0c;color:#fff}
+.ikx-po__row--dark:hover:not(:disabled){background:#1f1f23}
+.ikx-po__t{display:grid;gap:1px;flex:1;min-width:0}
+.ikx-po__t b{font-size:16px;font-weight:600}
+.ikx-po__t small{font-size:12px;color:#5c5a55}
+.ikx-po__row .ikx-po__amt{font-size:16.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ikx-po__chev{display:inline-flex}
+.ikx-po__chev svg{width:20px;height:20px;stroke-width:2.4}
+.ikx-po__row--cod{background:#fff;color:var(--ikx-ink,#0a0a0c);border:1.5px solid #d9d4ca;padding:9px 15px}
+.ikx-po__row--cod.is-on{border:2px solid var(--ikx-ink,#0a0a0c);padding:8px 14px;background:#fbfaf7}
+.ikx-po__radio{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--ikx-ink,#0a0a0c);display:grid;place-items:center}
+.ikx-po__row--cod.is-on .ikx-po__radio::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--ikx-ink,#0a0a0c)}
+.ikx-po__pick{margin:2px 0 -4px;font-weight:600}
+
+@media (max-width:360px){.ikx-po__app{min-height:100px;font-size:13px}.ikx-po__logo{width:48px;height:48px}.ikx-po__upi{padding:12px}}
+@media (prefers-reduced-motion:reduce){.ikx-po__app,.ikx-po__row{transition:none}}
