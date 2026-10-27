@@ -217,7 +217,7 @@ export function referralTemplates() {
       ] },
     { name: CREDIT_TEMPLATE, language: 'en', category: 'UTILITY', allow_category_change: true,
       components: [
-        { type: 'BODY', text: 'Hi {{1}}, your friend\'s Ink Kulture order has been delivered, so ₹{{2}} store credit has been added to your number.\n\nIt is applied automatically on your next order when you pay online at inkkulture.in. Valid till {{3}}.',
+        { type: 'BODY', text: 'Hi {{1}}, your friend\'s Ink Kulture order has been delivered, so ₹{{2}} store credit has been added to your number.\n\nIt is valid till {{3}} and is applied automatically on your next order when you pay online at inkkulture.in.\n\nHappy tattooing! 🖤',
           example: { body_text: [['Riya', '100', '27 Dec 2026']] } },
       ] },
   ];
