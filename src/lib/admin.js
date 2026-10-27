@@ -1418,6 +1418,35 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, ...r };
   },
+  /* ---- Creator program (lib/creators.js) ---- */
+  async creator_templates(env, b) {
+    const C = await import('./creators.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const want = [];
+    for (const t of C.creatorTemplates(C.APP(env))) { const have = await metaTemplate(e2, t.name).catch(() => null); if (!have || have.status === 'REJECTED' || b?.force) want.push(t); }
+    if (!want.length) return { ok: true, created: [] };
+    const r = await ACTIONS.wa_create_templates(env, { templates: want });
+    clearMetaCache();
+    return { ok: true, ...r };
+  },
+  async creators(env) { const C = await import('./creators.js'); return C.adminList(await withSettingsFresh(env)); },
+  async creator_approve(env, b) { const C = await import('./creators.js'); const { withSettings } = await import('./settings.js'); return C.approve(await withSettings(await withSettingsFresh(env)), b.id, { code: b.code || '' }); },
+  async creator_reject(env, b) { const C = await import('./creators.js'); return C.reject(env, b.id, b.note || ''); },
+  async creator_paid(env, b) { const C = await import('./creators.js'); return C.markPaid(env, b.id, b.amount, b.ref || ''); },
+  async creator_payout_reset(env, b) { await env.DB.prepare('UPDATE creators SET payout=NULL, payout_at=NULL WHERE id=?').bind(Number(b.id)).run(); return { ok: true }; },
+  async save_creators(env, b) {
+    const s = await getSettings(env, true), cur = { ...(s.creators || {}) };
+    const rs = (v, lo, hi) => Math.round(Math.max(lo, Math.min(hi, Number(v) || 0)) * 100);
+    if (b.on !== undefined) cur.on = !!b.on;
+    if (b.follower_off !== undefined) cur.follower_off = rs(b.follower_off, 0, 500);
+    if (b.cash !== undefined) cur.cash = rs(b.cash, 0, 1000);
+    if (b.credit !== undefined) cur.credit = rs(b.credit, 0, 2000);
+    if (b.min_payout !== undefined) cur.min_payout = rs(b.min_payout, 0, 10000);
+    await putSetting(env, 'creators', cur);
+    return { ok: true };
+  },
   /** Refer and earn: numbers for the dashboard (codes, invites, referral orders, credit given / used, top referrers). */
   async referrals(env) { const R = await import('./referral.js'); return R.referralStats(env); },
   /** Refer and earn: a customer's code (made if missing) and credit, by phone. */
@@ -1851,6 +1880,7 @@ export async function runAutomations(env) {
   } catch (e) { console.error('cancel-sync', e); }
   /* Shipments tab: keep every live parcel's Shiprocket status fresh (pickup-stage ones every 15 min) */
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
+  try { const { creatorSweep } = await import('./creators.js'); const r = await creatorSweep(env); if (r.placed || r.earned || r.void || r.vouchers) out.creators = r; } catch (e) { console.error('creators', e); }
   try { const { referralSweep } = await import('./referral.js'); const r = await referralSweep(env); if (r.released || r.credited || r.void || r.invited) out.referral = r; } catch (e) { console.error('referral', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; if (sw.retry || sw.late) console.log('cancel-sweep', JSON.stringify(sw)); } catch (e) { console.error('cancel-sweep', e); }

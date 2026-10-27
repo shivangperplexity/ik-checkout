@@ -44,3 +44,7 @@ and `ref: { code, name }`. Once a valid number is in the form (typed or remember
 code applies (first order only) and the number's store credit; `refApply` (part 2) folds both into the online-payment
 price. The bill shows "Referral (name)" / "Store credit" rows; the COD tile says how much paying online saves.
 The server (`lib/referral.js`) re-checks everything at `/api/order`.
+Part 4 also has the code box under the bill ("Have a creator or referral code?"): it sets REF (creator code, a
+friend's referral code or a creator credit voucher V…), re-quotes, and says "This code is not valid" when the API
+gives it no value. Creator program: `src/lib/creators.js`, page `src/public/creator.html` (built from
+`src/tools/creator.tpl.html` by `node src/tools/build-creator.mjs`).

@@ -13,7 +13,8 @@
     if (p.bogo) row('Buy 1 Get 1 Free', '−' + money(p.bogo), 'is-save');
     if (p.upsell) row('Add-on offer', '−' + money(p.upsell), 'is-save');
     if (p.prepaid) row('Prepaid 10% off', '−' + money(p.prepaid), 'is-save');
-    if (p.ref) row('Referral' + (state.quote.ref && state.quote.ref.name ? ' (' + esc(state.quote.ref.name) + ')' : ''), '−' + money(p.ref), 'is-save');
+    if (p.ref) { var rk = (state.quote.ref && state.quote.ref.kind) || 'referral', rn = state.quote.ref && state.quote.ref.name ? ' (' + esc(state.quote.ref.name) + ')' : '';
+      row(rk === 'creator' ? 'Creator code' + rn : rk === 'voucher' ? 'Creator voucher' : 'Referral' + rn, '−' + money(p.ref), 'is-save'); }
     if (p.credit) row('Store credit', '−' + money(p.credit), 'is-save');
     row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
     if (p.cod) row('COD handling', money(p.cod));
@@ -24,6 +25,35 @@
     if (ri && ri.note) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">' + esc(ri.note) + '</p>');
     var nudge = p.shipping && p.afterBogo > 0 ? '<p class="ikx-nudge">' + ICON.truck + 'Add ' + money(49900 - p.afterBogo) + ' more for FREE delivery</p>' : '';
     box.innerHTML = rows.join('') + nudge;
+    paintCode();
+  }
+
+  /* Build 050: one box for a creator code, a friend's referral code or a creator credit voucher. The code rides on
+     every quote / order as attribution.ref (REF, part 1); the API decides what it is worth (online payment only). */
+  function paintCode() {
+    var bill = $('.ikx-bill', root); if (!bill) return;
+    var box = $('.ikx-code', bill);
+    if (!box) { box = el('div', { class: 'ikx-code', style: 'margin:10px 2px 0;font-size:13.5px' }); bill.appendChild(box); }
+    if (box.contains(document.activeElement)) return;
+    var p = state.quote && state.quote.prepaid || {}, err = state.codeErr ? '<p class="ikx-err" style="margin:6px 0 0">' + esc(state.codeErr) + '</p>' : '';
+    if (REF) box.innerHTML = '<span>Code <b>' + esc(REF) + '</b>' + (p.ref ? ' · ' + money(p.ref) + ' off when you pay online' : '') + '</span> <button type="button" class="ikx-link" data-ikx-code-x>Remove</button>' + err;
+    else if (state.codeOpen) box.innerHTML = '<div style="display:flex;gap:8px"><input data-ikx-code-in autocomplete="off" autocapitalize="characters" placeholder="Creator, referral or voucher code" style="flex:1;min-width:0;border:1px solid #d9d4cb;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;text-transform:uppercase"><button type="button" class="ikx-btn" data-ikx-code-go style="width:auto;padding:0 16px;min-height:42px">Apply</button></div>' + err;
+    else box.innerHTML = '<button type="button" class="ikx-link" data-ikx-code-open>Have a creator or referral code?</button>' + err;
+  }
+  function setCode(c) {
+    c = String(c || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
+    REF = c; state.codeErr = '';
+    try { if (c) localStorage.setItem('ik_ref', JSON.stringify({ c: c, at: Date.now() })); else localStorage.removeItem('ik_ref'); } catch (e) {}
+    state.refInfo = null; state.refPhone = ''; QC = {}; saveQC();
+    if (!CART) return paintCode();
+    var phone = (form() && formData().phone) || '';
+    fetchQuote(state.lines).then(function (q) {
+      if (c && !q.ref) { state.codeErr = 'This code is not valid'; REF = ''; try { localStorage.removeItem('ik_ref'); } catch (e) {} QC = {}; saveQC(); return fetchQuote(state.lines); }
+      return q;
+    }).then(function (q) {
+      setQuote(q, true); state.codeOpen = false; paintPay(); paintBill(); paintFoot();
+      if (phone) refCheck(phone);
+    }).catch(function () { state.codeErr = 'Could not check the code, try again'; paintCode(); });
   }
 
   /* ---------- partial COD: pay the advance (₹99) online now, the rest on delivery ----------
@@ -190,6 +220,9 @@
     if (a) { e.preventDefault(); if (!state.busy) { closeAsk(); addPick(a.getAttribute('data-ikx-add')); } return; }
     if (t.closest('[data-ikx-askx]')) { e.preventDefault(); closeAsk(); return; }
     if (t.closest('[data-otp-x]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); return; }
+    if (t.closest('[data-ikx-code-open]')) { e.preventDefault(); state.codeOpen = true; state.codeErr = ''; paintCode(); var ci = $('[data-ikx-code-in]', root); if (ci) ci.focus(); return; }
+    if (t.closest('[data-ikx-code-go]')) { e.preventDefault(); var cv = ($('[data-ikx-code-in]', root) || {}).value || ''; if (document.activeElement) document.activeElement.blur(); if (cv.trim()) setCode(cv); return; }
+    if (t.closest('[data-ikx-code-x]')) { e.preventDefault(); setCode(''); return; }
     if (t.closest('[data-otp-re]')) { e.preventDefault(); otpSend(true); return; }
     if (t.closest('[data-otp-paste]')) { e.preventDefault(); otpPaste(); return; }
     if (t.closest('[data-otp-edit]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); var pf = form() && form().elements.phone; goCheckout(false); if (pf) setTimeout(function () { pf.focus(); pf.select && pf.select(); }, 350); return; }

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ink Kulture Creators</title>
+<meta name="description" content="Join the Ink Kulture creator program: share your link, your followers save on semi-permanent tattoos, you earn on every delivered order.">
+<meta name="theme-color" content="#0a0a0c">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0a0a0c;--paper:#f7f5f1;--card:#fff;--line:#e6e2da;--mut:#6b6760;--ok:#13804b;--bad:#b42318;--warn:#a15c07;--accent:#0a0a0c;--r:16px}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px 48px}
+header{position:sticky;top:0;z-index:5;background:rgba(247,245,241,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header .in{max-width:760px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
+header svg{height:20px;width:auto;display:block}
+header .grow{flex:1}
+.btn{appearance:none;border:0;border-radius:999px;background:var(--ink);color:#fff;font:600 15px/1 Inter,sans-serif;padding:14px 20px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;min-height:48px}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+.btn.sm{padding:9px 14px;min-height:38px;font-size:14px}
+.btn[disabled]{opacity:.45;cursor:default}
+.btn.full{width:100%}
+.hero{padding:36px 0 8px}
+.eyebrow{display:inline-block;font:700 11px/1 Inter;letter-spacing:.14em;text-transform:uppercase;background:var(--ink);color:#fff;padding:7px 10px;border-radius:999px}
+h1{font-size:clamp(30px,7vw,46px);line-height:1.05;letter-spacing:-.02em;margin:14px 0 10px;font-weight:800}
+h2{font-size:20px;margin:0 0 10px;letter-spacing:-.01em}
+h3{font-size:16px;margin:0 0 6px}
+.lede{font-size:17px;color:#3c3934;margin:0 0 20px;max-width:560px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin:14px 0}
+.grid{display:grid;gap:12px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:620px){.g3{grid-template-columns:1fr}.g2.keep{grid-template-columns:repeat(2,1fr)}.g2:not(.keep){grid-template-columns:1fr}}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.step b.n{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;margin-bottom:8px}
+.deal{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);border-radius:var(--r);overflow:hidden;margin:14px 0}
+.deal>div{padding:16px}
+.deal>div+div{border-left:1.5px solid var(--ink)}
+.deal .k{font:700 11px/1 Inter;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.deal .v{font-size:26px;font-weight:800;margin:6px 0 2px;letter-spacing:-.01em}
+.deal .s{font-size:13px;color:var(--mut)}
+@media(max-width:520px){.deal{grid-template-columns:1fr}.deal>div+div{border-left:0;border-top:1.5px solid var(--ink)}}
+.rules li{margin:6px 0}
+.rules{padding-left:20px;margin:6px 0}
+label.f{display:block;font-size:13px;font-weight:600;margin:12px 0 0}
+label.f input,label.f select,label.f textarea{display:block;width:100%;margin-top:6px;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font:16px Inter,sans-serif;background:#fff;color:var(--ink)}
+label.f input:focus,label.f textarea:focus{outline:none;border-color:var(--ink)}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;margin:14px 0;color:#3c3934}
+.check input{margin-top:3px;width:18px;height:18px;accent-color:var(--ink)}
+.mut{color:var(--mut)} .small{font-size:13px}
+.err{color:var(--bad);font-size:14px;margin:10px 0 0;min-height:1em}
+.ok{color:var(--ok)}
+.tabs{display:flex;gap:6px;background:#ebe7df;border-radius:999px;padding:4px;margin:18px 0 6px}
+.tabs button{flex:1;border:0;background:transparent;border-radius:999px;padding:10px;font:600 14px Inter;cursor:pointer;color:var(--mut)}
+.tabs button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.otp{display:flex;gap:10px;justify-content:center;margin:14px 0}
+.otp input{width:56px;height:62px;text-align:center;font:700 26px Inter;border:1.5px solid var(--line);border-radius:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.stat .v{font-size:26px;font-weight:800;letter-spacing:-.01em}
+.stat .l{font-size:12.5px;color:var(--mut)}
+.linkbox{display:flex;gap:8px;align-items:center;background:var(--ink);color:#fff;border-radius:14px;padding:12px 12px 12px 16px}
+.linkbox code{flex:1;font:600 14px ui-monospace,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkbox .btn{background:#fff;color:var(--ink);min-height:36px;padding:8px 14px;font-size:13px}
+.pill{display:inline-block;font:600 12px/1 Inter;padding:6px 9px;border-radius:999px;background:#efece6;color:#3c3934;white-space:nowrap}
+.pill.delivered{background:#e3f4ea;color:var(--ok)} .pill.refused,.pill.cancelled{background:#fdecea;color:var(--bad)} .pill.ofd{background:#fff4dc;color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{font:600 11.5px Inter;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+td{padding:10px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.choice button{border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:16px;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.choice button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--ink) inset}
+.choice .v{font-size:24px;font-weight:800}
+.note{background:#fff8e6;border:1px solid #f1d79a;border-radius:12px;padding:12px 14px;font-size:13.5px;color:#5c4510}
+.hide{display:none!important}
+footer{text-align:center;color:var(--mut);font-size:12.5px;padding:24px 16px}
+</style>
+</head>
+<body>
+<header><div class="in"><a href="https://www.inkkulture.in" aria-label="Ink Kulture"><svg xmlns="http://www.w3.org/2000/svg" viewBox="56 56 3983 858" height="20" role="img" aria-label="Ink Kulture"><path fill="#0a0a0c" fill-rule="evenodd" d="M 4039 154 L 3772 153 L 3666 375 L 3546 609 L 3546 617 L 3834 615 L 3881 522 L 3725 522 L 3723 518 L 3762 441 L 3881 441 L 3926 360 L 3930 346 L 3813 344 L 3861 251 L 3991 251 Z M 3688 177 L 3674 162 L 3646 153 L 3403 153 L 3162 616 L 3291 617 L 3383 446 L 3379 617 L 3505 617 L 3505 442 L 3554 434 L 3589 413 L 3604 395 L 3693 224 L 3698 203 Z M 3544 255 L 3544 259 L 3541 261 L 3539 269 L 3536 271 L 3532 283 L 3529 285 L 3529 288 L 3522 297 L 3522 300 L 3520 301 L 3520 304 L 3515 311 L 3515 314 L 3513 315 L 3513 318 L 3510 321 L 3511 322 L 3508 325 L 3506 332 L 3501 337 L 3501 340 L 3498 343 L 3490 343 L 3487 346 L 3436 346 L 3434 344 L 3434 342 L 3437 339 L 3437 336 L 3439 335 L 3441 327 L 3444 325 L 3444 322 L 3448 319 L 3448 316 L 3451 313 L 3451 310 L 3453 309 L 3453 306 L 3455 305 L 3455 302 L 3458 299 L 3458 296 L 3460 295 L 3460 292 L 3463 289 L 3462 288 L 3465 285 L 3467 278 L 3472 274 L 3474 266 L 3477 264 L 3477 261 L 3479 260 L 3482 251 L 3486 251 L 3487 253 L 3509 253 L 3511 251 L 3540 251 Z M 3350 154 L 3222 153 L 3038 504 L 3010 520 L 2959 520 L 2955 515 L 3143 161 L 3143 153 L 3012 153 L 2807 549 L 2805 577 L 2817 603 L 2853 620 L 3070 617 L 3114 594 L 3138 568 Z M 2969 153 L 2659 154 L 2612 240 L 2610 250 L 2703 251 L 2704 255 L 2525 595 L 2518 617 L 2649 615 L 2838 251 L 2921 251 L 2969 163 Z M 2562 153 L 2429 153 L 2424 158 L 2415 182 L 2335 336 L 2335 342 L 2196 609 L 2196 617 L 2468 615 L 2515 528 L 2515 522 L 2378 522 L 2376 518 L 2562 161 Z M 2376 153 L 2246 153 L 2064 507 L 2044 520 L 1985 520 L 1983 511 L 2167 161 L 2167 153 L 2036 153 L 1841 536 L 1834 579 L 1843 600 L 1884 620 L 2096 617 L 2146 591 L 2167 565 Z M 988 153 L 771 617 L 907 617 L 992 439 L 1025 617 L 1233 617 L 1233 611 L 1170 558 L 1135 379 L 1371 171 L 1384 153 L 1228 153 L 1048 324 L 1045 320 L 1123 163 L 1123 153 Z M 933 154 L 800 153 L 699 367 L 674 158 L 669 153 L 534 153 L 324 598 L 320 617 L 453 617 L 555 401 L 588 617 L 711 617 Z M 1541 56 L 1575 116 L 1326 617 L 1480 617 L 1584 415 L 1613 593 L 2051 914 L 1767 539 L 1729 380 L 2092 57 L 1913 56 L 1643 296 L 1756 58 Z M 522 56 L 270 57 L 270 62 L 313 113 L 303 145 L 122 554 L 100 578 L 56 612 L 57 617 L 295 617 L 295 611 L 269 577 L 269 553 L 432 196 L 462 118 L 523 62 Z"/></svg></a><span class="grow"></span><span class="small mut">Creator program</span><button class="btn sm ghost hide" id="out">Log out</button></div></header>
+<main class="wrap" id="app"><p class="mut" style="padding:40px 0">Loading…</p></main>
+<footer>Ink Kulture · semi-permanent tattoos · <a href="https://www.inkkulture.in">inkkulture.in</a></footer>
+<script>
+(function(){
+var API='', TOK='ikc_tok', R=null, D=null, view='join';
+function $(s,r){return (r||document).querySelector(s)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function rs(n){return '₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}
+function tok(){try{return localStorage.getItem(TOK)||''}catch(e){return ''}}
+function setTok(t){try{t?localStorage.setItem(TOK,t):localStorage.removeItem(TOK)}catch(e){}}
+function api(p,b,auth){return fetch(API+'/api/creator/'+p,{method:b?'POST':'GET',headers:Object.assign({'Content-Type':'application/json'},auth?{Authorization:'Bearer '+tok()}:{}),body:b?JSON.stringify(b):undefined}).then(function(r){return r.json()})}
+function day(t){return new Date(t*1000).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+var app=$('#app');
+
+function landing(){
+ var r=R||{follower_off:50,cash:60,credit:120};
+ app.innerHTML='<section class="hero"><span class="eyebrow">Creators only</span><h1>Wear it. Share it.<br>Get paid for every delivery.</h1><p class="lede">Join the Ink Kulture creator program. Share your own link, your followers save on semi-permanent tattoos, and you earn on every order that reaches their door.</p>'
+  +'<div class="deal"><div><div class="k">Your followers get</div><div class="v">'+rs(r.follower_off)+' off</div><div class="s">on their order when they pay online with your code (on top of Buy 1 Get 1)</div></div><div><div class="k">You get, per delivered order</div><div class="v">'+rs(r.cash)+' cash</div><div class="s">or '+rs(r.credit)+' store credit. You pick once, it stays for all your orders</div></div></div></section>'
+  +'<div class="tabs" role="tablist"><button data-v="join" class="'+(view==='join'?'on':'')+'">Apply</button><button data-v="login" class="'+(view==='login'?'on':'')+'">Creator login</button></div>'
+  +'<div id="pane"></div>'
+  +'<h2 style="margin-top:28px">How it works</h2><div class="grid g3"><div class="step"><b class="n">1</b><h3>Apply</h3><p class="small mut" style="margin:0">Tell us where you post. We check your page and approve you on WhatsApp.</p></div><div class="step"><b class="n">2</b><h3>Share your link</h3><p class="small mut" style="margin:0">Put it in your bio, stories and reels. Your code works on every page of the store.</p></div><div class="step"><b class="n">3</b><h3>Earn on deliveries</h3><p class="small mut" style="margin:0">Watch opens, orders and their delivery status live on your dashboard.</p></div></div>'
+  +'<div class="card"><h3>The rules, plainly</h3><ul class="rules small"><li>You earn only when an order is <b>delivered</b>. Cash on delivery and online orders both count.</li><li>Orders the buyer refuses at the door ("Delivery refused") or that are cancelled earn nothing.</li><li>Your followers\' '+rs(r.follower_off)+' off is for online payment, once per phone number. Your own orders don\'t count.</li><li>Cash is paid to your UPI once a month when it reaches '+rs(r.min_payout||500)+'. Credit can be spent any time on inkkulture.in.</li><li>Mark your posts as <b>#ad</b> or <b>#affiliate</b> (ASCI rule for paid partnerships).</li></ul></div>';
+ [].forEach.call(app.querySelectorAll('.tabs button'),function(b){b.onclick=function(){view=b.dataset.v;landing()}});
+ if(view==='login')loginPane(); else joinPane();
+}
+function joinPane(){
+ var p=$('#pane');
+ p.innerHTML='<div class="card"><h2>Apply as a creator</h2><p class="small mut" style="margin:0">Takes a minute. We reply on WhatsApp.</p>'
+  +'<label class="f">Your name<input id="a_n" autocomplete="name" required></label>'
+  +'<label class="f">WhatsApp number<input id="a_p" inputmode="numeric" maxlength="10" placeholder="10-digit number" autocomplete="tel-national"></label>'
+  +'<label class="f">Instagram / YouTube profile link<input id="a_l" inputmode="url" placeholder="https://instagram.com/yourname"></label>'
+  +'<div class="grid g2 keep"><label class="f">Followers<input id="a_fo" inputmode="numeric" placeholder="e.g. 4500"></label><label class="f">City<input id="a_c" autocomplete="address-level2"></label></div>'
+  +'<label class="f">Email (optional)<input id="a_e" type="email" autocomplete="email"></label>'
+  +'<label class="f">What do you post about? (optional)<textarea id="a_ab" rows="2" placeholder="Fashion, fitness, couple content, college life…"></textarea></label>'
+  +'<label class="check"><input type="checkbox" id="a_ok"> I agree: I earn only on delivered orders, I will tag paid posts #ad / #affiliate, and Ink Kulture can end the partnership for misuse.</label>'
+  +'<button class="btn full" id="a_go">Send application</button><p class="err" id="a_err"></p></div>';
+ $('#a_go').onclick=function(){var b=$('#a_go');b.disabled=true;$('#a_err').textContent='';
+  api('apply',{name:$('#a_n').value,phone:$('#a_p').value,link:$('#a_l').value,followers:$('#a_fo').value,city:$('#a_c').value,email:$('#a_e').value,about:$('#a_ab').value,agree:$('#a_ok').checked}).then(function(r){
+   if(!r.ok)throw new Error(r.error||'Could not send');
+   p.innerHTML='<div class="card"><h2>'+(r.already==='approved'?'You are already in 🎉':'Application received 🖤')+'</h2><p class="mut" style="margin:0">'+(r.already==='approved'?'Log in with your WhatsApp number to see your link and orders.':'We will check your page and message you on WhatsApp once you are approved. Then log in here with the same number.')+'</p><button class="btn ghost" style="margin-top:14px" id="to_login">Creator login</button></div>';
+   $('#to_login').onclick=function(){view='login';landing()};
+  }).catch(function(e){b.disabled=false;$('#a_err').textContent=e.message})};
+}
+function loginPane(){
+ var p=$('#pane'),phone='';
+ p.innerHTML='<div class="card"><h2>Creator login</h2><p class="small mut" style="margin:0">We send a 4-digit code to your WhatsApp.</p><label class="f">WhatsApp number<input id="l_p" inputmode="numeric" maxlength="10" placeholder="10-digit number" autocomplete="tel-national"></label><button class="btn full" style="margin-top:14px" id="l_go">Send code on WhatsApp</button><div id="l_otp" class="hide"><p class="small" style="margin:16px 0 0;text-align:center">Enter the code sent on WhatsApp</p><div class="otp"><input id="l_c" inputmode="numeric" autocomplete="one-time-code" maxlength="4" style="width:180px;letter-spacing:.4em"></div><button class="btn full" id="l_v">Log in</button></div><p class="err" id="l_err"></p></div>';
+ $('#l_go').onclick=function(){var b=$('#l_go');phone=$('#l_p').value.replace(/\D/g,'').slice(-10);b.disabled=true;$('#l_err').textContent='';
+  api('otp',{phone:phone}).then(function(r){if(!r.ok){b.disabled=false;throw new Error(r.error||'Could not send')}b.textContent='Code sent · resend in 30 s';setTimeout(function(){b.disabled=false;b.textContent='Send again'},30000);$('#l_otp').classList.remove('hide');$('#l_c').focus()}).catch(function(e){$('#l_err').textContent=e.message})};
+ function verify(){var c=$('#l_c').value.replace(/\D/g,'');if(c.length!==4)return;$('#l_v').disabled=true;
+  api('verify',{phone:phone,code:c}).then(function(r){$('#l_v').disabled=false;if(!r.ok)throw new Error(r.error||'Wrong code');setTok(r.token);load()}).catch(function(e){$('#l_err').textContent=e.message})}
+ $('#l_v').onclick=verify; $('#l_c').oninput=function(){if(this.value.replace(/\D/g,'').length===4)verify()};
+}
+
+function dash(){
+ var d=D,s=d.stats,m=d.money,r=d.rules;
+ $('#out').classList.remove('hide');
+ var share='Use my code '+d.code+' on Ink Kulture: '+rs(r.follower_off)+' off semi-permanent tattoos when you pay online 🖤 '+d.link;
+ var h='<section class="hero" style="padding-top:24px"><span class="eyebrow">Creator</span><h1 style="font-size:32px">Hi '+esc(String(d.name||'').split(' ')[0])+' 👋</h1>'
+  +'<div class="linkbox"><code id="lk">'+esc(d.link)+'</code><button class="btn" id="cp">Copy</button></div>'
+  +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(share)+'">Share on WhatsApp</a><button class="btn sm ghost" id="cpc">Copy code '+esc(d.code)+'</button><button class="btn sm ghost" id="cps">Copy caption</button></div></section>';
+ if(!d.payout){
+  h+='<div class="card" style="border:1.5px solid var(--ink)"><h2>How do you want to be paid?</h2><p class="small mut" style="margin:0">Choose once. It applies to every order, now and later.</p><div class="choice"><button data-p="cash"><div class="small mut">Cash to UPI</div><div class="v">'+rs(r.cash)+'</div><div class="small mut">per delivered order, paid monthly</div></button><button data-p="credit"><div class="small mut">Store credit</div><div class="v">'+rs(r.credit)+'</div><div class="small mut">per delivered order, spend on inkkulture.in</div></button></div>'
+   +'<div id="cashf" class="hide"><label class="f">UPI ID<input id="p_u" placeholder="name@okicici"></label><label class="f">PAN (needed for tax once you earn more; optional now)<input id="p_pan" maxlength="10" style="text-transform:uppercase"></label></div>'
+   +'<button class="btn full" id="p_go" disabled style="margin-top:12px">Confirm</button><p class="err" id="p_err"></p></div>';
+ }
+ h+='<div class="grid g3" style="margin-top:14px"><div class="stat"><div class="v">'+s.opens+'</div><div class="l">Link opens · '+s.people+' people<br>'+s.opens_7d+' in the last 7 days</div></div><div class="stat"><div class="v">'+s.orders+'</div><div class="l">Orders · '+s.online+' online paid<br>'+s.on_way+' on the way</div></div><div class="stat"><div class="v">'+s.delivered+'</div><div class="l">Delivered (you earn)<br>'+s.refused+' refused · '+s.cancelled+' cancelled</div></div></div>';
+ if(d.payout==='cash')h+='<div class="grid g3"><div class="stat"><div class="v">'+rs(m.cash_earned)+'</div><div class="l">Earned so far</div></div><div class="stat"><div class="v">'+rs(m.cash_due)+'</div><div class="l">To be paid (UPI '+esc(d.upi||'not set')+')</div></div><div class="stat"><div class="v">'+rs(m.pending)+'</div><div class="l">Coming when the orders on the way are delivered</div></div></div>';
+ if(d.payout==='credit'){
+  h+='<div class="grid g3"><div class="stat"><div class="v">'+rs(m.credit_earned)+'</div><div class="l">Credit earned</div></div><div class="stat"><div class="v">'+rs(m.credit_left)+'</div><div class="l">Credit left to spend</div></div><div class="stat"><div class="v">'+rs(m.pending)+'</div><div class="l">Coming when the orders on the way are delivered</div></div></div>'
+   +'<div class="card"><h3>Spend your credit</h3><p class="small mut" style="margin:0 0 8px">Make a one-time voucher and type it in the code box at checkout on inkkulture.in (online payment).</p><div style="display:flex;gap:8px"><input id="v_a" inputmode="numeric" placeholder="Amount ₹" style="flex:1;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;font:16px Inter"><button class="btn sm" id="v_go">Make voucher</button></div><p class="err" id="v_err"></p>'
+   +(d.vouchers.length?'<table style="margin-top:8px"><tr><th>Voucher</th><th>Amount</th><th>Status</th></tr>'+d.vouchers.map(function(v){return '<tr><td><b style="font-family:ui-monospace,Menlo,monospace">'+esc(v.code)+'</b></td><td>'+rs(v.amount)+'</td><td>'+(v.status==='active'?'<span class="pill delivered">Ready to use</span>':v.status==='held'?'<span class="pill ofd">In checkout</span>':'<span class="pill">Used</span>')+'</td></tr>'}).join('')+'</table>':'')+'</div>';
+ }
+ h+='<div class="card"><h2>Your orders</h2>'+(d.orders.length?'<table><tr><th>Order</th><th>Payment</th><th>Status</th><th style="text-align:right">You earn</th></tr>'+d.orders.map(function(o){var e=o.earn?'<b class="ok">'+rs(o.earn)+'</b>':o.will?'<span class="mut">'+rs(o.will)+' on delivery</span>':(o.key==='refused'||o.key==='cancelled'?'<span class="mut">—</span>':'<span class="mut">on delivery</span>');return '<tr><td><b>'+esc(o.order)+'</b><div class="small mut">'+day(o.date)+'</div></td><td>'+o.pay+'</td><td><span class="pill '+o.key+'">'+esc(o.status)+'</span></td><td style="text-align:right">'+e+'</td></tr>'}).join('')+'</table>':'<p class="mut" style="margin:0">No orders yet. Share your link in your bio and stories, it works on every page of the store.</p>')+'</div>'
+  +'<div class="note"><b>Good to know:</b> you earn only on <b>delivered</b> orders (COD and online). "Delivery refused" means the buyer did not take the parcel, so it earns nothing. Your followers get '+rs(r.follower_off)+' off when they pay online with your code, once per number. Please tag paid posts #ad / #affiliate.</div>';
+ app.innerHTML=h;
+ function copy(t,b){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){var o=b.textContent;b.textContent='Copied ✓';setTimeout(function(){b.textContent=o},1500)}).catch(function(){prompt('Copy:',t)})}
+ $('#cp').onclick=function(){copy(d.link,this)}; $('#cpc').onclick=function(){copy(d.code,this)}; $('#cps').onclick=function(){copy(share,this)};
+ var pick='';
+ [].forEach.call(app.querySelectorAll('.choice button'),function(b){b.onclick=function(){pick=b.dataset.p;[].forEach.call(app.querySelectorAll('.choice button'),function(x){x.classList.toggle('on',x===b)});$('#cashf').classList.toggle('hide',pick!=='cash');$('#p_go').disabled=false}});
+ var pg=$('#p_go');if(pg)pg.onclick=function(){if(!pick)return;if(!confirm(pick==='cash'?'Cash to your UPI for every delivered order. You can\'t switch to credit later. Confirm?':'Store credit for every delivered order. You can\'t switch to cash later. Confirm?'))return;pg.disabled=true;
+  api('payout',{payout:pick,upi:pick==='cash'?$('#p_u').value:'',pan:pick==='cash'?$('#p_pan').value:''},true).then(function(r){if(!r.ok){pg.disabled=false;throw new Error(r.error)}D=r;dash()}).catch(function(e){$('#p_err').textContent=e.message})};
+ var vg=$('#v_go');if(vg)vg.onclick=function(){vg.disabled=true;api('voucher',{amount:$('#v_a').value},true).then(function(r){vg.disabled=false;if(!r.ok)throw new Error(r.error);D=r;dash()}).catch(function(e){$('#v_err').textContent=e.message})};
+}
+function load(){
+ if(!tok()){$('#out').classList.add('hide');return landing()}
+ app.innerHTML='<p class="mut" style="padding:40px 0">Loading your dashboard…</p>';
+ api('me',null,true).then(function(r){if(!r.ok){setTok('');view='login';return landing()}D=r;dash()}).catch(function(){app.innerHTML='<p class="err">Could not load. Check your internet and refresh.</p>'});
+}
+$('#out').onclick=function(){setTok('');D=null;view='login';load()};
+api('rules').then(function(r){R=r}).catch(function(){}).then(load);
+})();
+</script>
+</body>
+</html>

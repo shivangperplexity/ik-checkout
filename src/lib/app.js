@@ -174,13 +174,16 @@ async function handleOrder(req, env, ctx) {
     ...(method === 'prepaid' || partial ? [{ key: 'PayU txn id', value: txnid }] : []),
     ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
     ...(otpOk ? [{ key: 'COD verified', value: 'WhatsApp OTP at checkout' }] : []),
-    ...(price.ref ? [{ key: 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
+    ...(price.ref ? [{ key: refBits.offer.kind === 'creator' ? 'Creator code' : refBits.offer.kind === 'voucher' ? 'Creator voucher' : 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
+    ...(!price.ref && a.ref ? [{ key: 'Code', value: String(a.ref).slice(0, 20) }] : []),
     ...(price.credit ? [{ key: 'Store credit used', value: '₹' + price.credit / 100 }] : []),
     ...(buyer.edd ? [{ key: 'Promised delivery', value: buyer.edd }] : []),
     ...(a.sid ? [{ key: 'Session', value: String(a.sid).slice(0, 40) }] : []),
     ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'landing'].filter((k) => a[k]).map((k) => ({ key: k, value: String(a[k]).slice(0, 250) })),
   ];
-  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : otpOk ? ['cod-confirmed', 'cod-otp-verified'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : []), ...(cameFromAd(a) ? ['from-ad'] : []), ...(price.ref ? ['referral'] : []), ...(price.credit ? ['store-credit'] : [])];
+  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : otpOk ? ['cod-confirmed', 'cod-otp-verified'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : []), ...(cameFromAd(a) ? ['from-ad'] : []), ...(price.ref ? [refBits.offer.kind === 'creator' ? 'creator-code' : refBits.offer.kind === 'voucher' ? 'creator-voucher' : 'referral'] : []), ...(price.credit ? ['store-credit'] : [])];
+  /* creator program: every order through a creator's code (COD too) is followed to delivery (lib/creators.js) */
+  if (a.ref && env.DB) { try { const { noteOrder } = await import('./creators.js'); await noteOrder(env, { idem, code: a.ref, phone: buyer.phone, method: partial ? 'partial' : method, total: price.total, discount: refBits?.offer?.kind === 'creator' ? price.ref || 0 : 0 }); } catch (e) { console.error('creator order', e.message); } }
   const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes });
   if (Math.abs(draft.total - price.total) > 100) {
     console.error('total mismatch', { ours: price.total, shopify: draft.total, draft: draft.id });
@@ -458,6 +461,11 @@ export async function handle(req, env0, ctx) {
       return pr;
     }
     if (path === '/api/wa/webhook') return await handleWa(req, env, ctx);
+    /* creator program: apply, WhatsApp-code login and the creator's dashboard (lib/creators.js); /c/CODE counts a link open */
+    if (path.startsWith('/api/creator/')) {
+      if (path === '/api/creator/go') { const { click } = await import('./creators.js'); return await click(env, url.searchParams.get('code'), req); }
+      const { handleCreator } = await import('./creators.js'); return await handleCreator(req, env);
+    }
     /* ShipPrime status webhook (Bearer secret from Settings, Shipping carriers): lib/shipprime.js */
     if (path === '/api/shipprime/webhook' && req.method === 'POST') { const { handleSpWebhook } = await import('./shipprime.js'); return await handleSpWebhook(req, env); }
     if (path === '/api/admin/leads') return await handleAdminLeads(req, env);

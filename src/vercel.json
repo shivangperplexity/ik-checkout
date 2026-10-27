@@ -15,6 +15,14 @@
       "destination": "/admin.html"
     },
     {
+      "source": "/creator",
+      "destination": "/creator.html"
+    },
+    {
+      "source": "/c/:code",
+      "destination": "/api/x?a=creator&b=go&code=:code"
+    },
+    {
       "source": "/review/:t",
       "destination": "/api/x?a=review&b=page&t=:t"
     },

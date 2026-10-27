@@ -41,7 +41,7 @@ test('quote: ₹100 off the online-payment price only, COD unchanged', async () 
   const q = { cod: { total: 39900 }, prepaid: { total: 35900, prepaid: 4000 } };
   const r = await quoteRef(env, q, { ref: 'RIYA123' });
   assert.equal(r.prepaid.total, 25900); assert.equal(r.prepaid.ref, 10000); assert.equal(r.cod.total, 39900);
-  assert.deepEqual(r.ref, { code: 'RIYA123', name: 'Riya', amount: 10000 });
+  assert.deepEqual(r.ref, { code: 'RIYA123', name: 'Riya', amount: 10000, kind: 'referral' });
   assert.equal(await quoteRef(env, q, { ref: 'BAD' }), q);
   assert.equal(await quoteRef(env, q, {}), q);
 });

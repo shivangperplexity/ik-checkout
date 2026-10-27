@@ -63,15 +63,21 @@ async function hasOrdered(env, phone) {
  * Without a phone (cart opened, number not typed yet) only the code is checked.
  */
 export async function friendOffer(env, code, phone = '') {
+  /* creator codes (lib/creators.js) and creator credit vouchers share the same code box */
+  const C = await import('./creators.js');
+  const v = await C.voucher(env, code).catch(() => null);
+  if (v) return { ok: true, amount: Number(v.amount), code: v.code, name: '', kind: 'voucher' };
+  const cr = await C.followerOffer(env, code, phone).catch(() => null);
+  if (cr) return { ok: cr.ok, amount: cr.amount, code: cr.creator.code, name: String(cr.creator.name || '').split(/\s+/)[0], kind: 'creator', why: cr.why };
   const row = await lookupCode(env, code);
-  if (!row) return { ok: false, amount: 0, why: code ? 'This referral code is not valid' : '' };
+  if (!row) return { ok: false, amount: 0, why: code ? 'This code is not valid' : '' };
   const first = String(row.name || '').split(/\s+/)[0];
   const p = cleanPhone(phone);
   if (p) {
     if (p === row.phone) return { ok: false, amount: 0, code: row.code, name: first, why: 'You cannot use your own referral code' };
     if (await hasOrdered(env, p)) return { ok: false, amount: 0, code: row.code, name: first, why: 'Referral discount is for first orders only' };
   }
-  return { ok: true, amount: REF_OFF, code: row.code, name: first, referrer: row.phone };
+  return { ok: true, amount: REF_OFF, code: row.code, name: first, referrer: row.phone, kind: 'referral' };
 }
 
 /** Store credit this number can spend now (expired credit and credit held by an unpaid order left out). */
@@ -96,7 +102,7 @@ export async function quoteRef(env, q, attribution) {
   const o = await friendOffer(env, code).catch(() => null);
   if (!o?.ok) return q;
   const a = applyTo(q.prepaid.total, { ref: o.amount });
-  return { ...q, prepaid: { ...q.prepaid, ref: a.ref, total: a.total }, ref: { code: o.code, name: o.name, amount: a.ref } };
+  return { ...q, prepaid: { ...q.prepaid, ref: a.ref, total: a.total }, ref: { code: o.code, name: o.name, amount: a.ref, kind: o.kind } };
 }
 
 /**
@@ -105,11 +111,17 @@ export async function quoteRef(env, q, attribution) {
  */
 export async function forOrder(env, { idem, phone, total, attribution }) {
   const code = normCode(attribution?.ref);
-  const offer = code ? await friendOffer(env, code, phone).catch(() => null) : null;
+  let offer = code ? await friendOffer(env, code, phone).catch(() => null) : null;
+  /* a creator voucher is used once: held for this order now, spent when it is paid (lib/creators.js sweep) */
+  if (offer?.ok && offer.kind === 'voucher') {
+    const { holdVoucher } = await import('./creators.js');
+    const h = await holdVoucher(env, offer.code, idem).catch(() => null);
+    if (!h) offer = { ...offer, ok: false, amount: 0, why: 'This voucher was already used' };
+  }
   const bal = await creditBalance(env, phone).catch(() => 0);
   const a = applyTo(total, { ref: offer?.ok ? offer.amount : 0, credit: bal });
   if (a.credit > 0) await holdCredit(env, idem, phone, a.credit);
-  if (offer?.ok && a.ref > 0) {
+  if (offer?.ok && a.ref > 0 && offer.kind === 'referral') {
     await env.DB.prepare(`INSERT INTO referrals (idem, code, referrer_phone, friend_phone, amount, status, created_at) VALUES (?,?,?,?,?,'pending',?)
         ON CONFLICT (idem) DO UPDATE SET amount=EXCLUDED.amount`).bind(idem, offer.code, offer.referrer, cleanPhone(phone), a.ref, now()).run();
   }
