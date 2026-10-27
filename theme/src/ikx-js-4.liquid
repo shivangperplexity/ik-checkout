@@ -452,6 +452,7 @@
     }));
   }
   function payFailed(msg) {
+    msg = String(msg || '').replace('choose Cash on delivery', payWord()); /* Build 045: COD may be switched off */
     hideOverlay(); root.style.visibility = ''; state.busy = false; state.idem = uuid();
     if (!state.built) { refresh().then(function () { showErr(msg); }); return; }
     paintFoot(); showErr(msg);
