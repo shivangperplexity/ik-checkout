@@ -24,8 +24,13 @@ export async function labelPdf(env, orderId) {
   if (!rec) throw new Error('not booked with Shiprocket, or its shipment was cancelled');
   if (rec.provider === 'shipprime') {
     /* ShipPrime: "Shipped By" shows the brand, whatever name the booking carried */
-    const { rebrandShipper } = await import('./sp-label.js');
-    return rebrandShipper(await download(await ensureLabel(env, rec)));
+    const { rebrandShipper, designSpLabel } = await import('./sp-label.js');
+    const raw = await download(await ensureLabel(env, rec));
+    try {
+      const { packingItems } = await import('./shopify.js');
+      const it = (await packingItems(env, [id]).catch(() => ({})))[id];
+      return await designSpLabel(raw, { items: it?.items || [] });
+    } catch (e) { console.error('shipprime label design', id, e.message); return rebrandShipper(raw); }
   }
   try { return await download(await ensureLabel(env, rec)); }
   catch (first) {

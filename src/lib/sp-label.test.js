@@ -33,3 +33,16 @@ test('nothing to change: already the brand, or no "Shipped By" block', async () 
   const bad = Uint8Array.from([1, 2, 3]);
   assert.equal(await rebrandShipper(bad), bad);
 });
+
+test('designed label: ShipPrime top kept, brand + return address + contents table below', async () => {
+  const { designSpLabel, contentsRows } = await import('./sp-label.js');
+  assert.deepEqual(contentsRows([{ title: 'Rose Semi Permanent Tattoo', variantTitle: '5 x 5 cm', quantity: 1 }, { title: 'Rose Semi Permanent Tattoo', variantTitle: '5 x 5 cm', quantity: 2 }, { title: 'Om', variantTitle: 'Default Title', quantity: 1 }])
+    .map((r) => [r.title, r.size, r.qty]), [['Rose', '5 x 5 cm', 3], ['Om', '', 1]]);
+  const out = await designSpLabel(await label(), { items: [{ title: 'Dragon', variantTitle: 'Large', quantity: 2, image: '' }] });
+  const d = await PDFLib.PDFDocument.load(out);
+  assert.deepEqual(d.getPages().map((p) => [p.getWidth(), p.getHeight()]), [[288, 432]]);
+  const s = (await textLines(out)).map((l) => l.str);
+  for (const t of ['INK KULTURE', 'PACKED INSIDE', 'Dragon', 'x2', 'Uday Gowda']) assert.ok(s.includes(t), t);
+  /* ShipPrime's own 'Shipped By' block is clipped off by the embedded page's box (still in its text, never drawn) */
+  assert.ok(s.some((x) => /return to: Ink Kulture, shop no 1/.test(x)));
+});
