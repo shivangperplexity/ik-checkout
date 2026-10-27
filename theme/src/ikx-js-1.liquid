@@ -107,6 +107,16 @@
     try { sessionStorage.setItem('ik_attr', JSON.stringify(a)); } catch (e) {}
     return a;
   })();
+  /* Build 046: the last link click this browser came through (ad, bio link, WhatsApp...), kept 30 days, so a shopper
+     who clicked an ad and comes back later by typing the address is still known as ad traffic (COD setting
+     "Not for ad traffic"). Only link data, nothing personal. */
+  var lastClick = (function () {
+    var c = null; try { c = JSON.parse(localStorage.getItem('ik_click') || 'null'); } catch (e) {}
+    var now = {}, any = false;
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'fbclid', 'gclid'].forEach(function (k) { if (qs.get(k)) { now[k] = String(qs.get(k)).slice(0, 300); any = true; } });
+    if (any) { now.at = Date.now(); c = now; try { localStorage.setItem('ik_click', JSON.stringify(c)); } catch (e) {} }
+    return c && Date.now() - (c.at || 0) < 30 * 864e5 ? c : null;
+  })();
   var SID = (function () {
     try { var s = sessionStorage.getItem('ik_sid'); if (!s) { s = uuid().replace(/-/g, ''); sessionStorage.setItem('ik_sid', s); } return s; } catch (e) { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   })();
@@ -114,6 +124,7 @@
     var a = {}; for (var k in attribution) a[k] = attribution[k];
     a.sid = SID; a.fbp = cookie('_fbp');
     a.fbc = cookie('_fbc') || (attribution.fbclid ? 'fb.1.' + (attribution.fbclid_at || Date.now()) + '.' + attribution.fbclid : '');
+    if (lastClick) a.click = lastClick;
     return a;
   }
 
@@ -175,7 +186,7 @@
     var sig = sigOf(lines), hit = QC[sig];
     if (hit && hit.q && Date.now() - hit.t < 600000) return Promise.resolve(hit.q);
     if (hit && hit.p) return hit.p;
-    var p = api('/api/quote', { lines: lines }).then(function (q) {
+    var p = api('/api/quote', { lines: lines, attribution: attrNow() }).then(function (q) {
       if (!q.ok) throw new Error('quote failed');
       QC[sig] = { q: q, t: Date.now() }; saveQC(); return q;
     }).catch(function (e) { delete QC[sig]; throw e; });

@@ -43,3 +43,12 @@ Sending switches from Meta direct to Go4WhatsUp as soon as `G4W_API_KEY` + `G4W_
 - Dashboard → Settings → **Cash on delivery** on/off (`settings.checkout.cod`, default on). Off: `/api/quote` sends
   `cod_on: false` (the checkout hides COD), and `/api/order` (COD and partial), `/api/otp/send` and `/api/cod-check` refuse COD,
   so older theme builds can't place COD orders either.
+
+## Build 046: COD only for non-ad traffic (Oct 2026)
+- Settings → Cash on delivery has three choices: **Everyone**, **Not for ad traffic**, **Off** (`settings.checkout.cod` + `cod_mode`).
+- Ad traffic = `lib/attribution.js cameFromAd()`: this visit's link (utm_medium paid/cpc, `utm_content=Facebook_UA`, an fbclid that
+  carries a Meta ad id, gclid), or for a direct visit the last link click the browser remembers (`localStorage.ik_click`, 30 days)
+  or Meta's `_fbc` cookie. Instagram bio link, direct, Google search and WhatsApp links keep COD.
+- The checkout now sends `attribution` with `/api/quote`, `/api/otp/send` and `/api/cod-check`; `/api/order` already did and enforces it.
+  Orders from ads are tagged `from-ad` in Shopify.
+- Theme: part 1 (remembers the last click, sends attribution with the quote) and part 4 (attribution on OTP / COD check).

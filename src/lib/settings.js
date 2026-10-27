@@ -2,6 +2,7 @@ import { DEFAULTS as PARTIAL } from './partial-cod.js';
 import { META_DEFAULTS } from './meta.js';
 import { NDR_DEFAULTS } from './ndr-rules.js';
 import { CONVERT_DEFAULTS } from './convert-cfg.js';
+import { cameFromAd } from './attribution.js';
 // Dashboard-editable settings (stored in the settings table) layered over env vars.
 //
 // Variable names matter on the Go4WhatsUp path: they are sent as named key/value pairs and must match the
@@ -58,8 +59,9 @@ const DEFAULTS = {
   templates: {},
   upsells: [],
   upi_logos: { gpay: '', phonepe: '', paytm: '', any: '' },
-  /* Checkout switches (Settings > Checkout). cod: false hides Cash on delivery (and partial COD) for everyone. */
-  checkout: { cod: true },
+  /* Checkout switches (Settings > Cash on delivery). cod: false hides Cash on delivery (and partial COD) for everyone.
+     cod_mode 'organic' = COD only for shoppers who did not come from an ad (lib/attribution.js cameFromAd). */
+  checkout: { cod: true, cod_mode: 'all' },
   /* Shiprocket login (API user) for booking, tracking and the "Express shipping" delivery estimate (lib/rates.js) */
   shipping: { origin_pin: '410206', weight_g: 50,
     shiprocket_email: '', shiprocket_password: '', shiprocket_couriers: '',
@@ -135,5 +137,19 @@ export function triggerConfig(env, key) {
   };
 }
 
-/** Cash on delivery offered at checkout? Off only when switched off in Settings > Checkout. */
-export const codOn = (env) => env.SETTINGS?.checkout?.cod !== false;
+/** 'all' (everyone), 'organic' (not for ad traffic) or 'off' */
+export function codMode(env) {
+  const c = env.SETTINGS?.checkout || {};
+  if (c.cod === false) return 'off';
+  return c.cod_mode === 'organic' ? 'organic' : 'all';
+}
+/**
+ * Cash on delivery offered to this shopper? attrs = the checkout's attribution, when the request carries it.
+ * In 'organic' mode a request without attribution (older theme) is let through here; /api/order always has it.
+ */
+export function codOn(env, attrs) {
+  const m = codMode(env);
+  if (m === 'off') return false;
+  if (m === 'organic' && attrs && cameFromAd(attrs)) return false;
+  return true;
+}

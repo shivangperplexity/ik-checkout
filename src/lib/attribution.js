@@ -57,3 +57,33 @@ export function sourceOf(attrs = {}) {
 
 /** Shopify customAttributes [{key,value}] -> attrs object */
 export const attrsOf = (list) => Object.fromEntries((list || []).map((x) => [String(x.key || '').toLowerCase(), String(x.value || '')]));
+
+/** true when an fbclid was minted for an ad click: Meta packs the ad id ("adid") into it; organic links have none. */
+export function fbclidIsAd(fbclid) {
+  const b = String(fbclid || '').split('_aem_')[0].replace(/-/g, '+').replace(/_/g, '/');
+  if (b.length < 12) return false;
+  for (let off = 0; off < 4; off++) {
+    try { if (/adid/.test(Buffer.from(b.slice(off), 'base64').toString('latin1'))) return true; } catch { /* next */ }
+  }
+  return false;
+}
+
+const AD_WINDOW = 30 * 864e5;
+const isAdAttrs = (a) => /_ad$/.test(sourceOf(a).key) || fbclidIsAd(a.fbclid || (new RegExp('[?&]fbclid=([^&#]*)', 'i').exec(a.landing || '') || [])[1]) || /^facebook_ua$/i.test(String(a.utm_content || ''));
+const hasClick = (a) => ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'fbclid', 'gclid'].some((k) => a[k]) || /[?&](utm_source|fbclid|gclid)=/i.test(a.landing || '');
+
+/**
+ * Did this shopper come from an ad? attrs = the checkout's attribution: this visit's utm_* / fbclid / landing, plus
+ * `click` (the last link click the browser remembers, { utm_*, fbclid, gclid, at }) and `fbc` (Meta's _fbc cookie).
+ * This visit decides when it came through a link; a direct visit (no link data) inherits the last click from the
+ * past 30 days, so someone who clicked an ad and comes back by typing the address still counts as ad traffic.
+ */
+export function cameFromAd(attrs = {}, now = Date.now()) {
+  const a = attrs || {};
+  if (hasClick(a)) return isAdAttrs(a);
+  const c = a.click && typeof a.click === 'object' ? a.click : null;
+  if (c && hasClick(c) && now - Number(c.at || 0) < AD_WINDOW) return isAdAttrs(c);
+  const m = /^fb\.\d\.(\d{10,13})\.(.+)$/.exec(String(a.fbc || ''));
+  if (m && now - Number(m[1]) < AD_WINDOW && fbclidIsAd(m[2])) return true;
+  return false;
+}

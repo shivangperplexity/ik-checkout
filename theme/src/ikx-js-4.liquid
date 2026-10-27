@@ -54,7 +54,7 @@
         if (state.pcNeed) tk('method', { method: 'cod', data: { partial: true } });
         paintPay(); paintBill(); paintFoot();
       }
-      api('/api/cod-check', { phone: d.phone, pincode: d.pincode, address1: d.address1, address2: d.address2, total: state.quote.cod.total }).then(done, function () { done(null); });
+      api('/api/cod-check', { phone: d.phone, pincode: d.pincode, address1: d.address1, address2: d.address2, total: state.quote.cod.total, attribution: attrNow() }).then(done, function () { done(null); });
     }, 250);
   }
   function pcNote() {
@@ -336,7 +336,7 @@
   function otpSend(again) {
     if (!OTP) return; var d = OTP.d, re = $('[data-otp-re]', root);
     if (re) { re.disabled = true; re.textContent = 'Sending…'; }
-    api('/api/otp/send', { phone: d.phone }).then(function (r) {
+    api('/api/otp/send', { phone: d.phone, attribution: attrNow() }).then(function (r) {
       if (!OTP) return;
       var st = $('[data-otp-st]', root);
       /* WhatsApp took it: ask for the code only once it says the message reached the phone */

@@ -1257,16 +1257,15 @@ function shAct(act,btn){var ids=shSel();if(!ids.length)return;
   rpc('ship_cancel',{ids:pend}).then(function(r){var ok=shReport('Cancel shipment',r.results);toast(ok+' cancelled');SH.sel={};loadShip()}).catch(function(er){btn.disabled=false;toast(er.message)});return}}
 
 /* ---- settings ---- */
-/* ---------- Checkout (Settings): Cash on delivery on / off for everyone ---------- */
-function codCard(c){var on=!c||c.cod!==false;
- return '<div class="card grid" id="cod_card" style="align-content:start"><h3>Cash on delivery</h3>'
- +'<label class="check" style="display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line,#e5e5e5);border-radius:10px;cursor:pointer"><input type="checkbox" id="cod_on"'+(on?' checked':'')+' style="width:20px;height:20px"> <span><b id="cod_lbl">'+(on?'On':'Off')+'</b> · <span class="small mut">offer Cash on delivery at checkout</span></span></label>'
- +'<p class="small mut" style="margin:0" id="cod_note">'+(on?'Shoppers can pick Cash on delivery (with the WhatsApp code and partial COD rules below).':'<b style="color:var(--bad)">COD is off:</b> the checkout shows only UPI, cards and netbanking. Partial COD is off too.')+'</p></div>'}
-function codBind(){var i=$('#cod_on');if(!i)return;i.onchange=function(){var on=i.checked;
- if(!on&&!confirm('Turn off Cash on delivery for everyone? The checkout will show only UPI, cards and netbanking.')){i.checked=true;return}
- i.disabled=true;rpc('save_checkout',{cod:on}).then(function(r){var v=r.checkout.cod!==false;i.checked=v;$('#cod_lbl').textContent=v?'On':'Off';
-  $('#cod_note').innerHTML=v?'Shoppers can pick Cash on delivery (with the WhatsApp code and partial COD rules below).':'<b style="color:var(--bad)">COD is off:</b> the checkout shows only UPI, cards and netbanking. Partial COD is off too.';
-  toast(v?'Cash on delivery is on':'Cash on delivery is off (live within a minute)')}).catch(function(e){i.checked=!on;toast(e.message)}).then(function(){i.disabled=false})}}
+/* ---------- Checkout (Settings): who gets Cash on delivery ---------- */
+var COD_M=[['all','Everyone','Cash on delivery for every shopper (as before).'],['organic','Not for ad traffic','Shoppers who came from an ad (Meta / Instagram / Google ad, or came back within 30 days of clicking one) pay online. Instagram bio link, direct, Google search and WhatsApp keep COD.'],['off','Off','Nobody gets COD: only UPI, cards and netbanking. Partial COD is off too.']];
+function codCard(c){var m=(c&&c.mode)||(c&&c.cod===false?'off':'all');
+ return '<div class="card grid" id="cod_card" style="align-content:start"><h3>Cash on delivery</h3><div class="grid" style="gap:6px">'+COD_M.map(function(x){return '<label class="check" style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line,#e5e5e5);border-radius:10px;cursor:pointer"><input type="radio" name="cod_mode" value="'+x[0]+'"'+(m===x[0]?' checked':'')+'> <span><b>'+x[1]+'</b><br><span class="small mut">'+x[2]+'</span></span></label>'}).join('')+'</div><p class="small mut" style="margin:0">Changes reach the checkout within a minute.</p></div>'}
+function codBind(){[].forEach.call(document.querySelectorAll('input[name=cod_mode]'),function(i){i.onchange=function(){var m=i.value,prev=document.querySelector('input[name=cod_mode][data-was]');
+ if(m==='off'&&!confirm('Turn off Cash on delivery for everyone? The checkout will show only UPI, cards and netbanking.')){codSel(prev?prev.value:'all');return}
+ rpc('save_checkout',{mode:m}).then(function(r){codSel(r.checkout.mode);toast({all:'COD for everyone',organic:'COD only for non-ad shoppers; ad traffic pays online',off:'Cash on delivery is off'}[r.checkout.mode])}).catch(function(e){codSel(prev?prev.value:'all');toast(e.message)})}});
+ var cur=document.querySelector('input[name=cod_mode]:checked');if(cur)cur.setAttribute('data-was','1')}
+function codSel(m){[].forEach.call(document.querySelectorAll('input[name=cod_mode]'),function(i){i.checked=i.value===m;if(i.checked)i.setAttribute('data-was','1');else i.removeAttribute('data-was')})}
 /* ---------- Partial COD (Settings): ₹99 online now, rest on delivery ---------- */
 function partialCard(p){p=p||{};var M=[['off','Off','Full cash on delivery for everyone (as before)'],['test','Test numbers only','Only the mobile numbers below get partial COD. Use this to try it on the live store'],['risky','Risky orders only','Partial COD when a rule below fires; everyone else keeps full COD'],['all','All COD orders','Every Cash on delivery order pays the advance online first']];
  function ck(id,k,l){return '<label class="check" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="'+id+'"'+(p[k]?' checked':'')+'> <span>'+l+'</span></label>'}

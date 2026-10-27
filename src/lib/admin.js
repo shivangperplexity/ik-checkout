@@ -754,7 +754,7 @@ const ACTIONS = {
     return {
       cron_at: cronAt, cron_via: cronVia,
       profit: s.profit,
-      checkout: { cod: s.checkout?.cod !== false },
+      checkout: { cod: s.checkout?.cod !== false, mode: s.checkout?.cod === false ? 'off' : (s.checkout?.cod_mode === 'organic' ? 'organic' : 'all') },
       partial: partialCfg({ SETTINGS: s }),
       rank: await (async () => { try { return JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='rank_status'").first())?.v || 'null'); } catch { return null; } })(),
       ai: await (async () => { const { PROVIDERS, aiCfg, DEFAULT_KNOWLEDGE } = await import('./wa-ai.js'); const c = aiCfg({ ...env, SETTINGS: s }); return { enabled: !!s.ai.enabled, provider: c.provider, key: mask(s.ai.key), has_key: !!c.key, model: c.model, rpm: Number(s.ai.rpm) || 20, rpd: Number(s.ai.rpd) || 800, knowledge: s.ai.knowledge || '', default_knowledge: DEFAULT_KNOWLEDGE, providers: Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, model: v.model, keyUrl: v.keyUrl, free: v.free }])) }; })(),
@@ -1687,12 +1687,14 @@ const ACTIONS = {
     await putSetting(env, 'upsells', list);
     return { ok: true };
   },
-  /** Settings > Checkout: { cod: true|false }. Off = no Cash on delivery (and no partial COD) for anyone. */
+  /** Settings > Cash on delivery: { mode: 'all' | 'organic' | 'off' } (or the older { cod: true|false }).
+      organic = shoppers who came from an ad pay online; everyone else keeps COD. off = no COD (and no partial COD). */
   async save_checkout(env, b) {
-    if (typeof b.cod !== 'boolean') throw new Error('Pick on or off');
-    const c = { ...((await getSettings(env, true)).checkout || {}), cod: b.cod };
+    const mode = typeof b.cod === 'boolean' && !b.mode ? (b.cod ? 'all' : 'off') : b.mode;
+    if (!['all', 'organic', 'off'].includes(mode)) throw new Error('Pick who gets Cash on delivery');
+    const c = { ...((await getSettings(env, true)).checkout || {}), cod: mode !== 'off', cod_mode: mode === 'organic' ? 'organic' : 'all' };
     await putSetting(env, 'checkout', c);
-    return { ok: true, checkout: c };
+    return { ok: true, checkout: { cod: c.cod, mode } };
   },
   async save_logos(env, b) {
     const l = {}; for (const k of ['gpay', 'phonepe', 'paytm', 'any']) l[k] = String((b.logos || {})[k] || '').trim().slice(0, 500);
