@@ -133,7 +133,8 @@ export async function designSpLabel(bytes, { items = [], brand = 'Ink Kulture', 
   const top = await doc.embedPage(src.getPages()[0], { left: 0, bottom: cut, right: W, top: H });
   page.drawPage(top, { x: 0, y: cut, width: W, height: H - cut });
   const bold = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold), reg = await doc.embedFont(PDFLib.StandardFonts.Helvetica), ital = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
-  const ink = PDFLib.rgb(0, 0, 0), white = PDFLib.rgb(1, 1, 1), grey = PDFLib.rgb(0.32, 0.32, 0.32), soft = PDFLib.rgb(0.62, 0.62, 0.62), hair = PDFLib.rgb(0.82, 0.82, 0.82);
+  /* thermal printers turn anything lighter than mid-grey into nothing: every mark is black, lines at least 0.6 pt */
+  const ink = PDFLib.rgb(0, 0, 0), white = PDFLib.rgb(1, 1, 1), grey = ink, soft = ink, hair = ink;
   const X0 = L + 7, X1 = R - 7;
   /* letter-spaced caps, the label's "voice" */
   const caps = (t, x, yy, size, font, color, gap = 0.9) => { let cx = x; for (const ch of t) { page.drawText(ch, { x: cx, y: yy, size, font, color }); cx += font.widthOfTextAtSize(ch, size) + gap; } return cx - gap; };
@@ -142,42 +143,42 @@ export async function designSpLabel(bytes, { items = [], brand = 'Ink Kulture', 
   const box = (x, yb, w, h, r, o) => page.drawSvgPath(rounded(x, yb, w, h, r), { x: 0, y: 0, ...o });
 
   /* the outer frame, continued below the kept part */
-  page.drawRectangle({ x: L, y: BOTTOM, width: R - L, height: cut - BOTTOM, borderColor: soft, borderWidth: 0.6, color: white });
+  page.drawRectangle({ x: L, y: BOTTOM, width: R - L, height: cut - BOTTOM, borderColor: soft, borderWidth: 0.7, color: white });
 
   /* 1. brand strip: [SHIPPED BY] tab · INK KULTURE wordmark · SEMI-PERMANENT TATTOOS / inkkulture.in */
   const bandTop = cut - 5, bandH = 24, bandY = bandTop - bandH;
   box(X0, bandY, 34, bandH, 3, { color: ink });
-  caps('SHIPPED', X0 + 17 - capsW('SHIPPED', 4.6, bold, 0.5) / 2, bandY + 13.5, 4.6, bold, white, 0.5);
-  caps('BY', X0 + 17 - capsW('BY', 4.6, bold, 0.5) / 2, bandY + 6.5, 4.6, bold, white, 0.5);
+  caps('SHIPPED', X0 + 17 - capsW('SHIPPED', 5.4, bold, 0.3) / 2, bandY + 13.5, 5.4, bold, white, 0.3);
+  caps('BY', X0 + 17 - capsW('BY', 5.4, bold, 0.3) / 2, bandY + 5.5, 5.4, bold, white, 0.3);
   const lh = 15, ls = lh / LOGO_BOX.h, lx = X0 + 41, ly = bandY + (bandH - lh) / 2;
   page.drawSvgPath(LOGO_PATH, { x: lx - LOGO_BOX.x * ls, y: ly + lh + LOGO_BOX.y * ls, scale: ls, color: ink, borderWidth: 0 });
   const tag = 'SEMI-PERMANENT TATTOOS';
-  caps(tag, X1 - capsW(tag, 4.4, bold, 0.6), bandY + 13.5, 4.4, bold, grey, 0.6);
+  caps(tag, X1 - capsW(tag, 5, bold, 0.5), bandY + 13.5, 5, bold, grey, 0.5);
   page.drawText(site, { x: X1 - bold.widthOfTextAtSize(site, 7.5), y: bandY + 4.5, size: 7.5, font: bold, color: ink });
 
-  /* 2. return address */
-  let y = bandY - 8;
-  const rt = 'RETURN TO  ';
-  caps('RETURN TO', X0, y, 4.6, bold, ink, 0.5);
-  const addrLines = wrap(reg, `${brand}, ${addr}`, 5.3, X1 - X0 - capsW(rt, 4.6, bold, 0.5), 2);
-  addrLines.forEach((t, k) => page.drawText(t, { x: X0 + capsW(rt, 4.6, bold, 0.5), y: y - k * 6.5, size: 5.3, font: reg, color: grey }));
-  y -= addrLines.length * 6.5 + 2;
+  /* 2. return address: big enough to read after a thermal print */
+  let y = bandY - 10;
+  const rt = 'RETURN TO ', rw = capsW(rt, 6, bold, 0.4);
+  caps('RETURN TO', X0, y, 6, bold, ink, 0.4);
+  const addrLines = wrap(reg, `${brand}, ${addr}`, 7, X1 - X0 - rw, 3);
+  addrLines.forEach((t, k) => page.drawText(t, { x: X0 + rw, y: y - k * 8.5, size: 7, font: reg, color: ink }));
+  y -= (addrLines.length - 1) * 8.5 + 6;
   /* perforation-style divider */
-  for (let x = X0; x < X1; x += 4) page.drawLine({ start: { x, y }, end: { x: Math.min(x + 2, X1), y }, thickness: 0.6, color: soft });
+  for (let x = X0; x < X1; x += 5) page.drawLine({ start: { x, y }, end: { x: Math.min(x + 2.5, X1), y }, thickness: 0.8, color: soft });
 
   /* 3. what's inside */
   const rows = contentsRows(items), pcs = rows.reduce((n, r) => n + r.qty, 0);
   y -= 12;
-  const pill = "WHAT'S INSIDE", pw = capsW(pill, 5.2, bold, 0.6) + 10;
-  box(X0, y - 3, pw, 10.5, 5.25, { color: ink });
-  caps(pill, X0 + 5, y, 5.2, bold, white, 0.6);
-  if (rows.length) page.drawText(`${rows.length} design${rows.length > 1 ? 's' : ''}  /  ${pcs} pc${pcs > 1 ? 's' : ''}`, { x: X0 + pw + 6, y, size: 6.5, font: reg, color: grey });
-  caps('QTY', X1 - capsW('QTY', 4.6, bold, 0.6) - 3, y, 4.6, bold, soft, 0.6);
+  const pill = "WHAT'S INSIDE", pw = capsW(pill, 6, bold, 0.4) + 10;
+  box(X0, y - 3.2, pw, 11.5, 5.75, { color: ink });
+  caps(pill, X0 + 5, y, 6, bold, white, 0.4);
+  if (rows.length) page.drawText(`${rows.length} design${rows.length > 1 ? 's' : ''}  /  ${pcs} pc${pcs > 1 ? 's' : ''}`, { x: X0 + pw + 6, y, size: 7.5, font: bold, color: grey });
+  caps('QTY', X1 - capsW('QTY', 5.5, bold, 0.5) - 2, y, 5.5, bold, soft, 0.5);
   y -= 6;
-  const footH = 11, room = y - (BOTTOM + footH);
+  const footH = 13, room = y - (BOTTOM + footH);
   /* one design per row while they fit at 15 pt; more than that: two columns of compact cells */
   const drawThumb = async (pic, bx, by, img) => {
-    box(bx, by, img, img, Math.min(3, img / 6), { borderColor: hair, borderWidth: 0.5, color: white });
+    box(bx, by, img, img, Math.min(3, img / 6), { borderColor: hair, borderWidth: 0.7, color: white });
     if (!pic) return;
     try {
       const im = pic.kind === 'png' ? await doc.embedPng(pic.b) : await doc.embedJpg(pic.b);
@@ -198,11 +199,11 @@ export async function designSpLabel(bytes, { items = [], brand = 'Ink Kulture', 
     const pics = await Promise.all(rows.map((r) => thumb(r.image)));
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i], top = y - i * rowH, img = rowH - 5, cy = top - rowH / 2;
-      if (i) page.drawLine({ start: { x: X0 + img + 6, y: top }, end: { x: X1, y: top }, thickness: 0.3, color: hair });
+      if (i) page.drawLine({ start: { x: X0 + img + 6, y: top }, end: { x: X1, y: top }, thickness: 0.5, color: hair });
       await drawThumb(pics[i], X0, top - 2.5 - img, img);
       const tx = X0 + img + 7, tw = X1 - 18 - tx, ts = rowH >= 24 ? 8 : rowH >= 18 ? 7 : 6.5, two = r.size && rowH >= 18;
       page.drawText(fit(bold, r.title, ts, tw), { x: tx, y: two ? cy + 1.2 : cy - ts / 3, size: ts, font: bold, color: ink });
-      if (two) page.drawText(fit(reg, r.size, 6, tw), { x: tx, y: cy - 7, size: 6, font: reg, color: grey });
+      if (two) page.drawText(fit(reg, r.size, 7, tw), { x: tx, y: cy - 8, size: 7, font: reg, color: grey });
       /* quantity badge: filled when more than one, so doubles are hard to miss while packing */
       badge(r, X1 - Math.min(6.5, rowH / 2 - 1.5) - 1, cy, Math.min(6.5, rowH / 2 - 1.5));
     }
@@ -216,25 +217,25 @@ export async function designSpLabel(bytes, { items = [], brand = 'Ink Kulture', 
     for (let i = 0; i < shown.length; i++) {
       const r = shown[i], col = i < nCol ? 0 : 1, k = col ? i - nCol : i, cx0 = X0 + col * (colW + gap);
       const top = y - k * rowH, img = rowH - 3, cy = top - rowH / 2, rr = Math.min(5, rowH / 2 - 1.5);
-      if (k) page.drawLine({ start: { x: cx0, y: top }, end: { x: cx0 + colW, y: top }, thickness: 0.3, color: hair });
+      if (k) page.drawLine({ start: { x: cx0, y: top }, end: { x: cx0 + colW, y: top }, thickness: 0.5, color: hair });
       await drawThumb(pics[i], cx0, top - 1.5 - img, img);
-      page.drawText(fit(bold, r.title, 6, colW - img - 5 - rr * 2 - 4), { x: cx0 + img + 4, y: cy - 2, size: 6, font: bold, color: ink });
+      page.drawText(fit(bold, r.title, 6.5, colW - img - 5 - rr * 2 - 4), { x: cx0 + img + 4, y: cy - 2.3, size: 6.5, font: bold, color: ink });
       badge(r, cx0 + colW - rr - 0.5, cy, rr);
     }
-    if (nCol > 1 || shown.length > 1) page.drawLine({ start: { x: X0 + colW + gap / 2, y: y - 1 }, end: { x: X0 + colW + gap / 2, y: y - nCol * rowH + 1 }, thickness: 0.3, color: hair });
+    if (nCol > 1 || shown.length > 1) page.drawLine({ start: { x: X0 + colW + gap / 2, y: y - 1 }, end: { x: X0 + colW + gap / 2, y: y - nCol * rowH + 1 }, thickness: 0.5, color: hair });
     used = nCol * rowH;
   }
   if (shown.length < rows.length) {
     const more = rows.slice(shown.length), mp = more.reduce((n, r) => n + r.qty, 0);
-    page.drawText(fit(reg, `+ ${more.length} more design${more.length > 1 ? 's' : ''} (${mp} pc${mp > 1 ? 's' : ''}): ${more.map((r) => r.title + (r.qty > 1 ? ' x' + r.qty : '')).join(', ')}`, 6, X1 - X0), { x: X0, y: y - used - 7, size: 6, font: reg, color: grey });
+    page.drawText(fit(reg, `+ ${more.length} more design${more.length > 1 ? 's' : ''} (${mp} pc${mp > 1 ? 's' : ''}): ${more.map((r) => r.title + (r.qty > 1 ? ' x' + r.qty : '')).join(', ')}`, 6.5, X1 - X0), { x: X0, y: y - used - 8, size: 6.5, font: reg, color: grey });
   }
   if (!rows.length) page.drawText('See the order in the dashboard', { x: X0, y: y - 12, size: 6.5, font: reg, color: grey });
 
   /* 4. sign-off */
   const thanks = 'Thank you for wearing Ink Kulture';
-  const tw2 = ital.widthOfTextAtSize(thanks, 6.2);
-  page.drawText(thanks, { x: (L + R) / 2 - tw2 / 2, y: BOTTOM + 4.5, size: 6.2, font: ital, color: grey });
-  page.drawLine({ start: { x: X0, y: BOTTOM + 6.5 }, end: { x: (L + R) / 2 - tw2 / 2 - 6, y: BOTTOM + 6.5 }, thickness: 0.4, color: hair });
-  page.drawLine({ start: { x: (L + R) / 2 + tw2 / 2 + 6, y: BOTTOM + 6.5 }, end: { x: X1, y: BOTTOM + 6.5 }, thickness: 0.4, color: hair });
+  const tw2 = ital.widthOfTextAtSize(thanks, 7);
+  page.drawText(thanks, { x: (L + R) / 2 - tw2 / 2, y: BOTTOM + 4.5, size: 7, font: ital, color: grey });
+  page.drawLine({ start: { x: X0, y: BOTTOM + 7 }, end: { x: (L + R) / 2 - tw2 / 2 - 6, y: BOTTOM + 7 }, thickness: 0.6, color: hair });
+  page.drawLine({ start: { x: (L + R) / 2 + tw2 / 2 + 6, y: BOTTOM + 7 }, end: { x: X1, y: BOTTOM + 7 }, thickness: 0.6, color: hair });
   return doc.save();
 }
