@@ -71,7 +71,7 @@ export async function rebrandShipper(bytes, brand = 'Ink Kulture') {
  * Design pictures come from Shopify. Anything missing (no "Shipped By" found, Shopify down) falls back to the
  * rebranded ShipPrime label.
  */
-const W = 288, H = 432, L = 16, R = 276, BOTTOM = 13;
+const W = 288, H = 432, L = 15, R = 275, BOTTOM = 13;   /* ShipPrime's own frame: x 15..275 */
 const ascii = (s) => String(s || '').normalize('NFKD').replace(/[×✕]/g, 'x').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim();
 function fit(font, text, size, max) {
   let t = ascii(text);
@@ -155,7 +155,7 @@ export async function designSpLabel(bytes, { items = [], brand = 'Ink Kulture', 
   page.drawText('QTY', { x: R - 7 - bold.widthOfTextAtSize('QTY', 6), y, size: 6, font: bold, color: grey });
   y -= 4;
   const room = y - (BOTTOM + 4);
-  let rowH = rows.length ? Math.min(30, room / rows.length) : 0, shown = rows;
+  let rowH = rows.length ? Math.min(40, room / rows.length) : 0, shown = rows;
   if (rowH < 15) { const k = Math.max(1, Math.floor((room - 9) / 15)); shown = rows.slice(0, k); rowH = 15; }
   const pics = await Promise.all(shown.map((r) => thumb(r.image)));
   for (let i = 0; i < shown.length; i++) {
