@@ -3,11 +3,13 @@
  *
  *   A customer whose order was delivered gets a personal code on WhatsApp, with the link
  *   https://www.inkkulture.in/?ref=CODE to forward. A friend who comes through it (or types the code) gets
- *   REF_OFF off their FIRST order, online payment only. When the friend's order is DELIVERED the customer gets
- *   REF_CREDIT store credit, valid CREDIT_DAYS days, used automatically on their next online payment.
+ *   REF_OFF off their FIRST order, online payment only. The moment the friend's payment goes through the customer
+ *   gets REF_CREDIT store credit (prepaid orders cannot be cancelled by the buyer), valid CREDIT_DAYS days, used
+ *   automatically on their next online payment.
  *
- *   Guards: the friend must be new (no earlier order on that number) and not the referrer; credit only after
- *   delivery (an RTO / cancelled order earns nothing); at most MONTHLY_CAP credits per referrer per 30 days.
+ *   Guards: the friend must be new (no earlier order on that number) and not the referrer; if the friend's order is
+ *   later cancelled / refunded or comes back, whatever of that credit is still unspent is taken back; at most
+ *   MONTHLY_CAP credits per referrer per 30 days.
  *   Discount and credit apply to prepaid orders only, never Cash on delivery.
  *
  * Money is integer paise, like the rest of the checkout.
@@ -139,10 +141,25 @@ async function releaseCredit(env, idem) {
   return true;
 }
 
-/** Payment done, order created: the held credit is spent and the referral is waiting for delivery. */
+/**
+ * Payment done, order created: the buyer's held credit is spent, and the referrer gets their credit straight away
+ * (the WhatsApp "credit added" goes out on the next cron run).
+ */
 export async function onPaid(env, { idem, order_id, order_name }) {
   await env.DB.prepare("UPDATE credit_uses SET status='used', order_id=?, used_at=? WHERE idem=? AND status='held'").bind(String(order_id || ''), now(), idem).run().catch(() => {});
-  await env.DB.prepare("UPDATE referrals SET status='placed', order_id=?, order_name=?, placed_at=? WHERE idem=? AND status='pending'").bind(String(order_id || ''), order_name || '', now(), idem).run().catch(() => {});
+  const r = await env.DB.prepare("UPDATE referrals SET status='placed', order_id=?, order_name=?, placed_at=? WHERE idem=? AND status='pending' RETURNING *").bind(String(order_id || ''), order_name || '', now(), idem).first().catch(() => null);
+  if (r) await creditReferrer(env, r).catch((e) => console.error('referral credit', e.message));
+}
+/** Give the referrer REF_CREDIT for a paid friend order (once; MONTHLY_CAP per 30 days). Returns true when given. */
+export async function creditReferrer(env, r) {
+  const t = now();
+  const month = await env.DB.prepare("SELECT COUNT(*) AS n FROM referrals WHERE referrer_phone=? AND status IN ('credited','revoked') AND credited_at>?").bind(r.referrer_phone, t - 30 * 86400).first();
+  if (Number(month?.n) >= MONTHLY_CAP) { await env.DB.prepare("UPDATE referrals SET status='capped', note='monthly limit reached' WHERE idem=? AND status='placed'").bind(r.idem).run(); return false; }
+  const claim = await env.DB.prepare("UPDATE referrals SET status='credited', credited_at=? WHERE idem=? AND status='placed' RETURNING idem").bind(t, r.idem).first();
+  if (!claim) return false;
+  await env.DB.prepare('INSERT INTO credits (phone, amount_paise, left_paise, reason, ref_idem, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
+    .bind(r.referrer_phone, REF_CREDIT, REF_CREDIT, `Referral: ${r.order_name || 'friend order'}`, r.idem, t, t + CREDIT_DAYS * 86400).run();
+  return true;
 }
 
 /**
@@ -159,25 +176,26 @@ export async function referralSweep(env, { invites = 15 } = {}) {
   for (const s of stale) if (await releaseCredit(env, s.idem)) out.released++;
   await env.DB.prepare("UPDATE referrals SET status='void', note='payment not completed' WHERE status='pending' AND created_at<?").bind(t - HOLD).run().catch(() => {});
 
-  const open = (await env.DB.prepare(`SELECT r.*, s.stage, s.rto, o.status AS order_status, rc.name AS referrer_name
-      FROM referrals r LEFT JOIN shipments s ON s.order_id=r.order_id LEFT JOIN orders o ON o.order_id=r.order_id LEFT JOIN ref_codes rc ON rc.phone=r.referrer_phone
-      WHERE r.status='placed' LIMIT 50`).all()).results;
   const { fireTrigger } = await import('./whatsapp.js');
-  for (const r of open) {
-    if (r.order_status === 'cancelled' || r.stage === 'rto' || r.rto === true || r.stage === 'lost') {
-      await env.DB.prepare("UPDATE referrals SET status='void', note=? WHERE idem=?").bind(r.order_status === 'cancelled' ? 'order cancelled' : 'not delivered', r.idem).run();
-      out.void++; continue;
-    }
-    if (r.stage !== 'delivered') continue;
-    const month = await env.DB.prepare("SELECT COUNT(*) AS n FROM referrals WHERE referrer_phone=? AND status='credited' AND credited_at>?").bind(r.referrer_phone, t - 30 * 86400).first();
-    if (Number(month?.n) >= MONTHLY_CAP) { await env.DB.prepare("UPDATE referrals SET status='capped', note='monthly limit reached' WHERE idem=?").bind(r.idem).run(); continue; }
-    const claim = await env.DB.prepare("UPDATE referrals SET status='credited', credited_at=? WHERE idem=? AND status='placed' RETURNING idem").bind(t, r.idem).first();
+  /* a paid friend order the instant credit missed (an error at payment time): credit it now */
+  const missed = (await env.DB.prepare("SELECT * FROM referrals WHERE status='placed' LIMIT 50").all()).results;
+  for (const r of missed) if (await creditReferrer(env, r).catch(() => false)) out.credited++;
+  /* "credit added" on WhatsApp, once per referral */
+  const tell = (await env.DB.prepare(`SELECT r.idem, r.referrer_phone, c.expires_at, rc.name AS referrer_name FROM referrals r JOIN credits c ON c.ref_idem=r.idem
+      LEFT JOIN ref_codes rc ON rc.phone=r.referrer_phone WHERE r.status='credited' AND r.told_at IS NULL AND c.left_paise>0 LIMIT 30`).all()).results;
+  for (const r of tell) {
+    const claim = await env.DB.prepare('UPDATE referrals SET told_at=? WHERE idem=? AND told_at IS NULL RETURNING idem').bind(t, r.idem).first();
     if (!claim) continue;
-    const exp = t + CREDIT_DAYS * 86400;
-    await env.DB.prepare('INSERT INTO credits (phone, amount_paise, left_paise, reason, ref_idem, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
-      .bind(r.referrer_phone, REF_CREDIT, REF_CREDIT, `Referral: ${r.order_name || 'friend order'} delivered`, r.idem, t, exp).run();
-    out.credited++;
-    await fireTrigger(env, 'ref_credit', { to: r.referrer_phone, vars: { name: String(r.referrer_name || '').split(/\s+/)[0] || 'there', amount: String(REF_CREDIT / 100), till: dateIst(exp) } }).catch(() => {});
+    await fireTrigger(env, 'ref_credit', { to: r.referrer_phone, vars: { name: String(r.referrer_name || '').split(/\s+/)[0] || 'there', amount: String(REF_CREDIT / 100), till: dateIst(r.expires_at) } }).catch(() => {});
+  }
+  /* friend's order cancelled / refunded / back to us: the unspent part of that credit is taken back */
+  const gone = (await env.DB.prepare(`SELECT r.idem, o.status AS order_status, s.stage, s.rto FROM referrals r LEFT JOIN orders o ON o.order_id=r.order_id LEFT JOIN shipments s ON s.order_id=r.order_id
+      WHERE r.status IN ('credited','placed','capped') AND (o.status='cancelled' OR s.stage IN ('rto','lost') OR s.rto=TRUE) LIMIT 50`).all()).results;
+  for (const r of gone) {
+    const left = await env.DB.prepare('UPDATE credits SET left_paise=0 WHERE ref_idem=? AND left_paise>0 RETURNING amount_paise').bind(r.idem).first();
+    await env.DB.prepare("UPDATE referrals SET status=CASE WHEN status='credited' THEN 'revoked' ELSE 'void' END, note=? WHERE idem=?")
+      .bind((r.order_status === 'cancelled' ? 'order cancelled' : 'not delivered') + (left ? ', credit taken back' : ''), r.idem).run();
+    out.void++;
   }
 
   /* invites: 9 am - 9 pm IST only */
@@ -206,18 +224,18 @@ export async function referralSweep(env, { invites = 15 } = {}) {
 export const dateIst = (t) => new Date((Number(t) + 19800) * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 /* ---------- WhatsApp templates ---------- */
-export const INVITE_TEMPLATE = 'ik_refer_v1', CREDIT_TEMPLATE = 'ik_ref_credit_v1';
+export const INVITE_TEMPLATE = 'ik_refer_v2', CREDIT_TEMPLATE = 'ik_ref_credit_v2';
 export function referralTemplates() {
   return [
     { name: INVITE_TEMPLATE, language: 'en', category: 'MARKETING',
       components: [
-        { type: 'BODY', text: 'Hi {{1}}, hope you are loving your Ink Kulture tattoos! 🖤\n\nShare them with your friends: they get ₹100 off their first order when they pay online, and you get ₹100 store credit when their order is delivered.\n\nYour code: *{{2}}*\nYour link: {{3}}\n\nJust forward this message to a friend.',
+        { type: 'BODY', text: 'Hi {{1}}, hope you are loving your Ink Kulture tattoos! 🖤\n\nShare them with your friends: they get ₹100 off their first order when they pay online, and you get ₹100 store credit as soon as they order.\n\nYour code: *{{2}}*\nYour link: {{3}}\n\nJust forward this message to a friend.',
           example: { body_text: [['Riya', 'RIYA123', 'https://www.inkkulture.in/?ref=RIYA123']] } },
         { type: 'FOOTER', text: 'Reply STOP to stop offers' },
       ] },
     { name: CREDIT_TEMPLATE, language: 'en', category: 'UTILITY', allow_category_change: true,
       components: [
-        { type: 'BODY', text: 'Hi {{1}}, your friend\'s Ink Kulture order has been delivered, so ₹{{2}} store credit has been added to your number.\n\nIt is valid till {{3}} and is applied automatically on your next order when you pay online at inkkulture.in.\n\nHappy tattooing! 🖤',
+        { type: 'BODY', text: 'Hi {{1}}, your friend just ordered from Ink Kulture with your code, so ₹{{2}} store credit has been added to your number.\n\nIt is valid till {{3}} and is applied automatically on your next order when you pay online at inkkulture.in.\n\nHappy tattooing! 🖤',
           example: { body_text: [['Riya', '100', '27 Dec 2026']] } },
       ] },
   ];
@@ -230,14 +248,14 @@ export async function referralStats(env) {
   const [codes, invited, refs, credited, voided, credit, used] = await Promise.all([
     one('SELECT COUNT(*) AS n FROM ref_codes'),
     one('SELECT COUNT(*) AS n FROM ref_codes WHERE invited_at IS NOT NULL'),
-    one("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM referrals WHERE status IN ('placed','credited','capped')"),
+    one("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM referrals WHERE status IN ('placed','credited','capped','revoked')"),
     one("SELECT COUNT(*) AS n FROM referrals WHERE status='credited'"),
-    one("SELECT COUNT(*) AS n FROM referrals WHERE status='void' AND COALESCE(note,'')<>'payment not completed'"),
+    one("SELECT COUNT(*) AS n FROM referrals WHERE status='revoked' OR (status='void' AND COALESCE(note,'')<>'payment not completed')"),
     one('SELECT COALESCE(SUM(amount_paise),0) AS given, COALESCE(SUM(CASE WHEN expires_at>? THEN left_paise ELSE 0 END),0) AS open FROM credits', t),
     one("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM credit_uses WHERE status='used'"),
   ]);
   const top = (await env.DB.prepare(`SELECT rc.code, rc.name, rc.phone, COUNT(r.idem) AS orders, SUM(CASE WHEN r.status='credited' THEN 1 ELSE 0 END) AS delivered
-      FROM ref_codes rc JOIN referrals r ON r.code=rc.code AND r.status IN ('placed','credited','capped','void') GROUP BY rc.code, rc.name, rc.phone ORDER BY orders DESC LIMIT 15`).all()).results;
+      FROM ref_codes rc JOIN referrals r ON r.code=rc.code AND r.status IN ('placed','credited','capped','void','revoked') GROUP BY rc.code, rc.name, rc.phone ORDER BY orders DESC LIMIT 15`).all()).results;
   const recent = (await env.DB.prepare('SELECT order_name, code, status, amount, created_at, note FROM referrals ORDER BY created_at DESC LIMIT 30').all()).results;
   return { ok: true, codes: Number(codes.n) || 0, invited: Number(invited.n) || 0, orders: Number(refs.n) || 0, discount: (Number(refs.amt) || 0) / 100,
     delivered: Number(credited.n) || 0, returned: Number(voided.n) || 0, credit_given: (Number(credit.given) || 0) / 100, credit_open: (Number(credit.open) || 0) / 100,

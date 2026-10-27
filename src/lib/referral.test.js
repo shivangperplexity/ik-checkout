@@ -52,3 +52,11 @@ test('templates: invite has the code and link, credit message says how much and 
   assert.equal(inv.category, 'MARKETING');
   assert.match(cr.components[0].text, /₹\{\{2\}\}[\s\S]*\{\{3\}\}/);
 });
+
+test('templates v2: credit as soon as the friend orders', () => {
+  const [inv, cr] = referralTemplates();
+  assert.equal(inv.name, 'ik_refer_v2'); assert.equal(cr.name, 'ik_ref_credit_v2');
+  assert.match(inv.components[0].text, /as soon as they order/);
+  assert.match(cr.components[0].text, /just ordered/);
+  assert.doesNotMatch(cr.components[0].text, /\{\{\d\}\}\.?'?$/);
+});

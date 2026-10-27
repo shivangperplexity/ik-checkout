@@ -116,6 +116,7 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ref_codes (phone TEXT PRIMARY KEY, code TEXT UNIQUE, name TEXT, created_at BIGINT, invited_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS referrals (idem TEXT PRIMARY KEY, code TEXT, referrer_phone TEXT, friend_phone TEXT, order_id TEXT, order_name TEXT, amount BIGINT, status TEXT, note TEXT, created_at BIGINT, placed_at BIGINT, credited_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS referrals_status ON referrals (status)`,
+  `ALTER TABLE referrals ADD COLUMN IF NOT EXISTS told_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS credits (id SERIAL PRIMARY KEY, phone TEXT, amount_paise BIGINT, left_paise BIGINT, reason TEXT, ref_idem TEXT, created_at BIGINT, expires_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS credits_phone ON credits (phone)`,
   `CREATE TABLE IF NOT EXISTS credit_uses (idem TEXT PRIMARY KEY, phone TEXT, amount BIGINT, took TEXT, status TEXT, order_id TEXT, created_at BIGINT, used_at BIGINT)`,

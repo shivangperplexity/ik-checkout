@@ -24,7 +24,7 @@ export function awake(t = now()) { const m = Math.floor(((t + 19800) % 86400) / 
 
 /** New templates go to Meta once, straight away (the general auto-submit runs only every 6 hours). */
 export async function ensureTemplates(env) {
-  for (const [flagKey, act, args] of [['cod_warning_tpl', 'cod_warning_template', {}], ['apply_yt_tpl', 'apply_guide', { submit: true }], ['cod_otp_tpl', 'cod_otp_template', {}], ['ref_tpl', 'referral_templates', {}]]) {
+  for (const [flagKey, act, args] of [['cod_warning_tpl', 'cod_warning_template', {}], ['apply_yt_tpl', 'apply_guide', { submit: true }], ['cod_otp_tpl', 'cod_otp_template', {}], ['ref_tpl2', 'referral_templates', {}]]) {
     try {
       if (await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind(flagKey).first()) continue;
       const { action } = await import('./admin.js');
