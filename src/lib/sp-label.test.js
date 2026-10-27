@@ -42,7 +42,7 @@ test('designed label: ShipPrime top kept, brand + return address + contents tabl
   const d = await PDFLib.PDFDocument.load(out);
   assert.deepEqual(d.getPages().map((p) => [p.getWidth(), p.getHeight()]), [[288, 432]]);
   const s = (await textLines(out)).map((l) => l.str);
-  for (const t of ['INK KULTURE', 'PACKED INSIDE', 'Dragon', 'x2', 'Uday Gowda']) assert.ok(s.includes(t), t);
+  for (const t of ['Dragon', '2', 'Uday Gowda', 'inkkulture.in', 'Thank you for wearing Ink Kulture']) assert.ok(s.includes(t), t);
   /* ShipPrime's own 'Shipped By' block is clipped off by the embedded page's box (still in its text, never drawn) */
-  assert.ok(s.some((x) => /return to: Ink Kulture, shop no 1/.test(x)));
+  assert.ok(s.some((x) => /^Ink Kulture, shop no 1/.test(x)));
 });

@@ -6,6 +6,7 @@
  * Any problem reading the PDF returns it unchanged.
  */
 import * as PDFLib from 'pdf-lib';
+import { LOGO_BOX, LOGO_PATH } from './brand-logo.js';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -131,58 +132,109 @@ export async function designSpLabel(bytes, { items = [], brand = 'Ink Kulture', 
   const cut = head.y + 9;                                             /* everything above ShipPrime's "Shipped By" */
   const top = await doc.embedPage(src.getPages()[0], { left: 0, bottom: cut, right: W, top: H });
   page.drawPage(top, { x: 0, y: cut, width: W, height: H - cut });
-  const bold = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold), reg = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
-  const ink = PDFLib.rgb(0, 0, 0), grey = PDFLib.rgb(0.35, 0.35, 0.35), line = PDFLib.rgb(0.6, 0.6, 0.6);
+  const bold = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold), reg = await doc.embedFont(PDFLib.StandardFonts.Helvetica), ital = await doc.embedFont(PDFLib.StandardFonts.HelveticaOblique);
+  const ink = PDFLib.rgb(0, 0, 0), white = PDFLib.rgb(1, 1, 1), grey = PDFLib.rgb(0.32, 0.32, 0.32), soft = PDFLib.rgb(0.62, 0.62, 0.62), hair = PDFLib.rgb(0.82, 0.82, 0.82);
+  const X0 = L + 7, X1 = R - 7;
+  /* letter-spaced caps, the label's "voice" */
+  const caps = (t, x, yy, size, font, color, gap = 0.9) => { let cx = x; for (const ch of t) { page.drawText(ch, { x: cx, y: yy, size, font, color }); cx += font.widthOfTextAtSize(ch, size) + gap; } return cx - gap; };
+  const capsW = (t, size, font, gap = 0.9) => [...t].reduce((n, ch) => n + font.widthOfTextAtSize(ch, size) + gap, 0) - gap;
+  const rounded = (x, yb, w, h, r) => `M ${x + r} ${-yb - h} H ${x + w - r} Q ${x + w} ${-yb - h} ${x + w} ${-yb - h + r} V ${-yb - r} Q ${x + w} ${-yb} ${x + w - r} ${-yb} H ${x + r} Q ${x} ${-yb} ${x} ${-yb - r} V ${-yb - h + r} Q ${x} ${-yb - h} ${x + r} ${-yb - h} Z`;
+  const box = (x, yb, w, h, r, o) => page.drawSvgPath(rounded(x, yb, w, h, r), { x: 0, y: 0, ...o });
+
   /* the outer frame, continued below the kept part */
-  page.drawRectangle({ x: L, y: BOTTOM, width: R - L, height: cut - BOTTOM, borderColor: line, borderWidth: 0.6, color: PDFLib.rgb(1, 1, 1) });
-  page.drawLine({ start: { x: L, y: cut }, end: { x: L, y: BOTTOM }, thickness: 0.6, color: line });
+  page.drawRectangle({ x: L, y: BOTTOM, width: R - L, height: cut - BOTTOM, borderColor: soft, borderWidth: 0.6, color: white });
 
-  let y = cut - 12;
-  /* SHIPPED BY  Ink Kulture ............ inkkulture.in */
-  page.drawText('SHIPPED BY', { x: L + 7, y, size: 6, font: bold, color: grey });
-  page.drawText(ascii(brand).toUpperCase(), { x: L + 7 + bold.widthOfTextAtSize('SHIPPED BY', 6) + 6, y: y - 1, size: 11, font: bold, color: ink });
-  page.drawText(site, { x: R - 7 - reg.widthOfTextAtSize(site, 7), y, size: 7, font: reg, color: grey });
-  y -= 10;
-  for (const t of wrap(reg, `If undelivered, return to: ${brand}, ${addr}`, 5.5, R - L - 14, 2)) { page.drawText(t, { x: L + 7, y, size: 5.5, font: reg, color: grey }); y -= 7; }
-  y -= 1;
-  page.drawLine({ start: { x: L + 6, y }, end: { x: R - 6, y }, thickness: 0.6, color: line });
+  /* 1. brand strip: [SHIPPED BY] tab · INK KULTURE wordmark · SEMI-PERMANENT TATTOOS / inkkulture.in */
+  const bandTop = cut - 5, bandH = 24, bandY = bandTop - bandH;
+  box(X0, bandY, 34, bandH, 3, { color: ink });
+  caps('SHIPPED', X0 + 17 - capsW('SHIPPED', 4.6, bold, 0.5) / 2, bandY + 13.5, 4.6, bold, white, 0.5);
+  caps('BY', X0 + 17 - capsW('BY', 4.6, bold, 0.5) / 2, bandY + 6.5, 4.6, bold, white, 0.5);
+  const lh = 15, ls = lh / LOGO_BOX.h, lx = X0 + 41, ly = bandY + (bandH - lh) / 2;
+  page.drawSvgPath(LOGO_PATH, { x: lx - LOGO_BOX.x * ls, y: ly + lh + LOGO_BOX.y * ls, scale: ls, color: ink, borderWidth: 0 });
+  const tag = 'SEMI-PERMANENT TATTOOS';
+  caps(tag, X1 - capsW(tag, 4.4, bold, 0.6), bandY + 13.5, 4.4, bold, grey, 0.6);
+  page.drawText(site, { x: X1 - bold.widthOfTextAtSize(site, 7.5), y: bandY + 4.5, size: 7.5, font: bold, color: ink });
 
-  /* PACKED INSIDE */
+  /* 2. return address */
+  let y = bandY - 8;
+  const rt = 'RETURN TO  ';
+  caps('RETURN TO', X0, y, 4.6, bold, ink, 0.5);
+  const addrLines = wrap(reg, `${brand}, ${addr}`, 5.3, X1 - X0 - capsW(rt, 4.6, bold, 0.5), 2);
+  addrLines.forEach((t, k) => page.drawText(t, { x: X0 + capsW(rt, 4.6, bold, 0.5), y: y - k * 6.5, size: 5.3, font: reg, color: grey }));
+  y -= addrLines.length * 6.5 + 2;
+  /* perforation-style divider */
+  for (let x = X0; x < X1; x += 4) page.drawLine({ start: { x, y }, end: { x: Math.min(x + 2, X1), y }, thickness: 0.6, color: soft });
+
+  /* 3. what's inside */
   const rows = contentsRows(items), pcs = rows.reduce((n, r) => n + r.qty, 0);
-  y -= 10;
-  page.drawText('PACKED INSIDE', { x: L + 7, y, size: 7, font: bold, color: ink });
-  if (rows.length) page.drawText(`${rows.length} design${rows.length > 1 ? 's' : ''} · ${pcs} pc${pcs > 1 ? 's' : ''}`.replace('·', '-'), { x: L + 7 + bold.widthOfTextAtSize('PACKED INSIDE', 7) + 6, y, size: 7, font: reg, color: grey });
-  page.drawText('QTY', { x: R - 7 - bold.widthOfTextAtSize('QTY', 6), y, size: 6, font: bold, color: grey });
-  y -= 4;
-  const room = y - (BOTTOM + 4);
-  let rowH = rows.length ? Math.min(40, room / rows.length) : 0, shown = rows;
-  if (rowH < 15) { const k = Math.max(1, Math.floor((room - 9) / 15)); shown = rows.slice(0, k); rowH = 15; }
-  const pics = await Promise.all(shown.map((r) => thumb(r.image)));
-  for (let i = 0; i < shown.length; i++) {
-    const r = shown[i], top = y - i * rowH, img = rowH - 4, cy = top - rowH / 2;
-    if (i) page.drawLine({ start: { x: L + 6, y: top }, end: { x: R - 6, y: top }, thickness: 0.3, color: PDFLib.rgb(0.8, 0.8, 0.8) });
-    const box = { x: L + 7, y: top - 2 - img, width: img, height: img };
-    let drawn = false;
-    if (pics[i]) {
-      try {
-        const im = pics[i].kind === 'png' ? await doc.embedPng(pics[i].b) : await doc.embedJpg(pics[i].b);
-        const s = Math.min(img / im.width, img / im.height);
-        page.drawImage(im, { x: box.x + (img - im.width * s) / 2, y: box.y + (img - im.height * s) / 2, width: im.width * s, height: im.height * s });
-        drawn = true;
-      } catch { /* drawn as an empty box */ }
+  y -= 12;
+  const pill = "WHAT'S INSIDE", pw = capsW(pill, 5.2, bold, 0.6) + 10;
+  box(X0, y - 3, pw, 10.5, 5.25, { color: ink });
+  caps(pill, X0 + 5, y, 5.2, bold, white, 0.6);
+  if (rows.length) page.drawText(`${rows.length} design${rows.length > 1 ? 's' : ''}  /  ${pcs} pc${pcs > 1 ? 's' : ''}`, { x: X0 + pw + 6, y, size: 6.5, font: reg, color: grey });
+  caps('QTY', X1 - capsW('QTY', 4.6, bold, 0.6) - 3, y, 4.6, bold, soft, 0.6);
+  y -= 6;
+  const footH = 11, room = y - (BOTTOM + footH);
+  /* one design per row while they fit at 15 pt; more than that: two columns of compact cells */
+  const drawThumb = async (pic, bx, by, img) => {
+    box(bx, by, img, img, Math.min(3, img / 6), { borderColor: hair, borderWidth: 0.5, color: white });
+    if (!pic) return;
+    try {
+      const im = pic.kind === 'png' ? await doc.embedPng(pic.b) : await doc.embedJpg(pic.b);
+      const inner = img - 2, sc = Math.min(inner / im.width, inner / im.height);
+      page.drawImage(im, { x: bx + (img - im.width * sc) / 2, y: by + (img - im.height * sc) / 2, width: im.width * sc, height: im.height * sc });
+    } catch { /* empty frame */ }
+  };
+  const badge = (r, qx, cy, rr) => {
+    const q = String(r.qty);
+    if (r.qty > 1) page.drawCircle({ x: qx, y: cy, size: rr, color: ink });
+    else page.drawCircle({ x: qx, y: cy, size: rr, borderColor: ink, borderWidth: 0.7 });
+    const qs = Math.min(8, rr * 1.15);
+    page.drawText(q, { x: qx - bold.widthOfTextAtSize(q, qs) / 2, y: cy - qs * 0.36, size: qs, font: bold, color: r.qty > 1 ? white : ink });
+  };
+  let shown = rows, used = 0;
+  if (rows.length && rows.length * 15 <= room) {
+    const rowH = Math.min(40, room / rows.length);
+    const pics = await Promise.all(rows.map((r) => thumb(r.image)));
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i], top = y - i * rowH, img = rowH - 5, cy = top - rowH / 2;
+      if (i) page.drawLine({ start: { x: X0 + img + 6, y: top }, end: { x: X1, y: top }, thickness: 0.3, color: hair });
+      await drawThumb(pics[i], X0, top - 2.5 - img, img);
+      const tx = X0 + img + 7, tw = X1 - 18 - tx, ts = rowH >= 24 ? 8 : rowH >= 18 ? 7 : 6.5, two = r.size && rowH >= 18;
+      page.drawText(fit(bold, r.title, ts, tw), { x: tx, y: two ? cy + 1.2 : cy - ts / 3, size: ts, font: bold, color: ink });
+      if (two) page.drawText(fit(reg, r.size, 6, tw), { x: tx, y: cy - 7, size: 6, font: reg, color: grey });
+      /* quantity badge: filled when more than one, so doubles are hard to miss while packing */
+      badge(r, X1 - Math.min(6.5, rowH / 2 - 1.5) - 1, cy, Math.min(6.5, rowH / 2 - 1.5));
     }
-    if (!drawn) page.drawRectangle({ x: box.x, y: box.y, width: img, height: img, borderColor: line, borderWidth: 0.5 });
-    const tx = box.x + img + 6, qtyW = 22, tw = R - 7 - qtyW - tx;
-    const ts = rowH >= 22 ? 7.5 : 6.5;
-    page.drawText(fit(bold, r.title, ts, tw), { x: tx, y: r.size && rowH >= 18 ? cy + 1 : cy - ts / 3, size: ts, font: bold, color: ink });
-    if (r.size && rowH >= 18) page.drawText(fit(reg, r.size, 6, tw), { x: tx, y: cy - 7, size: 6, font: reg, color: grey });
-    const q = 'x' + r.qty;
-    page.drawText(q, { x: R - 7 - bold.widthOfTextAtSize(q, r.qty > 1 ? 10 : 8), y: cy - 3, size: r.qty > 1 ? 10 : 8, font: bold, color: ink });
+    used = rows.length * rowH;
+  } else if (rows.length) {
+    const gap = 8, colW = (X1 - X0 - gap) / 2, perCol = Math.max(1, Math.floor((room - 8) / 12.5));
+    const fitsAll = rows.length <= perCol * 2;
+    shown = rows.slice(0, fitsAll ? rows.length : perCol * 2 - 1);
+    const nCol = Math.ceil(shown.length / 2), rowH = Math.min(18, (room - (fitsAll ? 0 : 9)) / nCol);
+    const pics = await Promise.all(shown.map((r) => thumb(r.image)));
+    for (let i = 0; i < shown.length; i++) {
+      const r = shown[i], col = i < nCol ? 0 : 1, k = col ? i - nCol : i, cx0 = X0 + col * (colW + gap);
+      const top = y - k * rowH, img = rowH - 3, cy = top - rowH / 2, rr = Math.min(5, rowH / 2 - 1.5);
+      if (k) page.drawLine({ start: { x: cx0, y: top }, end: { x: cx0 + colW, y: top }, thickness: 0.3, color: hair });
+      await drawThumb(pics[i], cx0, top - 1.5 - img, img);
+      page.drawText(fit(bold, r.title, 6, colW - img - 5 - rr * 2 - 4), { x: cx0 + img + 4, y: cy - 2, size: 6, font: bold, color: ink });
+      badge(r, cx0 + colW - rr - 0.5, cy, rr);
+    }
+    if (nCol > 1 || shown.length > 1) page.drawLine({ start: { x: X0 + colW + gap / 2, y: y - 1 }, end: { x: X0 + colW + gap / 2, y: y - nCol * rowH + 1 }, thickness: 0.3, color: hair });
+    used = nCol * rowH;
   }
   if (shown.length < rows.length) {
     const more = rows.slice(shown.length), mp = more.reduce((n, r) => n + r.qty, 0);
-    page.drawText(fit(reg, `+ ${more.length} more design${more.length > 1 ? 's' : ''} (${mp} pc${mp > 1 ? 's' : ''}): ${more.map((r) => r.title + (r.qty > 1 ? ' x' + r.qty : '')).join(', ')}`, 6, R - L - 14), { x: L + 7, y: BOTTOM + 5, size: 6, font: reg, color: grey });
+    page.drawText(fit(reg, `+ ${more.length} more design${more.length > 1 ? 's' : ''} (${mp} pc${mp > 1 ? 's' : ''}): ${more.map((r) => r.title + (r.qty > 1 ? ' x' + r.qty : '')).join(', ')}`, 6, X1 - X0), { x: X0, y: y - used - 7, size: 6, font: reg, color: grey });
   }
-  if (!rows.length) page.drawText('See the order in the dashboard', { x: L + 7, y: y - 12, size: 6.5, font: reg, color: grey });
+  if (!rows.length) page.drawText('See the order in the dashboard', { x: X0, y: y - 12, size: 6.5, font: reg, color: grey });
+
+  /* 4. sign-off */
+  const thanks = 'Thank you for wearing Ink Kulture';
+  const tw2 = ital.widthOfTextAtSize(thanks, 6.2);
+  page.drawText(thanks, { x: (L + R) / 2 - tw2 / 2, y: BOTTOM + 4.5, size: 6.2, font: ital, color: grey });
+  page.drawLine({ start: { x: X0, y: BOTTOM + 6.5 }, end: { x: (L + R) / 2 - tw2 / 2 - 6, y: BOTTOM + 6.5 }, thickness: 0.4, color: hair });
+  page.drawLine({ start: { x: (L + R) / 2 + tw2 / 2 + 6, y: BOTTOM + 6.5 }, end: { x: X1, y: BOTTOM + 6.5 }, thickness: 0.4, color: hair });
   return doc.save();
 }
