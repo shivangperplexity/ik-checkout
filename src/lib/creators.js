@@ -94,7 +94,7 @@ export async function approve(env, id, { code = '' } = {}) {
   let told = { skipped: 'already told' };
   if (!c.told_at) {
     const { fireTrigger } = await import('./whatsapp.js');
-    told = await fireTrigger(env, 'creator_approved', { to: c.phone, vars: { name: String(c.name || '').split(/\s+/)[0] || 'there', code: want, link: `${APP(env)}/creator` } }).catch((e) => ({ ok: false, error: e.message }));
+    told = await fireTrigger(env, 'creator_approved', { to: c.phone, vars: { name: String(c.name || '').split(/\s+/)[0] || 'there', code: want } }).catch((e) => ({ ok: false, error: e.message }));
     if (told.ok) await env.DB.prepare('UPDATE creators SET told_at=? WHERE id=?').bind(now(), c.id).run();
   }
   return { ok: true, code: want, whatsapp: told.ok ? 'sent' : (told.error || told.skipped || 'not sent') };
@@ -331,12 +331,14 @@ export async function handleCreator(req, env) {
 }
 
 /* ---------- WhatsApp template ---------- */
-export const APPROVED_TEMPLATE = 'ik_creator_welcome_v1';
+export const APPROVED_TEMPLATE = 'ik_creator_approved_v2';
+/* v1 (emoji, link in the text) was rejected as a utility message: plain account update, link on a button */
 export function creatorTemplates(base) {
   return [{ name: APPROVED_TEMPLATE, language: 'en', category: 'UTILITY', allow_category_change: true,
     components: [
-      { type: 'BODY', text: 'Hi {{1}}, you are now an Ink Kulture creator! 🎉\n\nYour code: *{{2}}*\nLog in with this WhatsApp number to get your link, see how many people opened it, your orders and what you earn: {{3}}\n\nYou earn on every delivered order. Welcome to the crew! 🖤',
-        example: { body_text: [['Riya', 'RIYAINK', `${base}/creator`]] } },
+      { type: 'BODY', text: 'Hi {{1}}, your Ink Kulture creator application is approved.\n\nYour creator code is {{2}}. Log in to your creator dashboard with this WhatsApp number to get your link and to track your orders and earnings.',
+        example: { body_text: [['Riya', 'RIYAINK']] } },
+      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Open dashboard', url: `${base}/creator` }] },
     ] }];
 }
 

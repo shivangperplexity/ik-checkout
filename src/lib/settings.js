@@ -53,7 +53,7 @@ export const TRIGGERS = {
   ref_invite: { label: 'Refer and earn: your code', to: 'Customer', when: 'Once per customer, 2+ days after an order is delivered (9 am to 9 pm): their referral code and link (friends get ₹100 off on online payment, they get ₹100 credit as soon as the friend orders)', vars: ['name', 'code', 'link'], marketing: true, def: 'ik_refer_v2', on: true },
   ref_credit: { label: 'Refer and earn: credit added', to: 'Customer', when: 'A friend they referred paid for their order: ₹100 store credit added, valid 60 days (taken back if that order is cancelled or returned and the credit is unspent)', vars: ['name', 'amount', 'till'], def: 'ik_ref_credit_v2', on: true },
   /* Creator program (lib/creators.js): sent when you approve an application in More > Creators */
-  creator_approved: { label: 'Creator program: approved', to: 'Creator', when: 'You approve their application (More > Creators): their code and the login link', vars: ['name', 'code', 'link'], def: 'ik_creator_welcome_v1', on: true },
+  creator_approved: { label: 'Creator program: approved', to: 'Creator', when: 'You approve their application (More > Creators): their code and the login link', vars: ['name', 'code'], def: 'ik_creator_approved_v2', on: true },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };

@@ -25,6 +25,11 @@ export default {
       const m = /^\/review\/([A-Za-z0-9]{6,16})\/?$/.exec(new URL(req.url).pathname);
       if (m) { const u2 = new URL(req.url); u2.pathname = '/api/review/page'; u2.search = '?t=' + m[1]; req = new Request(u2.toString(), { method: 'GET', headers: req.headers }); }
     }
+    /* a creator's link: /c/<CODE> counts the open and goes to the store (lib/creators.js click) */
+    {
+      const m = /^\/c\/([A-Za-z0-9]{1,16})\/?$/.exec(new URL(req.url).pathname);
+      if (m) { const u2 = new URL(req.url); u2.pathname = '/api/creator/go'; u2.search = '?code=' + m[1]; req = new Request(u2.toString(), { method: 'GET', headers: req.headers }); }
+    }
     const env = { ...process.env, DB: makeDb(process.env) };
     const ctx = { waitUntil };
     const path = new URL(req.url).pathname;

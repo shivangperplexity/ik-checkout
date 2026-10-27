@@ -45,6 +45,6 @@ test('reward follows the one-time choice; none before it', () => {
 test('link and welcome template', () => {
   assert.match(storeLink('RIYA'), /^https:\/\/www\.inkkulture\.in\/\?ref=RIYA&utm_source=creator/);
   const [t] = creatorTemplates('https://x.app');
-  assert.match(t.components[0].text, /\{\{2\}\}[\s\S]*\{\{3\}\}[\s\S]*Welcome/);
-  assert.doesNotMatch(t.components[0].text, /\{\{\d\}\}\s*$/);
+  assert.match(t.components[0].text, /approved[\s\S]*\{\{2\}\}/);
+  assert.equal(t.components[1].buttons[0].url, 'https://x.app/creator');
 });
