@@ -13,10 +13,15 @@
     if (p.bogo) row('Buy 1 Get 1 Free', '−' + money(p.bogo), 'is-save');
     if (p.upsell) row('Add-on offer', '−' + money(p.upsell), 'is-save');
     if (p.prepaid) row('Prepaid 10% off', '−' + money(p.prepaid), 'is-save');
+    if (p.ref) row('Referral' + (state.quote.ref && state.quote.ref.name ? ' (' + esc(state.quote.ref.name) + ')' : ''), '−' + money(p.ref), 'is-save');
+    if (p.credit) row('Store credit', '−' + money(p.credit), 'is-save');
     row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
     if (p.cod) row('COD handling', money(p.cod));
     row('To pay', money(p.total), 'is-total');
     if (state.method === 'cod' && pcOn()) { row('Pay now', money(pcAdv())); row('Rest after delivery', money(p.total - pcAdv())); }
+    var pq = state.quote.prepaid || {}, ri = state.refInfo;
+    if (state.method === 'cod' && ((pq.ref || 0) + (pq.credit || 0)) > 0) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">' + ((pq.ref ? 'Referral ₹' + pq.ref / 100 : '') + (pq.ref && pq.credit ? ' + ' : '') + (pq.credit ? 'store credit ₹' + pq.credit / 100 : '')) + ' off when you pay online</p>');
+    if (ri && ri.note) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">' + esc(ri.note) + '</p>');
     var nudge = p.shipping && p.afterBogo > 0 ? '<p class="ikx-nudge">' + ICON.truck + 'Add ' + money(49900 - p.afterBogo) + ' more for FREE delivery</p>' : '';
     box.innerHTML = rows.join('') + nudge;
   }
@@ -66,7 +71,7 @@
   }
 
   /* ---------- footer: total + (Add delivery details | Slide to pay) ---------- */
-  function savings(p) { return (p.bogo || 0) + (p.prepaid || 0) + (p.upsell || 0); }
+  function savings(p) { return (p.bogo || 0) + (p.prepaid || 0) + (p.upsell || 0) + (p.ref || 0) + (p.credit || 0); }
   var SLIDE_TO_PAY = false;
   function paintFoot() {
     var foot = $('.ikx-foot', root); if (!foot || !state.built) return;
@@ -213,6 +218,7 @@
     var go = function () {
       if (!form()) return; /* the form is gone once the order is placed */
       var d = formData(); if (!/^[6-9]\d{9}$/.test(d.phone)) return;
+      refCheck(d.phone);
       var a = attrNow();
       api('/api/lead', { phone: d.phone, name: d.name, pincode: d.pincode, lines: state.lines, utm: attribution, fbp: a.fbp, fbc: a.fbc, step: step }).catch(function () {});
     };

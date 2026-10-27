@@ -252,7 +252,8 @@
     }
     if (methods().indexOf(state.method) < 0) state.method = 'upi';
     var cod = state.quote.cod, pre = state.quote.prepaid, pc = codOn() && pcOn(), dis = state.busy ? ' disabled' : '';
-    var save = pre.prepaid ? '<span class="ikx-po__save">Save ' + money(pre.prepaid) + '</span>' : '';
+    var preOff = (pre.prepaid || 0) + (pre.ref || 0) + (pre.credit || 0);
+    var save = preOff ? '<span class="ikx-po__save">Save ' + money(preOff) + '</span>' : '';
     var upi = '<div class="ikx-po__upi">' +
       '<div class="ikx-po__h"><span class="ikx-po__ic ikx-po__ic--upi">' + PI.upi + '</span><b>UPI</b>' + save + '<span class="ikx-po__amt">' + money(pre.total) + '</span></div>';
     if (IS_MOBILE) {
@@ -268,7 +269,7 @@
       upi += '<button type="button" class="ikx-po__line' + (state.method === 'upi' ? ' is-on' : '') + '" data-ikx-method="upi" data-ikx-go' + dis + '><span class="ikx-po__qr">' + PI.qr + 'Scan QR with any UPI app</span>' + ICON.chev + '</button>';
     }
     upi += '</div>';
-    var codSub = pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (pre.prepaid ? 'Pay at your door · no ' + money(pre.prepaid) + ' discount' : 'Pay at your door'));
+    var codSub = pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (preOff ? 'Pay at your door · no ' + money(preOff) + ' discount' : 'Pay at your door'));
     box.innerHTML = '<div class="ikx-po">' + upi +
       poRow('card', PI.card, 'Debit/Credit Cards', money(pre.total), '', ' ikx-po__row--dark') +
       poRow('nb', PI.bank, 'Netbanking', money(pre.total), '', ' ikx-po__row--dark') +

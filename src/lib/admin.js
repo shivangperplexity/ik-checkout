@@ -1405,6 +1405,30 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, ...r };
   },
+  /** Refer and earn: submit the invite + credit-added templates (lib/referral.js) that are not in WhatsApp Manager yet. */
+  async referral_templates(env, b) {
+    const R = await import('./referral.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const want = [];
+    for (const t of R.referralTemplates()) { const have = await metaTemplate(e2, t.name).catch(() => null); if (!have || have.status === 'REJECTED' || b?.force) want.push(t); }
+    if (!want.length) return { ok: true, created: [] };
+    const r = await ACTIONS.wa_create_templates(env, { templates: want });
+    clearMetaCache();
+    return { ok: true, ...r };
+  },
+  /** Refer and earn: numbers for the dashboard (codes, invites, referral orders, credit given / used, top referrers). */
+  async referrals(env) { const R = await import('./referral.js'); return R.referralStats(env); },
+  /** Refer and earn: a customer's code (made if missing) and credit, by phone. */
+  async referral_lookup(env, b) {
+    const R = await import('./referral.js');
+    const phone = String(b.phone || '').replace(/\D/g, '').slice(-10);
+    const o = await env.DB.prepare('SELECT first_name FROM orders WHERE phone=? ORDER BY created_at DESC LIMIT 1').bind(phone).first();
+    const rc = await R.codeFor(env, phone, o?.first_name || b.name || '');
+    if (!rc) throw new Error('Enter a 10-digit mobile number');
+    return { ok: true, code: rc.code, link: R.refLink(rc.code), credit: (await R.creditBalance(env, phone)) / 100, invited_at: rc.invited_at || null };
+  },
   /** Submit the NDR autopilot templates (nudge, booked again, final attempt) that are not in WhatsApp Manager yet. */
   async ndr_pilot_templates(env, b) {
     const { pilotTemplates, PILOT_TEMPLATE_NAMES } = await import('./ndr-pilot.js');
@@ -1827,6 +1851,7 @@ export async function runAutomations(env) {
   } catch (e) { console.error('cancel-sync', e); }
   /* Shipments tab: keep every live parcel's Shiprocket status fresh (pickup-stage ones every 15 min) */
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
+  try { const { referralSweep } = await import('./referral.js'); const r = await referralSweep(env); if (r.released || r.credited || r.void || r.invited) out.referral = r; } catch (e) { console.error('referral', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
   try { const sw = await sweepCancelled(env); out.cancelSweep = sw; if (sw.retry || sw.late) console.log('cancel-sweep', JSON.stringify(sw)); } catch (e) { console.error('cancel-sweep', e); }
   /* Shiprocket health in the logs (temporary diagnostics for the cancel 503s) */

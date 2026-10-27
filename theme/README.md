@@ -36,3 +36,11 @@ Part 2: the empty "State" option is now `disabled selected`. It was only `disabl
 (blocks, editable in the theme editor), phones only, placed first on the home page above the banner
 (`templates/index.json` = build042/index.json + `ikl_quick_links`). There is no New Arrivals collection, so that link is
 all-tattoos sorted newest first. Fits one line from 360px; narrower phones scroll it sideways.
+
+## Build 050: refer and earn (Oct 2026)
+Parts 1-4. `?ref=CODE` on any page is kept 30 days (`localStorage.ik_ref`) and sent as `attribution.ref` with every
+quote and order; the quote cache key includes it. `/api/quote` returns `prepaid.ref` (₹100 off online payment only)
+and `ref: { code, name }`. Once a valid number is in the form (typed or remembered), `/api/ref/me` says whether the
+code applies (first order only) and the number's store credit; `refApply` (part 2) folds both into the online-payment
+price. The bill shows "Referral (name)" / "Store credit" rows; the COD tile says how much paying online saves.
+The server (`lib/referral.js`) re-checks everything at `/api/order`.

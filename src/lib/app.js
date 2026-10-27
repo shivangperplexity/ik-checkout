@@ -11,6 +11,7 @@ import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, lo
 import { withSettings, codOn, codMode } from './settings.js';
 import { handleLogin, handleRpc, handleLabel, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
 import { shippingEstimate } from './shipping.js';
+import { quoteRef, friendOffer, creditBalance, forOrder, onPaid, normCode } from './referral.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const rand = () => Math.random().toString(36).slice(2, 8);
@@ -49,7 +50,8 @@ async function handleQuote(req, env) {
   const raw = cartLines(body);
   const lines = await loadLines(env, raw);
   applyUpsells(env, raw, lines);
-  const q = quoteBoth(lines, {});
+  /* Refer and earn: a friend's code (attribution.ref, from ?ref= on the store) takes ₹100 off the online-payment price */
+  const q = env.DB ? await quoteRef(env, quoteBoth(lines, {}), attrsIn(body)).catch(() => quoteBoth(lines, {})) : quoteBoth(lines, {});
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
@@ -158,17 +160,27 @@ async function handleOrder(req, env, ctx) {
   const txnid = `IK${Date.now().toString(36)}${rand()}`.toUpperCase();
   const eventId = `ik_${txnid}`;
   const a = b.attribution || {};
+  /* Refer and earn (online payment only): the friend's ₹100 off and the buyer's own store credit */
+  let refBits = null;
+  if (method === 'prepaid' && env.DB) {
+    try {
+      refBits = await forOrder(env, { idem, phone: buyer.phone, total: price.total, attribution: a });
+      if (refBits.ref || refBits.credit) { price.ref = refBits.ref; price.credit = refBits.credit; price.total = refBits.total; }
+    } catch (e) { console.error('referral', e.message); refBits = null; }
+  }
   const attributes = [
     { key: 'Checkout', value: 'Ink Kulture custom' },
     { key: 'Payment choice', value: partial ? `Partial COD (₹${partial.advance / 100} online + rest on delivery)` : method === 'cod' ? 'COD' : 'Prepaid' },
     ...(method === 'prepaid' || partial ? [{ key: 'PayU txn id', value: txnid }] : []),
     ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
     ...(otpOk ? [{ key: 'COD verified', value: 'WhatsApp OTP at checkout' }] : []),
+    ...(price.ref ? [{ key: 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
+    ...(price.credit ? [{ key: 'Store credit used', value: '₹' + price.credit / 100 }] : []),
     ...(buyer.edd ? [{ key: 'Promised delivery', value: buyer.edd }] : []),
     ...(a.sid ? [{ key: 'Session', value: String(a.sid).slice(0, 40) }] : []),
     ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'landing'].filter((k) => a[k]).map((k) => ({ key: k, value: String(a[k]).slice(0, 250) })),
   ];
-  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : otpOk ? ['cod-confirmed', 'cod-otp-verified'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : []), ...(cameFromAd(a) ? ['from-ad'] : [])];
+  const tags = ['ik-checkout', method, ...(partial ? ['partial-cod'] : otpOk ? ['cod-confirmed', 'cod-otp-verified'] : method === 'cod' ? ['cod-unconfirmed'] : []), ...(isCollab(a.landing) ? [COLLAB_TAG] : []), ...(cameFromAd(a) ? ['from-ad'] : []), ...(price.ref ? ['referral'] : []), ...(price.credit ? ['store-credit'] : [])];
   const draft = await createDraft(env, { lines, price, method, buyer, tags, attributes });
   if (Math.abs(draft.total - price.total) > 100) {
     console.error('total mismatch', { ours: price.total, shopify: draft.total, draft: draft.id });
@@ -286,6 +298,7 @@ async function completePaid(env, ctx, req, row) {
   try {
     const order = await completeDraft(env, row.draft_id, false);
     await env.DB.prepare("UPDATE orders SET status='paid', order_id=?, order_gid=?, order_name=?, status_url=? WHERE txnid=?").bind(order.legacyResourceId, order.id, order.name, order.statusPageUrl, row.txnid).run();
+    await onPaid(env, { idem: row.idem, order_id: order.legacyResourceId, order_name: order.name }).catch((e) => console.error('referral paid', e.message));
     ctx.waitUntil(purchaseEvent(env, row, order.name, (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, req.headers.get('User-Agent')).catch((e) => console.error('capi', e)));
     ctx.waitUntil(Promise.all([
       markSessionOrdered(env, row.sid, order.name),
@@ -480,6 +493,17 @@ export async function handle(req, env0, ctx) {
         else { const b = await req.json().catch(() => ({})); res = json(await otpDelivery(env, cleanPhone(b.phone))); }
       }
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
+      /* Refer and earn: once the number is typed, the checkout asks whether the friend's code applies (first order
+         only) and how much store credit this number has; both only on online payment. */
+      else if (path === '/api/ref/me' && req.method === 'POST') {
+        if (!(await rateLimit(env, 'ref:' + ((req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x'), 120))) res = json({ ok: false }, 429);
+        else {
+          const b = await req.json().catch(() => ({}));
+          const phone = cleanPhone(b.phone), code = normCode(b.ref);
+          const [o, credit] = await Promise.all([code ? friendOffer(env, code, phone) : null, phone ? creditBalance(env, phone) : 0]);
+          res = json({ ok: true, ref: o?.ok ? o.amount : 0, ref_ok: !!o?.ok, name: o?.name || '', note: code && o && !o.ok ? o.why : '', credit });
+        }
+      }
       else if (path.startsWith('/api/pincode/')) res = await handlePincode(path.split('/').pop());
       else if (path === '/api/shipping' && req.method === 'GET') res = await shippingEstimate(req, env);
       /* the pay-online page on the store (inkkulture.in/pages/pay): order details, start a payment, poll it */

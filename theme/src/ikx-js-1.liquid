@@ -117,6 +117,14 @@
     if (any) { now.at = Date.now(); c = now; try { localStorage.setItem('ik_click', JSON.stringify(c)); } catch (e) {} }
     return c && Date.now() - (c.at || 0) < 30 * 864e5 ? c : null;
   })();
+  /* Build 050: refer and earn. ?ref=CODE on any page (a friend's link) is kept 30 days in this browser and sent with
+     every quote / order (attribution.ref); the API takes ₹100 off the online-payment price on a first order. */
+  var REF = (function () {
+    var s = null; try { s = JSON.parse(localStorage.getItem('ik_ref') || 'null'); } catch (e) {}
+    var r = String(qs.get('ref') || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
+    if (r) { s = { c: r, at: Date.now() }; try { localStorage.setItem('ik_ref', JSON.stringify(s)); } catch (e) {} }
+    return s && s.c && Date.now() - (s.at || 0) < 30 * 864e5 ? s.c : '';
+  })();
   var SID = (function () {
     try { var s = sessionStorage.getItem('ik_sid'); if (!s) { s = uuid().replace(/-/g, ''); sessionStorage.setItem('ik_sid', s); } return s; } catch (e) { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   })();
@@ -125,6 +133,7 @@
     a.sid = SID; a.fbp = cookie('_fbp');
     a.fbc = cookie('_fbc') || (attribution.fbclid ? 'fb.1.' + (attribution.fbclid_at || Date.now()) + '.' + attribution.fbclid : '');
     if (lastClick) a.click = lastClick;
+    if (REF) a.ref = REF;
     return a;
   }
 
@@ -181,9 +190,9 @@
   function saveQC() {
     try { var keep = {}; Object.keys(QC).filter(function (k) { return QC[k].q; }).slice(-8).forEach(function (k) { keep[k] = { q: QC[k].q, t: QC[k].t }; }); sessionStorage.setItem('ikx_qc', JSON.stringify(keep)); } catch (e) {}
   }
-  function cachedQuote(lines) { var h = QC[sigOf(lines)]; return h && h.q && Date.now() - h.t < 600000 ? h.q : null; }
+  function cachedQuote(lines) { var h = QC[sigOf(lines) + (REF ? '|' + REF : '')]; return h && h.q && Date.now() - h.t < 600000 ? h.q : null; }
   function fetchQuote(lines) {
-    var sig = sigOf(lines), hit = QC[sig];
+    var sig = sigOf(lines) + (REF ? '|' + REF : ''), hit = QC[sig];
     if (hit && hit.q && Date.now() - hit.t < 600000) return Promise.resolve(hit.q);
     if (hit && hit.p) return hit.p;
     var p = api('/api/quote', { lines: lines, attribution: attrNow() }).then(function (q) {

@@ -93,7 +93,31 @@
 
   /* ---------- paint now, confirm the price in the background ---------- */
   var renderSeq = 0, CART_SHOWN = null;
+  /* Build 050: refer and earn on the online-payment price. The quote already carries the friend's ₹100 (code only);
+     once the number is typed, /api/ref/me says whether it applies (first order) and how much store credit this
+     number has (state.refInfo). Never on Cash on delivery. */
+  function refApply(q) {
+    if (!q || !q.prepaid || q.estimate) return q;
+    var p = q.prepaid, info = state.refInfo, base = p.total + (p.ref || 0) + (p.credit || 0);
+    var ref = info ? (info.ref || 0) : (p.ref || 0), credit = info ? (info.credit || 0) : 0, room = Math.max(0, base - 100);
+    ref = Math.min(ref, room); credit = Math.min(credit, room - ref);
+    if (ref === (p.ref || 0) && credit === (p.credit || 0)) return q;
+    var n = {}, k; for (k in q) n[k] = q[k];
+    n.prepaid = {}; for (k in p) n.prepaid[k] = p[k];
+    n.prepaid.ref = ref; n.prepaid.credit = credit; n.prepaid.total = base - ref - credit;
+    return n;
+  }
+  function refCheck(phone) {
+    if (!/^[6-9]\d{9}$/.test(phone) || state.refPhone === phone) return;
+    state.refPhone = phone;
+    api('/api/ref/me', { phone: phone, ref: REF }).then(function (r) {
+      if (!r || !r.ok || state.refPhone !== phone) return;
+      state.refInfo = { ref: r.ref || 0, credit: r.credit || 0, note: r.note || '', name: r.name || '' };
+      if (state.quote && !state.busy) { setQuote(state.quote, state.final); paintPay(); paintBill(); paintFoot(); }
+    }).catch(function () {});
+  }
   function setQuote(q, final) {
+    q = refApply(q);
     state.quote = q; state.final = !!final; state.quoteSig = sigOf(state.lines);
     if (q.px) setPx(q.px);
     if (final) { state.ups = q.upsells || []; state.logos = q.upi_logos || {}; }
@@ -208,6 +232,7 @@
     f.addEventListener('submit', function (e) { e.preventDefault(); submit(); });
     if (state.draft) restoreDraft(state.draft);
     else if (REMEMBER) restoreDraft(savedBuyer());
+    try { refCheck(formData().phone); } catch (e) {}   /* a remembered number: its credit shows straight away */
     paintShip();
   }
 
