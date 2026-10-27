@@ -7,6 +7,7 @@
 //
 // Both paths call Shiprocket's NDR action for the live AWB (lib/shiprocket.js ndrAction) and log the choice.
 
+import { trackUrlOf } from './shipprime.js';
 import { hmacSha256hex, safeEqual } from './util.js';
 import { ndrAction } from './shiprocket.js';
 import { page } from './wa-g4w.js';
@@ -47,12 +48,14 @@ export async function customerNdr(env, { orderId, phone, what, date = '', via = 
   const a1 = String(address1 || '').trim().slice(0, 200), a2 = String(address2 || '').trim().slice(0, 200);
   const ph = /^[6-9]\d{9}$/.test(String(altPhone || '').replace(/\D/g, '').slice(-10)) ? String(altPhone).replace(/\D/g, '').slice(-10) : '';
   const notes = [okDate(date) ? 'on ' + date : '', a1 || a2 ? 'new address: ' + [a1, a2].filter(Boolean).join(', ') : '', ph ? 'call ' + ph : ''].filter(Boolean).join('; ');
-  const res = await ndrAction(env, { awb: rec.awb, action: key === 'return' ? 'return' : 're-attempt', deferred_date: okDate(date) ? date : '', address1: a1, address2: a2, phone: ph,
+  /* ShipPrime has no NDR API: the choice is kept (Shipments tab, NDR) for the team to apply in ShipPrime, Manage NDR */
+  const res = rec.provider === 'shipprime' ? { manual: true } : await ndrAction(env, { awb: rec.awb, action: key === 'return' ? 'return' : 're-attempt', deferred_date: okDate(date) ? date : '', address1: a1, address2: a2, phone: ph,
     comments: (key === 'return' ? 'Customer asked for return on WhatsApp' : 'Customer asked for re-attempt on WhatsApp' + (notes ? ' (' + notes + ')' : '')) + (note ? '. ' + note : '') });
   await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, updated_at=? WHERE order_id=?').bind(key, now(), res?.deferred_date || (okDate(date) ? date : null), 'customer', now(), String(rec.order_id)).run().catch(() => {});
   /* keep Shopify's copy of the address in step (best effort: the courier already has the new one) */
   if (a1 || a2) await updateShopifyAddress(env, rec.order_id, { address1: a1, address2: a2 }).catch((e) => console.error('ndr address', e.message));
-  await logMsg(env, { direction: 'in', phone: rec.phone, trigger: 'ndr-' + via, template: key.toUpperCase(), status: 'applied', orderName: rec.order_name, preview: notes.replace(/new address: .*?(;|$)/, 'new address given$1') });
+  await logMsg(env, { direction: 'in', phone: rec.phone, trigger: 'ndr-' + via, template: key.toUpperCase(), status: res?.manual ? 'todo-shipprime' : 'applied', orderName: rec.order_name,
+    preview: notes.replace(/new address: .*?(;|$)/, 'new address given$1') + (res?.manual ? (notes ? ' · ' : '') + 'ShipPrime parcel: apply it in ShipPrime, Manage NDR' : '') });
   return { status: key, rec };
 }
 
@@ -82,7 +85,7 @@ export async function handleNdr(req, env0) {
   const rec = await ndrShipment(env, { orderId });
   if (!rec) return page('Delivery update', 'This parcel is not waiting for a re-attempt right now. Reply on WhatsApp if you need help.');
   const name = esc(rec.order_name);
-  const trackHref = esc(`https://shiprocket.co/tracking/${rec.awb}`);
+  const trackHref = esc(trackUrlOf(rec));
   const { classifyNdr } = await import('./ndr-rules.js');
   const cat = classifyNdr(rec.ndr_reason || '');
   if (req.method !== 'POST') {

@@ -12,7 +12,7 @@
 // Refreshed on the 5-minute cron (own schedule, independent of the WhatsApp updates), and on demand from the
 // Shipments tab. Nothing about the customer's address is stored.
 
-import { sr, srTrack } from './shiprocket.js';
+import { sr, srTrack, trackRaw } from './shiprocket.js';
 import { stageOf, summarize, attemptsOf } from './sr-scan.js';
 import { cancelFulfilmentsFor } from './shopify.js';
 
@@ -26,15 +26,15 @@ export { stageOf };
 export const LABEL = { pickup_pending: 'Pickup pending', pickup_failed: 'Pickup failed', transit: 'In transit', ofd: 'Out for delivery', ndr: 'NDR', delivered: 'Delivered', rto: 'RTO', lost: 'Lost / damaged', cancelled: 'Cancelled' };
 
 /** Where a booking is, read like Shiprocket's tracking page (lib/sr-scan.js); before the first scan, from the Shiprocket order. */
-async function srStatus(env, rec) {
+async function srStatus(env, rec, raw = null) {
   let sum = null;
-  try { sum = summarize(await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(rec.awb)}`)); } catch { /* no scans yet or tracking down */ }
+  try { sum = summarize(raw || await trackRaw(env, rec.awb, rec)); } catch { /* no scans yet or tracking down */ }
   if (sum && (sum.current || sum.scans.length)) {
     const text = [sum.current, sum.newest && sum.newest.toLowerCase() !== sum.current.toLowerCase() ? sum.newest : ''].filter(Boolean).join(' · ');
     const at = attemptsOf(sum.scans);
     return { stage: sum.stage, picked: sum.picked, text, edd: sum.edd, pickedTs: istTs(sum.pickedAt), lastTs: istTs(sum.newestAt), attempts: at.attempts, attemptNotes: at.reasons.join(' | ') };
   }
-  if (rec.sr_order_id) {
+  if (rec.sr_order_id && rec.provider !== 'shipprime') {
     try {
       const o = await sr(env, 'GET', `orders/show/${encodeURIComponent(rec.sr_order_id)}`);
       const d = o?.data || {}, sh = Array.isArray(d.shipments) ? d.shipments[0] || {} : d.shipments || {};
@@ -46,8 +46,8 @@ async function srStatus(env, rec) {
 }
 
 /** Refresh one shipment row; returns the new stage. Also keeps things consistent if it was cancelled inside Shiprocket. */
-export async function refreshShipment(env, rec) {
-  const s = await srStatus(env, rec);
+export async function refreshShipment(env, rec, raw = null) {
+  const s = await srStatus(env, rec, raw);
   const t = now();
   if (!s) {
     await env.DB.prepare('UPDATE shipments SET tracked_at=? WHERE order_id=?').bind(t, String(rec.order_id)).run();
@@ -62,7 +62,7 @@ export async function refreshShipment(env, rec) {
     .bind(stage, s.text.slice(0, 160), t, s.edd, picked, Math.min(t, s.pickedTs || t), stage, Math.min(t, s.lastTs || t), stage, s.attempts ?? null, String(s.attemptNotes || '').slice(0, 400), String(rec.order_id)).run();
   /* cancelled in the Shiprocket panel: show it as cancelled here too and free the order to be shipped again */
   if (stage === 'cancelled' && rec.status !== 'cancelled') {
-    await env.DB.prepare("UPDATE shipments SET status='cancelled', cancel_state=COALESCE(cancel_state,'cancelled'), cancel_note=COALESCE(cancel_note,'Cancelled in Shiprocket'), updated_at=? WHERE order_id=?").bind(t, String(rec.order_id)).run();
+    await env.DB.prepare("UPDATE shipments SET status='cancelled', cancel_state=COALESCE(cancel_state,'cancelled'), cancel_note=COALESCE(cancel_note,?), updated_at=? WHERE order_id=?").bind(rec.provider === 'shipprime' ? 'Cancelled in ShipPrime' : 'Cancelled in Shiprocket', t, String(rec.order_id)).run();
     await env.DB.prepare('UPDATE orders SET shipped_at=NULL, tracking=NULL WHERE order_id=?').bind(String(rec.order_id)).run();
     await cancelFulfilmentsFor(env, String(rec.order_id), rec.awb).catch(() => {});
   }
@@ -90,6 +90,7 @@ export async function refreshDue(env, { max = 25 } = {}) {
 export async function requestPickup(env, recs, date) {
   const out = [];
   for (const rec of recs) {
+    if (rec.provider === 'shipprime') { out.push({ id: rec.order_id, name: rec.order_name, ok: false, note: 'ShipPrime parcel: ShipPrime books the pickup itself (ask them if it is late)' }); continue; }
     try {
       const body = { shipment_id: [Number(rec.sr_shipment_id)] };
       if (date) body.pickup_date = [date];
@@ -107,6 +108,7 @@ export async function requestPickup(env, recs, date) {
 
 /** Manifest PDF link for these shipments (generated once; printed again if it already exists). */
 export async function manifestUrl(env, recs) {
+  recs = recs.filter((r) => r.provider !== 'shipprime');
   const sids = recs.map((r) => Number(r.sr_shipment_id)).filter(Boolean), oids = recs.map((r) => Number(r.sr_order_id)).filter(Boolean);
   if (!sids.length) throw new Error('No Shiprocket shipments selected');
   try {

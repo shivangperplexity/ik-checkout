@@ -11,6 +11,7 @@
 // that are safe (cancel the pickup for a cancelled order, retry a failed fulfilment) already live in ship-cancel.js and
 // admin.js; everything the audit finds beyond those is a decision for the owner.
 
+import { trackUrlOf } from './shipprime.js';
 import { gql } from './shopify.orig.js';
 import { addTags, cancelOrder, cancelFulfilmentsFor, updateTracking, ordersShipState } from './shopify.js';
 import { stopShipment } from './ship-cancel.js';
@@ -213,7 +214,7 @@ export async function fix(env, { id, fix: what }, deps = {}) {
       if (!ship?.awb || ship.status === 'cancelled') throw new Error('No live booking to point Shopify at');
       const f = shop.fulfilments[0];
       if (!f) throw new Error('No active fulfilment in Shopify to update');
-      await updateTracking(env, f.id, { company: ship.courier || 'Shiprocket', number: ship.awb, url: `https://shiprocket.co/tracking/${ship.awb}` });
+      await updateTracking(env, f.id, { company: ship.courier || 'Shiprocket', number: ship.awb, url: trackUrlOf(ship) });
       await env.DB.prepare('UPDATE orders SET tracking=? WHERE order_id=?').bind(`${ship.courier || 'Shiprocket'} ${ship.awb}`, id).run();
       note = `Shopify tracking set to ${ship.awb}.`;
       break;

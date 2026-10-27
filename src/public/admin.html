@@ -683,13 +683,13 @@ function ratesTable(r){
  if(r.saving_vs_dearest>0)h+='<p style="margin:6px 0 0"><b>Saves '+rup(r.saving_vs_dearest)+'</b> against the dearest option.</p>';
  return h}
 
-function shipDone(sp){return '<p class="ok" style="margin:0 0 6px"><b>'+esc(sp.courier)+'</b> · AWB <b>'+esc(sp.awb)+'</b> · '+rup(sp.charge)+'</p>'
+function shipDone(sp){return '<p class="ok" style="margin:0 0 6px">'+(sp.provider==='shipprime'?'<span class="pill">ShipPrime</span> ':'')+'<b>'+esc(sp.courier)+'</b> · AWB <b>'+esc(sp.awb)+'</b> · '+rup(sp.charge)+'</p>'
  +(sp.pack&&sp.pack.label?'<p class="small mut" style="margin:0 0 6px">'+esc(sp.pack.label)+'</p>':'')
  +'<p class="small" style="margin:0 0 8px">'+(sp.pickup?esc(sp.pickup):'Pickup requested.')+'</p>'
  +'<div class="row">'+(sp.label_url?'<a class="btn sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.label_url)+'">Print label</a>':'')+'<a class="btn ghost sm" target="_blank" rel="noopener" style="display:inline-grid;place-items:center" href="'+esc(sp.track_url)+'">Track</a><button class="btn ghost sm" id="sr_dc">Refresh label / pickup</button><button class="btn bad sm" id="sr_cx">Cancel shipment</button></div>'}
 function shopifyWarn(sp){return '<div class="card" style="margin:10px 0;border-color:#f3c98b"><b style="color:var(--warn)">Shopify is not marked fulfilled yet.</b><div class="small mut" style="margin-top:4px">'+esc(sp.fulfil_error||'It is retried automatically every few minutes.')+'</div><button class="btn sm" id="sr_ff" style="margin-top:8px">Fulfil in Shopify now</button></div>'}
 function shipPanel(id,o){
- var e=$('#or_rt');
+ var e=$('#or_rt'),o0=o;
  function draw(r){
   var el=$('#or_rt');if(!el)return;
   if(r.shipment){el.innerHTML=shipDone(r.shipment)+shopifyWarn(r.shipment);wireDone(r.shipment);return}
@@ -706,19 +706,39 @@ function shipPanel(id,o){
    h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(x){var p=x.key===r.pick;return '<tr style="border-top:1px solid #eee'+(p?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(x.courier)+(p?'<div style="font-weight:400;color:#16a34a">will be used</div>':'')+'</td><td>'+(x.charge==null?'-':rup(x.charge))+'</td><td>'+(esc(x.edd)||'-')+'</td></tr>'}).join('')+'</table>';
    h+='<button class="btn" id="sr_go" style="margin-top:10px"'+(r.ready&&pk?'':' disabled')+'>Ship with Shiprocket'+(pk&&pk.charge!=null?' · '+rup(pk.charge):'')+'</button>'+(r.fallback?'':exl);
   }
+  /* ShipPrime next to Shiprocket: its own couriers and prices; tap a row to choose the courier */
+  var spSel=r.sp&&r.sp.pick||'';
+  if(r.sp&&r.sp.connected){
+   var sh='<div style="border-top:2px solid #eee;margin-top:14px;padding-top:10px"><h4 style="margin:0 0 4px">ShipPrime</h4>';
+   if(r.sp.error)sh+='<p class="small" style="color:var(--bad);margin:4px 0">'+esc(r.sp.error)+'</p>';
+   if(r.sp.options&&r.sp.options.length){
+    sh+='<p class="small mut" style="margin:0 0 4px">Weight sent: '+esc(String(r.sp.weight_g||''))+' g · pickup '+esc(r.sp.pickup||'')+' · courier order '+esc(r.sp.prefer||'cheapest')+'. Tap a row to pick another courier.</p>';
+    sh+='<table id="sp_tb" style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>RTO</th></tr>'+r.sp.options.map(function(x){return '<tr data-code="'+esc(x.code)+'" style="border-top:1px solid #eee;cursor:pointer"><td style="padding:6px 4px">'+esc(x.courier)+'<div class="small sp_lb" style="font-weight:400;color:#16a34a"></div></td><td>'+(x.charge==null?'-':rup(x.charge))+(x.cod_fee?'<div class="mut small">incl. COD '+rup(x.cod_fee)+'</div>':'')+'</td><td>'+(x.rto==null?'-':rup(x.rto))+'</td></tr>'}).join('')+'</table>';
+   }
+   sh+='<button class="btn" id="sp_go" style="margin-top:10px"'+(r.sp.options&&r.sp.options.length?'':' disabled')+'>Ship with ShipPrime</button>';
+   sh+='<p class="small mut" style="margin:6px 0 0">ShipPrime books the pickup itself. Failed deliveries (NDR) on ShipPrime are re-attempted from ShipPrime, Manage NDR.</p></div>';
+   h=r.ship_default==='shipprime'?'<p style="margin:0 0 6px"><b>Parcel (automatic):</b> '+esc(r.pack.label)+' · '+r.pack.weight_g+' g</p>'+sh.replace('border-top:2px solid #eee;margin-top:14px;padding-top:10px','')+'<div style="border-top:2px solid #eee;margin-top:14px;padding-top:10px"><h4 style="margin:0 0 4px">Shiprocket</h4>'+h.replace(/^<p style="margin:0 0 6px"><b>Parcel \(automatic\):<\/b>[^]*?<\/p>/,'')+'</div>':h+sh;
+  }
   el.innerHTML=h;
+  function spMark(){[].forEach.call(document.querySelectorAll('#sp_tb tr[data-code]'),function(tr){var on=tr.dataset.code===spSel;tr.style.background=on?'#ecfdf5':'';tr.style.fontWeight=on?'700':'';tr.querySelector('.sp_lb').textContent=on?'will be used':''});
+   var o=(r.sp&&r.sp.options||[]).filter(function(x){return x.code===spSel})[0],b=$('#sp_go');if(b)b.textContent='Ship with ShipPrime'+(o?' · '+o.courier+(o.charge!=null?' · '+rup(o.charge):''):'')}
+  if(r.sp&&r.sp.connected){[].forEach.call(document.querySelectorAll('#sp_tb tr[data-code]'),function(tr){tr.onclick=function(){spSel=tr.dataset.code;spMark()}});spMark();
+   var spg=$('#sp_go');if(spg)spg.onclick=function(){var o=(r.sp.options||[]).filter(function(x){return x.code===spSel})[0];
+    if(!confirm('Book '+(o?o.courier:'ShipPrime')+' with ShipPrime for '+o0.name+'? This creates the AWB and the label, and ShipPrime charges its wallet after pickup.'))return;
+    spg.disabled=true;spg.textContent='Booking…';
+    rpc('ship_book',{id:id,provider:'shipprime',tpl:spSel}).then(function(b){toast((b.note?b.note+'. ':'')+(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped with ShipPrime'));el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){spg.disabled=false;spMark();toast(er.message)})}}
   var nv=$('#sr_nv');if(nv)nv.onclick=function(){nv.disabled=true;nv.textContent='Loading…';rpc('ship_plan',{id:id,allow_never:true}).then(draw).catch(function(er){nv.disabled=false;toast(er.message)})};
   var sp=$('#sr_pay');if(sp)sp.onclick=function(){sp.disabled=true;sp.textContent='Sending…';rpc('convert_send',{id:id}).then(function(){sp.textContent='Pay-online link sent';toast('Sent. Once they pay, ship it again: it books as prepaid.')}).catch(function(e){sp.disabled=false;sp.textContent='Send pay-online link on WhatsApp';toast(e.message)})};
   var g=$('#sr_go');if(g)g.onclick=function(){
    if(!confirm('Book '+(pk?pk.courier:'the cheapest courier')+' for '+o.name+'? This creates the AWB, asks for pickup and charges your Shiprocket wallet.'))return;
    g.disabled=true;g.textContent='Booking…';
-   rpc('ship_book',{id:id,allow_never:!!r.allow_never}).then(function(b){toast((b.note?b.note+'. ':'')+(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped'));el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
+   rpc('ship_book',{id:id,provider:'shiprocket',allow_never:!!r.allow_never}).then(function(b){toast((b.note?b.note+'. ':'')+(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped'));el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
  }
  function wireDone(sp){
   var d=$('#sr_dc'),c=$('#sr_cx'),f=$('#sr_ff');
   if(f)f.onclick=function(){f.disabled=true;f.textContent='Fulfilling…';rpc('ship_book',{id:id}).then(function(b){toast(b.fulfilment_error?'Shopify: '+b.fulfilment_error:'Fulfilled in Shopify');loadOrders(true);openOrder(id)}).catch(function(er){f.disabled=false;f.textContent='Fulfil in Shopify now';toast(er.message)})};
   if(d)d.onclick=function(){d.disabled=true;rpc('sr_docs',{id:id}).then(function(){toast('Updated');shipPanel(id,o)}).catch(function(er){d.disabled=false;toast(er.message)})};
-  if(c)c.onclick=function(){if(!confirm('Cancel the Shiprocket shipment for '+o.name+'?'))return;c.disabled=true;rpc('sr_cancel',{id:id}).then(function(){toast('Cancelled');shipPanel(id,o)}).catch(function(er){c.disabled=false;toast(er.message)})}
+  if(c)c.onclick=function(){if(!confirm('Cancel the '+(sp.provider==='shipprime'?'ShipPrime':'Shiprocket')+' shipment for '+o.name+'?'))return;c.disabled=true;rpc('sr_cancel',{id:id}).then(function(){toast('Cancelled');shipPanel(id,o)}).catch(function(er){c.disabled=false;toast(er.message)})}
  }
  rpc('ship_plan',{id:id}).then(draw).catch(function(er){var el=$('#or_rt');if(el)el.textContent=er.message})}
 function close(){$('#ov').innerHTML=''}
@@ -935,6 +955,7 @@ function loadShip(quiet){
   var att=[];
   if(at.to_pack&&at.to_pack.length)att.push('<button class="chip" data-pack="all" style="border-color:var(--ink);font-weight:700">Start packing · '+at.to_pack.length+' waiting for pickup, not packed</button>');
   if(at.pickup_failed)att.push('<button class="chip" data-att="pickup_failed" style="border-color:var(--bad);color:var(--bad)">'+at.pickup_failed+' pickup failed</button>');
+  if(at.shipprime_ndr&&at.shipprime_ndr.length)att.push('<button class="chip" data-att="ndr" style="border-color:var(--warn);color:var(--warn)" title="ShipPrime has no NDR API, so these are not re-attempted automatically: '+esc(at.shipprime_ndr.join(', '))+'. Open ShipPrime, Manage NDR, and request the re-attempt (or return).">'+at.shipprime_ndr.length+' ShipPrime NDR · do it in ShipPrime</button>');
   if(at.bluedart_late&&at.bluedart_late.length)att.push('<button class="chip" data-att="pickup_pending" style="border-color:var(--bad);color:var(--bad)" title="Blue Dart has not picked these up for 36+ hours: '+esc(at.bluedart_late.join(', '))+'. Raise it with Shiprocket (pickup escalation), or cancel and re-book with another courier.">'+at.bluedart_late.length+' Blue Dart not picked up in 36 h · escalate</button>');
   if(at.pickup_late)att.push('<button class="chip" data-att="pickup_pending" style="border-color:var(--warn);color:var(--warn)">'+at.pickup_late+' waiting for pickup over a day</button>');
   if(at.ndr)att.push('<button class="chip" data-att="ndr" style="border-color:var(--bad);color:var(--bad)">'+at.ndr+' NDR</button>');
@@ -1330,6 +1351,17 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  +'<label class="f">Pay up to this much more for it (₹)<input type="number" id="sh_prefx" min="0" max="500" value="'+esc(sh.cod_prefer_extra==null?25:sh.cod_prefer_extra)+'"></label>'
  +'<label class="f">Pickup location (where the courier collects)<select id="sh_pk"><option value="'+esc(sh.sr_pickup||'')+'">'+esc(sh.sr_pickup||'Load locations below')+'</option></select></label><button class="btn ghost sm" id="sh_pkl" type="button">Load my Shiprocket pickup locations</button>'
  +'<label class="f">Email if the customer has none<input type="email" id="sh_fe" value="'+esc(sh.sr_fallback_email||'')+'"></label>'
+ +(function(){var a=sh.sp_pickup||{};function f(id,l,k,ph){return '<label class="f">'+l+'<input id="spa_'+id+'" value="'+esc(a[k]||'')+'" placeholder="'+esc(ph||'')+'"></label>'}
+  return '<h4 style="margin:12px 0 0">ShipPrime '+(sh.shipprime_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
+  +'<p class="small mut" style="margin:0">In ShipPrime open Profile, API Setup. Copy the API token (Rotate shows a new one; the old one then stops working) and paste it here. Every order then shows Ship with Shiprocket and Ship with ShipPrime.</p>'
+  +'<label class="f">ShipPrime API token<input type="password" id="sh_spt" value="'+esc(sh.shipprime_token||'')+'" autocomplete="new-password" placeholder="paste the token"></label>'
+  +'<label class="f">ShipPrime courier order<input id="sh_spp" value="'+esc(sh.shipprime_prefer==null?'BLUEDART|XPRESSBEES|DELHIVERY':sh.shipprime_prefer)+'"><span class="small mut">The first one ShipPrime offers for the PIN is booked; empty = cheapest. Codes: '+esc((sh.sp_couriers||[]).join(', '))+'</span></label>'
+  +'<label class="f">Bulk booking uses<select id="sh_def"><option value="shiprocket"'+(sh.ship_default!=='shipprime'?' selected':'')+'>Shiprocket</option><option value="shipprime"'+(sh.ship_default==='shipprime'?' selected':'')+'>ShipPrime</option></select></label>'
+  +'<p class="small" style="margin:6px 0 0"><b>Pickup address for ShipPrime</b> <span class="mut">(empty = same as the Shiprocket pickup location)</span></p>'
+  +'<div class="grid two">'+f('n','Name','name','Ink Kulture')+f('p','Phone (10 digits)','phone')+f('a1','Address','address1')+f('a2','Address line 2','address2')+f('c','City','city')+f('s','State','state')+f('z','PIN','pincode')+'</div>'
+  +'<p class="small" style="margin:6px 0 0"><b>Tracking webhook</b> <span class="mut">(ShipPrime, Profile, API Setup, Webhooks: add this URL and secret, mark it active)</span></p>'
+  +'<label class="f">Webhook URL<input readonly value="'+esc(sh.sp_webhook_url||'')+'" onclick="this.select()"></label><label class="f">Secret (Bearer)<input readonly value="'+esc(sh.sp_webhook_secret||'')+'" onclick="this.select()"></label>'
+  +'<button class="btn ghost sm" id="sh_spx" type="button">Test ShipPrime connection</button><div id="sh_spo" class="small mut"></div>'})()
  +'<h4 style="margin:10px 0 0">Packaging (automatic)</h4><p class="small mut" style="margin:0">Parcel size = biggest envelope + padding. Height starts at the base and grows per extra envelope. A sleeve tattoo, or a design too big for the large envelope, goes in the roll.</p>'
  +(function(){var p=sh.pack||{};function f(id,l,k,st){return '<label class="f">'+l+'<input type="number" step="'+(st||'0.01')+'" id="pk_'+id+'" value="'+esc(String(p[k]==null?'':p[k]))+'"></label>'}
   return '<div class="grid two">'+f('al','Small envelope length (in)','a_l')+f('ab','Small envelope breadth (in)','a_b')+f('ca','Tattoos per small envelope','cap_a','1')+f('bl','Large envelope length (in)','b_l')+f('bb','Large envelope breadth (in)','b_b')+f('cb','Tattoos per large envelope','cap_b','1')+f('pad','Padding added (cm)','pad_cm')+f('bh','Base height (cm)','base_h_cm')+f('sh','Extra height per envelope (cm)','step_h_cm')+f('rl','Roll length (cm)','roll_l')+f('rb','Roll breadth (cm)','roll_b')+f('rh','Roll height (cm)','roll_h')+f('ew','Envelope weight (g)','env_weight_g')+f('tw','Tattoo weight if not set (g)','tattoo_weight_g')+'</div>'})()
@@ -1347,7 +1379,8 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  $('#lg_sv').onclick=function(){var l={};[].forEach.call(document.querySelectorAll('.lg'),function(i){l[i.dataset.k]=i.value});rpc('save_logos',{logos:l}).then(function(){toast('Saved')}).catch(function(e){toast(e.message)})};
  $('#sh_pkl').onclick=function(){var b=$('#sh_pkl');b.disabled=true;rpc('sr_pickups').then(function(r){var cur=$('#sh_pk').value;$('#sh_pk').innerHTML=r.pickups.map(function(x){var n=typeof x==='string'?x:x.name;return '<option'+(n===cur?' selected':'')+'>'+esc(n)+'</option>'}).join('')||'<option value="">None found</option>';b.disabled=false}).catch(function(e){b.disabled=false;toast(e.message)})};
  $('#sh_sv').onclick=function(){var pk={};['al:a_l','ab:a_b','ca:cap_a','bl:b_l','bb:b_b','cb:cap_b','pad:pad_cm','bh:base_h_cm','sh:step_h_cm','rl:roll_l','rb:roll_b','rh:roll_h','ew:env_weight_g','tw:tattoo_weight_g'].forEach(function(m){var q=m.split(':');pk[q[1]]=$('#pk_'+q[0]).value});
-  rpc('save_shipping',{shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,shiprocket_block:$('#sh_blk').value,cod_prefer:$('#sh_pref').value,cod_prefer_extra:$('#sh_prefx').value,sr_pickup:$('#sh_pk').value,sr_fallback_email:$('#sh_fe').value,pack:pk,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
+  rpc('save_shipping',{shiprocket_email:$('#sh_sre').value,shiprocket_password:$('#sh_srp').value,shiprocket_couriers:$('#sh_scr').value,shiprocket_block:$('#sh_blk').value,cod_prefer:$('#sh_pref').value,cod_prefer_extra:$('#sh_prefx').value,shipprime_token:$('#sh_spt').value,shipprime_prefer:$('#sh_spp').value,ship_default:$('#sh_def').value,sp_pickup:{name:$('#spa_n').value,phone:$('#spa_p').value,address1:$('#spa_a1').value,address2:$('#spa_a2').value,city:$('#spa_c').value,state:$('#spa_s').value,pincode:$('#spa_z').value},sr_pickup:$('#sh_pk').value,sr_fallback_email:$('#sh_fe').value,pack:pk,origin_pin:$('#sh_pin').value,weight_g:$('#sh_wt').value,policy:$('#sh_pol').value,tolerance_days:$('#sh_tol').value}).then(function(){toast('Saved');loadSettings()}).catch(function(e){toast(e.message)})};
+ $('#sh_spx').onclick=function(){var o=$('#sh_spo');o.textContent='Checking…';rpc('sp_test').then(function(r){var w=r.wallet||{},p=r.pickup||{};o.innerHTML='Connected. Wallet '+rup(w.balance||0)+(w.banned?' <b style="color:var(--bad)">(wallet banned)</b>':'')+'. Pickup: '+(p.error?'<span style="color:var(--bad)">'+esc(p.error)+'</span>':esc([p.name,p.address1,p.city,p.pincode].filter(Boolean).join(', ')))}).catch(function(e){o.textContent='Failed: '+e.message})};
  $('#rt_go').onclick=function(){var o=$('#rt_out');o.textContent='Asking the carriers…';rpc('shipping_rates',{pin:$('#rt_pin').value,cod:$('#rt_cod').checked,amount:$('#rt_amt').value}).then(function(r){o.innerHTML=ratesTable(r)}).catch(function(e){o.textContent='Failed: '+e.message})};
  scopeCheck($('#st_scope'));printerCard();
  codBind();

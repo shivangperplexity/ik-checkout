@@ -272,7 +272,7 @@ async function pushUnlisted(env, cfg, listed) {
     }
     const rows = (await env.DB.prepare(`SELECT s.awb, s.order_id, s.order_name, s.sr_status, s.attempts, s.ndr_choice, s.ndr_choice_at, s.ndr_by, o.phone, o.status AS order_status
         FROM shipments s JOIN orders o ON o.order_id = s.order_id
-        WHERE s.stage='ndr' AND s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND COALESCE(s.rto,false)=false AND s.tracked_at>?
+        WHERE s.stage='ndr' AND s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND COALESCE(s.provider,'')<>'shipprime' AND COALESCE(s.rto,false)=false AND s.tracked_at>?
         ORDER BY s.tracked_at DESC LIMIT 20`).bind(t - 3 * 3600).all()).results;
     const res = { pushed: 0, failed: 0, skipped: 0 };
     for (const s of rows) {

@@ -47,7 +47,7 @@ export function parcelOf(r, t = now()) {
     if (['pickup_pending', 'pickup_failed', 'cancelled', ''].includes(stage) && !r.sr_rto) return null;
     const outcome = r.sr_rto === true || r.sr_rto === 1 || stage === 'rto' ? 'rto' : stage === 'delivered' ? 'delivered' : 'transit';
     const booked = num(r.sr_created);
-    return { via: 'Shiprocket', name: r.sr_courier || '', family: familyOf(r.sr_courier), mode: modeOf(r.sr_courier), outcome, order: r.name, pay: r.pay || '', state: normState(r.region, ''),
+    return { via: r.sr_provider === 'shipprime' ? 'ShipPrime' : 'Shiprocket', name: r.sr_courier || '', family: familyOf(r.sr_courier), mode: modeOf(r.sr_courier), outcome, order: r.name, pay: r.pay || '', state: normState(r.region, ''),
       booked, first_scan: num(r.sr_picked) || null, delivered_at: num(r.sr_delivered_at) || null, charge: num(r.sr_charge) / 100, attempts: r.sr_attempts == null ? null : num(r.sr_attempts) };
   }
   if (!r.courier || !['delivered', 'returned', 'shipped'].includes(r.state)) return null;
@@ -116,7 +116,7 @@ export function buildReport(parcels) {
 
 export async function courierReport(env) {
   const rows = (await env.DB.prepare(`SELECT r.name, r.pay, r.state, r.region, r.carrier, r.courier, r.shipped_at, r.picked_at, r.delivered_at,
-      s.awb AS sr_awb, s.courier AS sr_courier, s.stage AS sr_stage, s.rto AS sr_rto, s.status AS sr_status, s.created_at AS sr_created, s.picked_at AS sr_picked,
+      s.awb AS sr_awb, s.courier AS sr_courier, s.provider AS sr_provider, s.stage AS sr_stage, s.rto AS sr_rto, s.status AS sr_status, s.created_at AS sr_created, s.picked_at AS sr_picked,
       s.delivered_at AS sr_delivered_at, s.charge_paise AS sr_charge, s.attempts AS sr_attempts, o.method AS ik_method, o.converted_at
     FROM rev_orders r LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'') <> 'cancelled' AND s.awb IS NOT NULL AND s.awb <> ''
     LEFT JOIN orders o ON o.order_id = r.order_id`).all()).results;

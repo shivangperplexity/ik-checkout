@@ -65,7 +65,9 @@ export const SCHEMA = [
   /* AWBs of cancelled bookings (a rebook replaces the shipments row): the label scanner recognises an old label */
   `CREATE TABLE IF NOT EXISTS ship_old_awbs (awb TEXT PRIMARY KEY, order_id TEXT, order_name TEXT, courier TEXT, cancelled_at BIGINT)`,
   /* parcels imported from Shopify fulfilments that were never booked with Shiprocket (old NimbusPost AWBs): not ours to track */
-  `DELETE FROM shipments WHERE sr_shipment_id IS NULL AND sr_order_id IS NULL AND COALESCE(status,'')<>'booking'`,
+  /* ShipPrime bookings (lib/shipprime.js) have no Shiprocket ids: the column must exist before the cleanup below */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS provider TEXT`,
+  `DELETE FROM shipments WHERE sr_shipment_id IS NULL AND sr_order_id IS NULL AND COALESCE(status,'')<>'booking' AND COALESCE(provider,'')<>'shipprime'`,
   /* WhatsApp assistant: phones waiting for an answer (rate limit hit, or picked from the backlog) */
   `CREATE TABLE IF NOT EXISTS ai_queue (phone TEXT PRIMARY KEY, via TEXT, phone_id TEXT, queued_at BIGINT, tries INT DEFAULT 0, note TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_phone_id ON messages (phone, id)`,
@@ -106,6 +108,10 @@ export const SCHEMA = [
   `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS pilot_note TEXT`,
   `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS tries INT`,
   `ALTER TABLE ndr_auto ADD COLUMN IF NOT EXISTS err_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_ref TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_order_id TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_status TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_event_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_save_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_commit_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_fake INT`,

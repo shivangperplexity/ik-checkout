@@ -1,9 +1,10 @@
 import { json, hmacSha256hex, sha256hex, safeEqual, cleanPhone } from './util.js';
+import { trackUrlOf, spConnected, spPlan, spBook, spWallet, spPickup, spWebhookUrl, spWebhookSecret, SP_COURIERS, SP_DEFAULT_PREFER } from './shipprime.js';
 import { getSettings, putSetting, TRIGGERS, VAR_LABELS, triggerConfig } from './settings.js';
 const convertCfgOf = (f) => { try { return { mode: f.SETTINGS?.convert?.mode === 'on' ? 'on' : 'off' }; } catch { return { mode: 'off' }; } };
 async function withSettingsFresh(env) { return { ...env, SETTINGS: await getSettings(env, true) }; }
 import { orderForShipping, packingItems, activeFulfilments, updateTracking, cancelFulfilmentsFor } from './shopify.js';
-import { planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
+import { planBasics, planShipment, bookShipment, publicRec, srPickups, ndrList, ndrAction, cancelShipment, refreshDocs, srConnected, srWallet } from './shiprocket.js';
 import { packCfg, PACK_DEFAULTS, IN } from './packing.js';
 import { pickOption } from './rates.js';
 import { normState } from './revenue.js';
@@ -308,11 +309,11 @@ async function shipRecs(env, ids, max) {
 }
 
 /** The WhatsApp tracking row follows the live AWB: a new AWB (rebook) restarts it, the same AWB leaves it alone. */
-async function syncTrackRow(env, id, awb, courier) {
+async function syncTrackRow(env, id, awb, courier, url) {
   const t = now();
   await env.DB.prepare(`INSERT INTO ship_track (order_id, awb, courier, url, status, sent, checked_at, done, updated_at) VALUES (?,?,?,?,NULL,'{}',0,FALSE,?)
     ON CONFLICT (order_id) DO UPDATE SET awb=excluded.awb, courier=excluded.courier, url=excluded.url, status=NULL, sent='{}', checked_at=0, done=FALSE, updated_at=excluded.updated_at
-    WHERE ship_track.awb IS DISTINCT FROM excluded.awb OR ship_track.done = TRUE`).bind(String(id), String(awb), courier, `https://shiprocket.co/tracking/${awb}`, t).run().catch(() => {});
+    WHERE ship_track.awb IS DISTINCT FROM excluded.awb OR ship_track.done = TRUE`).bind(String(id), String(awb), courier, url || `https://shiprocket.co/tracking/${awb}`, t).run().catch(() => {});
 }
 
 /**
@@ -325,7 +326,7 @@ async function syncTrackRow(env, id, awb, courier) {
 export async function fulfilBooked(env, id) {
   const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(id)).first();
   if (!rec?.awb) return 'No Shiprocket AWB for this order yet';
-  const courier = rec.courier || 'Shiprocket', awb = String(rec.awb), url = `https://shiprocket.co/tracking/${awb}`;
+  const courier = rec.courier || (rec.provider === 'shipprime' ? 'ShipPrime' : 'Shiprocket'), awb = String(rec.awb), url = trackUrlOf(rec);
   let err = '';
   try { await ACTIONS.ship(env, { id, company: courier, number: awb, url, notify: false }); }
   catch (e) {
@@ -348,7 +349,7 @@ export async function fulfilBooked(env, id) {
   }
   if (!err) {
     await env.DB.prepare('UPDATE orders SET shipped_at=COALESCE(shipped_at, ?), tracking=? WHERE order_id=?').bind(now(), `${courier} ${awb}`, String(id)).run();
-    await syncTrackRow(env, id, awb, courier);
+    await syncTrackRow(env, id, awb, courier, url);
   }
   await env.DB.prepare('UPDATE shipments SET fulfil_error=? WHERE order_id=?').bind(err ? err.slice(0, 400) : null, String(id)).run();
   return err;
@@ -774,7 +775,10 @@ const ACTIONS = {
         shiprocket_email: s.shipping.shiprocket_email, shiprocket_password: mask(s.shipping.shiprocket_password), shiprocket_ok: !!(s.shipping.shiprocket_email && s.shipping.shiprocket_password), shiprocket_couriers: s.shipping.shiprocket_couriers,
         policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days, shiprocket_block: s.shipping.shiprocket_block ?? null,
         cod_prefer: s.shipping.cod_prefer ?? 'Blue Dart Surface', cod_prefer_extra: s.shipping.cod_prefer_extra ?? 25,
-        sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack) },
+        sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack),
+        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token, shipprime_prefer: s.shipping.shipprime_prefer ?? SP_DEFAULT_PREFER,
+        ship_default: s.shipping.ship_default === 'shipprime' ? 'shipprime' : 'shiprocket', sp_pickup: s.shipping.sp_pickup || null,
+        sp_webhook_url: spWebhookUrl(env), sp_webhook_secret: await spWebhookSecret(env), sp_couriers: SP_COURIERS },
     };
   },
   async save_shipping(env, b) {
@@ -798,6 +802,17 @@ const ACTIONS = {
     if (b.pack && typeof b.pack === 'object') sh.pack = packFromUi(b.pack);
     if (b.policy !== undefined) sh.policy = b.policy === 'fastest' ? 'fastest' : 'cheapest';
     if (b.tolerance_days !== undefined) sh.tolerance_days = Math.max(0, Math.min(10, Math.round(+b.tolerance_days || 0)));
+    /* ShipPrime: API token (Profile > API Setup), courier order, default carrier for bulk booking, pickup address */
+    if (b.shipprime_token !== undefined && !String(b.shipprime_token).startsWith('••')) sh.shipprime_token = String(b.shipprime_token).replace(/^Bearer\s+/i, '').trim().slice(0, 2000);
+    if (b.shipprime_prefer !== undefined) sh.shipprime_prefer = String(b.shipprime_prefer).toUpperCase().split(/[|,\s]+/).filter((c) => SP_COURIERS.includes(c)).join('|');
+    if (b.ship_default !== undefined) sh.ship_default = b.ship_default === 'shipprime' ? 'shipprime' : 'shiprocket';
+    if (b.sp_pickup && typeof b.sp_pickup === 'object') {
+      const a = b.sp_pickup, d = (x) => String(x || '').replace(/\D/g, '');
+      const v = { name: String(a.name || '').trim().slice(0, 200), phone: d(a.phone).slice(-10), address1: String(a.address1 || '').trim().slice(0, 250), address2: String(a.address2 || '').trim().slice(0, 250), city: String(a.city || '').trim().slice(0, 100), state: String(a.state || '').trim().slice(0, 100), pincode: d(a.pincode).slice(0, 6) };
+      const any = Object.values(v).some(Boolean);
+      if (any && (!v.name || v.phone.length !== 10 || !v.address1 || !v.city || !v.state || v.pincode.length !== 6)) throw new Error('ShipPrime pickup address: fill name, 10-digit phone, address, city, state and 6-digit PIN (or leave it all empty to use the Shiprocket pickup location).');
+      sh.sp_pickup = any ? v : null;
+    }
     await putSetting(env, 'shipping', sh);
     return { ok: true };
   },
@@ -815,9 +830,28 @@ const ACTIONS = {
   async ship_plan(env, b) {
     const { fresh, row, order } = await shipCtx(env, b.id);
     const existing = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
-    if (!srConnected(fresh)) throw new Error('Shiprocket is not connected yet. Add the API user login in Settings, Shipping carriers.');
-    const plan = await planShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
+    const spOn = spConnected(fresh);
+    if (!srConnected(fresh) && !spOn) throw new Error('No carrier connected yet. Add the Shiprocket API user or the ShipPrime API token in Settings, Shipping carriers.');
+    /* ShipPrime side by side (its own rates and courier order); a ShipPrime problem never hides the Shiprocket plan */
+    let spOut = { connected: spOn };
+    if (spOn) {
+      try {
+        const p = await spPlan(fresh, order, row);
+        spOut = { connected: true, options: p.rates.map((r) => ({ code: r.code, courier: r.courier, charge: r.charge, forward: r.forward, cod_fee: r.cod, rto: r.rto })), pick: p.pick ? p.pick.code : '',
+          error: p.error || '', pickup: `${p.pickup.city} ${p.pickup.pincode}`, weight_g: p.pack.weight_g, prefer: fresh.SETTINGS.shipping.shipprime_prefer ?? SP_DEFAULT_PREFER };
+      } catch (e) { spOut = { connected: true, options: [], error: String(e.message || e) }; }
+    }
+    let plan;
+    try {
+      if (!srConnected(fresh)) throw new Error('Shiprocket is not connected.');
+      plan = await planShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
+    } catch (e) {
+      if (!spOn) throw e;
+      const base = planBasics(fresh, order, row);
+      plan = { ...base, options: [], pick: null, fallback: '', why: 'Shiprocket: ' + String(e.message || e), excluded: [], onlyNever: false, risk_note: '' };
+    }
     return { ok: true, allow_never: !!b.allow_never, only_never: !!plan.onlyNever, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
+      sp: spOut, ship_default: fresh.SETTINGS.shipping.ship_default === 'shipprime' && spOn ? 'shipprime' : 'shiprocket',
       shipment: publicRec(existing && existing.awb && existing.status !== 'cancelled' ? existing : null),
       options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null, excluded: o.excluded || '' })),
       fallback: plan.fallback || '', why: plan.why || '', excluded: plan.excluded || [], convert_on: convertCfgOf(fresh).mode === 'on', risk_note: plan.risk_note || '' };
@@ -826,14 +860,18 @@ const ACTIONS = {
   async ship_book(env, b) {
     const { fresh, row, order } = await shipCtx(env, b.id);
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
-    const r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
-    /* the AWB exists in Shiprocket either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
+    /* carrier: what the button said; bulk booking (no provider) uses Settings > Shipping carriers > default carrier */
+    const provider = b.provider === 'shipprime' || b.provider === 'shiprocket' ? b.provider : (fresh.SETTINGS.shipping.ship_default === 'shipprime' && spConnected(fresh) ? 'shipprime' : 'shiprocket');
+    let r;
+    if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec) }; }
+    else r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
+    /* the AWB exists with the carrier either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
     return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil, note: r.note || '' };
   },
   async sr_docs(env, b) {
     const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
-    if (!rec?.sr_shipment_id) throw new Error('This order was not booked from the dashboard');
+    if (!rec?.sr_shipment_id && rec?.provider !== 'shipprime') throw new Error('This order was not booked from the dashboard');
     const d = await refreshDocs(await withSettingsFresh(env), rec);
     await env.DB.prepare('UPDATE shipments SET label_url=?, pickup=?, updated_at=? WHERE order_id=?').bind(d.label_url, d.pickup, now(), String(b.id)).run();
     return { ok: true, ...d };
@@ -844,6 +882,14 @@ const ACTIONS = {
     if (r.state === 'picked') throw new Error('The courier has already picked this parcel up, so it cannot be cancelled. Ask Shiprocket for RTO.');
     if (r.state === 'error') throw new Error(r.note);
     return { ok: true, note: r.note };
+  },
+  /** ShipPrime connection check: the wallet (also proves the token works). Books nothing. */
+  async sp_test(env) {
+    const fresh = await withSettingsFresh(env);
+    if (!spConnected(fresh)) throw new Error('Paste the ShipPrime API token first');
+    const w = await spWallet(fresh);
+    let pickup = null; try { pickup = await spPickup(fresh); } catch (e) { pickup = { error: String(e.message || e) }; }
+    return { ok: true, wallet: w, pickup };
   },
   async sr_pickups(env) { return { ok: true, pickups: await srPickups(await withSettingsFresh(env)) }; },
   /** Read-only look at Shiprocket's raw answer (NDR list, tracking) for checking what the courier really did. */
@@ -941,7 +987,9 @@ const ACTIONS = {
         due_today: counts.due_today,
         cancelled_after_pickup: all.filter((x) => x.cancel_state === 'picked' && !['delivered', 'rto'].includes(x.stage)).length,
         /* booked with a courier on the never-use list (e.g. Blue Dart) and not picked up yet: cancel and re-book */
-        blocked: live.filter((x) => (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && courierBlocked(x.courier, blockList)).length,
+        blocked: live.filter((x) => x.provider !== 'shipprime' && (x.stage === 'pickup_pending' || x.stage === 'pickup_failed') && courierBlocked(x.courier, blockList)).length,
+        /* ShipPrime has no NDR API: these failed deliveries need a re-attempt / return in ShipPrime, Manage NDR */
+        shipprime_ndr: live.filter((x) => x.provider === 'shipprime' && x.stage === 'ndr').map((x) => x.order_name + (x.ndr_choice ? ` (customer: ${x.ndr_choice}${x.ndr_date ? ' ' + x.ndr_date : ''})` : '')),
         blocked_name: String(blockList || '').split(/[|,]/)[0].trim(),
       },
       cod,

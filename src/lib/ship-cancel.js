@@ -40,8 +40,9 @@ export async function stopShipment(env, orderId, why = 'Order cancelled') {
   let c;
   try { c = classify(await srTrack(env, rec.awb)); }
   catch (e) { const note = 'Could not check tracking, will retry: ' + String(e.message || e).slice(0, 200); await setState(env, id, rec.cancel_state === 'queued' ? 'queued' : 'error', note).catch(() => {}); return { state: 'error', note }; }
+  const carrier = rec.provider === 'shipprime' ? 'ShipPrime' : 'Shiprocket';
   if (c.stage !== 'pending') {
-    const note = `${why}, but the courier already has the parcel (${c.stage}). Ask Shiprocket for RTO.`;
+    const note = `${why}, but the courier already has the parcel (${c.stage}). Ask ${carrier} for RTO.`;
     await setState(env, id, 'picked', note).catch(() => {});
     await addTags(env, `gid://shopify/Order/${id}`, ['cancelled-after-pickup']).catch(() => {});
     return { state: 'picked', note };
@@ -49,11 +50,17 @@ export async function stopShipment(env, orderId, why = 'Order cancelled') {
 
   /* 2. cancel in Shiprocket: removes the AWB from the pickup */
   try {
-    if (!rec.sr_order_id) throw new Error('no Shiprocket order id saved for this shipment');
+    if (!rec.sr_order_id && rec.provider !== 'shipprime') throw new Error('no Shiprocket order id saved for this shipment');
     await cancelShipment(env, rec);
   } catch (e) {
+    if (e.picked) {
+      const note = `${why}, but ShipPrime says the courier already has the parcel. Ask ShipPrime for RTO.`;
+      await setState(env, id, 'picked', note).catch(() => {});
+      await addTags(env, `gid://shopify/Order/${id}`, ['cancelled-after-pickup']).catch(() => {});
+      return { state: 'picked', note };
+    }
     if (!/already\s+cancel/i.test(String(e.message))) {
-      const note = 'Shiprocket cancel failed, will retry: ' + String(e.message || e).slice(0, 200);
+      const note = carrier + ' cancel failed, will retry: ' + String(e.message || e).slice(0, 200);
       console.error('shiprocket cancel', id, rec.sr_order_id, rec.awb, e.status || '', JSON.stringify(e.body || {}).slice(0, 300));
       await setState(env, id, rec.cancel_state === 'queued' ? 'queued' : 'error', note).catch(() => {});
       return { state: 'error', note };

@@ -15,6 +15,7 @@
 // cannot see). A handoff is logged so the WhatsApp tab shows it, and the customer is told the team will reply.
 // At most AI_DAILY_CAP replies per phone per day. Off until an API key is saved and the switch is on.
 
+import { trackUrlOf } from './shipprime.js';
 import { sendText, logMsg } from './whatsapp.js';
 import { STAGES, LABEL as STAGE_LABEL } from './ship-status.js';
 
@@ -72,9 +73,9 @@ const ACTIVE = ['pickup_pending', 'pickup_failed', 'transit', 'ofd', 'ndr'];
 /** Latest courier scans for one AWB, newest first: "16 Oct 14:20 · In Transit - Reached hub · Bhiwandi". Never throws. */
 async function liveScans(env, awb, n = 3) {
   try {
-    const { sr } = await import('./shiprocket.js');
+    const { trackRaw } = await import('./shiprocket.js');
     const { summarize } = await import('./sr-scan.js');
-    const sum = summarize(await Promise.race([sr(env, 'GET', `courier/track/awb/${encodeURIComponent(awb)}`), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 6000))]));
+    const sum = summarize(await Promise.race([trackRaw(env, awb), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 6000))]));
     return { scans: sum.scans.slice(0, n).map((x) => `${x.at.slice(5, 16).replace(/^(\d\d)-(\d\d)/, (m, mo, d) => `${d}/${mo}`)} · ${x.text}${x.location ? ' · ' + x.location : ''}`), edd: sum.edd, current: sum.current };
   } catch { return null; }
 }
@@ -90,7 +91,7 @@ function orderLine(r, live) {
       + (edd && ['transit', 'ofd', 'ndr'].includes(r.stage) ? `, expected ${edd}` : '')
       + (r.stage === 'ndr' ? (r.ndr_choice ? ` (customer chose ${r.ndr_choice}${r.ndr_date ? ' on ' + r.ndr_date : ''})` : ' (delivery attempt failed; customer can reply RE-ATTEMPT or RETURN)') : '')
       + (r.stage === 'pickup_pending' || r.stage === 'pickup_failed' ? ' (packed and waiting for the courier to collect it)' : '')
-      + `, tracking https://shiprocket.co/tracking/${r.awb}`
+      + `, tracking ${trackUrlOf(r)}`
       + (live && live.scans.length ? `. Latest courier scans: ${live.scans.join(' | ')}` : '');
   } else if (r.shipped_at) state = `shipped${r.tracking ? ' (' + r.tracking + ')' : ''}`;
   else if (r.method === 'cod' && !r.confirmed_at) state = 'placed, COD not yet confirmed by the customer (they can reply YES to confirm); not shipped yet';

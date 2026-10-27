@@ -20,7 +20,7 @@
  *         after "Ask past customers" in the dashboard).
  */
 import { gql } from './shopify.js';
-import { sr } from './shiprocket.js';
+import { sr, trackRaw } from './shiprocket.js';
 import { summarize } from './sr-scan.js';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -176,7 +176,7 @@ export async function checkTracking(env, { max = 30, track } = {}) {
     }
     if (!stage && r.awb && !/nimbuspost/i.test(r.track_url || '')) {
       try {
-        const s = summarize(track ? await track(r.awb) : await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(r.awb)}`));
+        const s = summarize(track ? await track(r.awb) : await trackRaw(env, r.awb));
         if (s.stage === 'delivered') { stage = 'delivered'; at = istTs(s.newestAt) || 0; }
         else if (s.stage === 'rto') stage = 'rto';
       } catch { /* not trackable right now */ }

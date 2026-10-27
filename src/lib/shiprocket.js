@@ -17,6 +17,7 @@ import { cfg, courierBlocked } from './shipping.js';
 import { codDue } from './partial-cod.js';
 import { packCfg, packOrder } from './packing.js';
 import { summarize, PRE } from './sr-scan.js';
+import { spTrackRaw, spCancel, trackUrlOf } from './shipprime.js';
 
 const SR = 'https://apiv2.shiprocket.in/v1/external';
 const TIMEOUT = 15000;
@@ -167,7 +168,17 @@ export function adaptTrack(j) {
     courier_name: trk.courier_name || '', history: history.length ? history : (cur !== 'PP' ? [{ status_code: cur, message: String(trk.current_status || ''), location: '', event_time: '' }] : []),
   };
 }
-export async function srTrack(env, awb) { return adaptTrack(await sr(env, 'GET', `courier/track/awb/${encodeURIComponent(awb)}`)); }
+/** Which carrier booked this AWB: 'shipprime' or 'shiprocket' (the default, also for AWBs we did not book). */
+export async function providerOf(env, awb) {
+  try { const r = await env.DB?.prepare("SELECT provider, courier FROM shipments WHERE awb=? ORDER BY created_at DESC LIMIT 1").bind(String(awb)).first(); return r?.provider === 'shipprime' ? { provider: 'shipprime', courier: r.courier || '' } : { provider: 'shiprocket' }; }
+  catch { return { provider: 'shiprocket' }; }
+}
+/** Tracking in Shiprocket's raw shape for either carrier (lib/sr-scan.js reads it). */
+export async function trackRaw(env, awb, rec = null) {
+  const p = rec ? { provider: rec.provider === 'shipprime' ? 'shipprime' : 'shiprocket', courier: rec.courier || '' } : await providerOf(env, awb);
+  return p.provider === 'shipprime' ? spTrackRaw(env, awb, p.courier) : sr(env, 'GET', `courier/track/awb/${encodeURIComponent(awb)}`);
+}
+export async function srTrack(env, awb) { return adaptTrack(await trackRaw(env, awb)); }
 
 /* ---------- NDR (failed delivery attempts) and RTO ---------- */
 export async function ndrList(env) {
@@ -208,6 +219,9 @@ const ndOk = (j) => j?.success === true || j?.status === true || j?.status === 2
 
 export async function ndrAction(env, { awb, action, comments, phone, deferred_date, address1, address2 }) {
   if (!awb) throw new Error('Missing AWB');
+  if ((await providerOf(env, awb)).provider === 'shipprime') {
+    const e = new Error('This parcel is with ShipPrime, which has no NDR API: do the re-attempt / return in ShipPrime, Manage NDR.'); e.shipprime = true; throw e;
+  }
   const path = `ndr/${encodeURIComponent(awb)}/action`;
   if (action === 'return') {
     const j = await sr(env, 'POST', path, { action: 'return', comments: comments || 'Return to origin' });
@@ -258,7 +272,8 @@ const istDate = () => new Date(Date.now() + 19800000).toISOString().slice(0, 16)
 const digits10 = (s) => String(s || '').replace(/\D/g, '').slice(-10);
 
 /** Parcel + live rates + the courier we'd use, without booking anything. */
-export async function planShipment(env, order, row, { pickOption, allowNever = false }) {
+/** Parcel, PIN, COD or not and the amounts, for any carrier. Pure apart from settings. */
+export function planBasics(env, order, row) {
   const s = env.SETTINGS?.shipping || {};
   const pack = packOrder(order.items, packCfg(s.pack));
   const pin = String(order.address?.zip || row.pincode || '').replace(/\D/g, '').slice(0, 6);
@@ -268,6 +283,11 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
   /* a COD order paid online before shipping is worth what was paid (the pay-online discount), not the old COD total */
   const paidOnline = row.converted_at && Number(row.paid_paise) > 0 ? Number(row.paid_paise) / 100 : 0;
   const due = codDue(row), cod = due > 0, amount = paidOnline || Number(row.total_paise) / 100 || 499, codAmount = cod ? due / 100 : 0;
+  return { pack, pin, cod, amount, codAmount };
+}
+export async function planShipment(env, order, row, { pickOption, allowNever = false }) {
+  const s = env.SETTINGS?.shipping || {};
+  const { pack, pin, cod, amount, codAmount } = planBasics(env, order, row);
   const c = cfg(env);
   const r = await srRates(env, { pin, cod, amount: cod ? codAmount : amount, pack }, { all: true });
   const ready = (arr) => arr.map((o) => ({ ...o, eddDate: eddOf(o.edd) })).sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
@@ -457,10 +477,11 @@ export async function srOrderAmount(env, srOrderId) {
 export function publicRec(r) {
   if (!r) return null;
   let pack = null; try { pack = JSON.parse(r.pack || 'null'); } catch { /* ignore */ }
-  return { order_id: r.order_id, order_name: r.order_name, awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: r.awb ? `https://shiprocket.co/tracking/${r.awb}` : '', sr_order_id: r.sr_order_id || '' };
+  return { order_id: r.order_id, order_name: r.order_name, provider: r.provider === 'shipprime' ? 'shipprime' : 'shiprocket', awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: trackUrlOf(r), sr_order_id: r.sr_order_id || '' };
 }
 
 export async function cancelShipment(env, rec) {
+  if (rec?.provider === 'shipprime') return spCancel(env, rec);
   if (!rec?.sr_order_id && !rec?.awb) throw new Error('No Shiprocket order to cancel');
   /* Oct 2026: Shiprocket's orders/cancel answers 503 for every call (its wallet / tracking / AWB-cancel endpoints are
      fine), so the AWB is cancelled first: that is what takes the parcel off the pickup. The order cancel follows,
@@ -476,6 +497,7 @@ export async function cancelShipment(env, rec) {
 
 /** Label only (no pickup request). Returns the stored label URL, or asks Shiprocket for a fresh one when there is none or `force` is set. */
 export async function ensureLabel(env, rec, force = false) {
+  if (rec.provider === 'shipprime') { if (rec.label_url) return rec.label_url; throw new Error('ShipPrime gave no label for this AWB: download it from ShipPrime, Manage Orders.'); }
   if (rec.label_url && !force) return rec.label_url;
   const l = await sr(env, 'POST', 'courier/generate/label', { shipment_id: [Number(rec.sr_shipment_id)] });
   return l.label_url || '';
@@ -483,6 +505,7 @@ export async function ensureLabel(env, rec, force = false) {
 
 /** Re-request pickup / label for a booked shipment. */
 export async function refreshDocs(env, rec) {
+  if (rec.provider === 'shipprime') return { label_url: rec.label_url || '', pickup: rec.pickup || 'ShipPrime asks the courier for the pickup' };
   const sid = [Number(rec.sr_shipment_id)];
   let label = rec.label_url || '', pickup = rec.pickup || '';
   try { const l = await sr(env, 'POST', 'courier/generate/label', { shipment_id: sid }); label = l.label_url || label; } catch (e) { label = label || ''; }
