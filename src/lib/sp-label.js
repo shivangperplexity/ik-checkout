@@ -71,7 +71,7 @@ export async function rebrandShipper(bytes, brand = 'Ink Kulture') {
  * Design pictures come from Shopify. Anything missing (no "Shipped By" found, Shopify down) falls back to the
  * rebranded ShipPrime label.
  */
-const W = 288, H = 432, L = 15, R = 275, BOTTOM = 13;   /* ShipPrime's own frame: x 15..275 */
+const W = 288, H = 432, L = 14.5, R = 274.5, BOTTOM = 13;   /* lines up with ShipPrime's own frame */
 const ascii = (s) => String(s || '').normalize('NFKD').replace(/[×✕]/g, 'x').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim();
 function fit(font, text, size, max) {
   let t = ascii(text);
