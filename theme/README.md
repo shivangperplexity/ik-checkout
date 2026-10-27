@@ -30,3 +30,9 @@ before, every product page overflowed; after, none do.
 ## Build 048: State field (Oct 2026)
 Part 2: the empty "State" option is now `disabled selected`. It was only `disabled`, so browsers picked the first state
 (Andaman and Nicobar), showed it under the floating "State" label (overlapping text) and could submit it unpicked.
+
+## Build 049: quick links bar on the home page (Oct 2026)
+`sections/ikl-quick-links.liquid` ("IK — Quick links bar"): black strip with All Tattoos · Best Sellers · New Arrivals
+(blocks, editable in the theme editor), phones only, placed first on the home page above the banner
+(`templates/index.json` = build042/index.json + `ikl_quick_links`). There is no New Arrivals collection, so that link is
+all-tattoos sorted newest first. Fits one line from 360px; narrower phones scroll it sideways.

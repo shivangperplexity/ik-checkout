@@ -1,0 +1,77 @@
+{%- comment -%}
+  IK — Quick links bar (Build 049). A black strip of bold links (All Tattoos · Best Sellers · New Arrivals) shown on
+  phones above the home page banner. Links are blocks, so they can be renamed, reordered or added in the theme editor.
+  If the links don't fit the screen they scroll sideways instead of wrapping or getting cut off.
+{%- endcomment -%}
+{%- liquid
+  assign here = request.path
+  if request.page_type == 'collection' and collection
+    assign here = collection.url
+  endif
+-%}
+<nav class="ikl-ql{% if section.settings.mobile_only %} ikl-ql--mobile{% endif %}" aria-label="{{ section.settings.aria_label | escape }}">
+  <div class="ikl-ql__row">
+    {%- for block in section.blocks -%}
+      {%- liquid
+        assign url = block.settings.link | default: '#'
+        assign base = url | split: '?' | first
+        assign on = false
+        if base == here
+          unless url contains 'sort_by'
+            assign on = true
+          endunless
+        endif
+      -%}
+      <a class="ikl-ql__a" href="{{ url }}"{% if on %} aria-current="page"{% endif %} {{ block.shopify_attributes }}>{{ block.settings.label | escape }}</a>
+    {%- endfor -%}
+  </div>
+</nav>
+
+<style>
+  #shopify-section-{{ section.id }} .ikl-ql { background: {{ section.settings.bg }}; color: {{ section.settings.fg }}; }
+  .ikl-ql__row { display: flex; justify-content: center; gap: clamp(14px, 4.2vw, 32px); width: max-content; min-width: 100%; margin: 0 auto;
+    padding: clamp(13px, 3.6vw, 18px) 12px; box-sizing: border-box; }
+  .ikl-ql { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .ikl-ql::-webkit-scrollbar { display: none; }
+  .ikl-ql__a { flex: none; color: inherit; text-decoration: none; white-space: nowrap;
+    font-family: var(--ikl-font-body, 'Inter', system-ui, sans-serif); font-size: clamp(12.5px, 3.45vw, 16px); font-weight: 800;
+    letter-spacing: .02em; text-transform: uppercase; line-height: 1.2; padding: 2px 0; border-bottom: 2px solid transparent; }
+  .ikl-ql__a[aria-current="page"] { border-bottom-color: currentColor; }
+  .ikl-ql__a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+  @media (min-width: 750px) { .ikl-ql--mobile { display: none; } }
+</style>
+
+{% schema %}
+{
+  "name": "IK — Quick links bar",
+  "tag": "section",
+  "class": "ikl-ql-section",
+  "settings": [
+    { "type": "checkbox", "id": "mobile_only", "label": "Show on phones only", "default": true },
+    { "type": "text", "id": "aria_label", "label": "Name for screen readers", "default": "Shop" },
+    { "type": "color", "id": "bg", "label": "Background", "default": "#000000" },
+    { "type": "color", "id": "fg", "label": "Text", "default": "#FFFFFF" }
+  ],
+  "blocks": [
+    {
+      "type": "link",
+      "name": "Link",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "All Tattoos" },
+        { "type": "url", "id": "link", "label": "Link" }
+      ]
+    }
+  ],
+  "max_blocks": 6,
+  "presets": [
+    {
+      "name": "IK — Quick links bar",
+      "blocks": [
+        { "type": "link", "settings": { "label": "All Tattoos", "link": "shopify://collections/all-tattoos" } },
+        { "type": "link", "settings": { "label": "Best Sellers", "link": "shopify://collections/bestsellers" } },
+        { "type": "link", "settings": { "label": "New Arrivals", "link": "/collections/all-tattoos?sort_by=created-descending" } }
+      ]
+    }
+  ]
+}
+{% endschema %}
