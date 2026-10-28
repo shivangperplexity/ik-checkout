@@ -545,12 +545,14 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
-  /* diagnostic (temporary): WhatsApp sends and failures by type since 12:15 IST today, no phone numbers */
+  /* diagnostic (temporary): Meta's own view of the number and the account (health_status says what blocks sending and why) */
   try {
-    const q = await env.DB.prepare(`SELECT trigger, status, LEFT(COALESCE(error,''),160) AS err, COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last
-      FROM messages WHERE direction='out' AND ts>? GROUP BY 1,2,3 ORDER BY MAX(ts) DESC LIMIT 40`).bind(1793169600).all();
-    console.log('waDiag3', JSON.stringify(q.results.map((r) => [r.trigger, r.status, r.err, Number(r.n), new Date(Number(r.first) * 1000 + 19800000).toISOString().slice(11, 16), new Date(Number(r.last) * 1000 + 19800000).toISOString().slice(11, 16)])));
-  } catch (e) { console.log('waDiag failed', e.message); }
+    const g = async (path) => { try { return await (await fetch(`https://graph.facebook.com/v21.0/${path}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json(); } catch (e) { return { err: e.message }; } };
+    const ph = await g(`${env.WA_PHONE_ID}?fields=display_phone_number,health_status,throughput,quality_rating,messaging_limit_tier,status,platform_type,account_mode`);
+    const waba = env.WA_WABA_ID || env.SETTINGS?.wa?.waba_id;
+    const wb = waba ? await g(`${waba}?fields=id,name,health_status,account_review_status,business_verification_status,primary_funding_id,currency`) : {};
+    console.log('waHealth', JSON.stringify({ transport: env.SETTINGS?.wa?.transport || '', waba, ph: { ...ph, display_phone_number: String(ph.display_phone_number || '').slice(-4) }, wb }).slice(0, 3500));
+  } catch (e) { console.log('waHealth failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }
