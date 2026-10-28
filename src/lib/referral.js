@@ -181,7 +181,7 @@ export async function creditReferrer(env, r) {
  *  - a friend's order cancelled / returned: the referral earns nothing;
  *  - customers with a delivered order 2-30 days ago get their code once (WhatsApp invite, 9 am - 9 pm).
  */
-export async function referralSweep(env, { invites = 15 } = {}) {
+export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
   const t = now(), out = { released: 0, credited: 0, void: 0, invited: 0 };
   const stale = (await env.DB.prepare(`SELECT u.idem FROM credit_uses u LEFT JOIN orders o ON o.idem=u.idem
       WHERE u.status='held' AND u.created_at<? AND (o.idem IS NULL OR o.status IN ('failed','pending_payment','cancelled'))`).bind(t - HOLD).all()).results;
@@ -216,6 +216,21 @@ export async function referralSweep(env, { invites = 15 } = {}) {
   let approved = false;
   try { const { metaTemplate } = await import('./whatsapp.js'); const tp = await metaTemplate(env, INVITE_TEMPLATE); approved = tp?.status === 'APPROVED'; } catch { approved = false; }
   out.invite_template = approved ? 'approved' : 'waiting';
+  /* Gentle: a few per run, a daily cap, and a full stop for an hour after WhatsApp pushes back on anything.
+     (28 Oct: 15 per 5-minute run tripped Meta's "Rate limit hit" for the whole number, OTPs and COD confirmations included.) */
+  if (approved) {
+    /* an invite Meta refused for a rate limit goes back in line once (after 6 hours) */
+    await env.DB.prepare(`UPDATE ref_codes SET invited_at=NULL WHERE invited_at IS NOT NULL AND invited_at<? AND phone IN (
+        SELECT phone FROM messages WHERE trigger='ref_invite' AND direction='out' AND ts>? GROUP BY phone
+        HAVING SUM(CASE WHEN status='failed' AND error ILIKE '%rate limit%' THEN 1 ELSE 0 END)=1 AND SUM(CASE WHEN status IN ('sent','delivered','read','accepted') THEN 1 ELSE 0 END)=0)`)
+      .bind(t - 6 * 3600, t - 3 * 86400).run().catch((e) => console.error('ref requeue', e.message));
+    const pushback = await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE direction='out' AND status='failed' AND ts>? AND (error ILIKE '%rate limit%' OR error ILIKE '%131048%' OR error ILIKE '%131049%' OR error ILIKE '%healthy ecosystem%')`).bind(t - 3600).first().catch(() => null);
+    const today = await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE trigger='ref_invite' AND direction='out' AND status<>'skipped' AND ts>?`).bind(t - 86400).first().catch(() => null);
+    const left = INVITE_DAY - (Number(today?.n) || 0);
+    if (Number(pushback?.n) > 0) { out.invite_paused = 'WhatsApp rate limit in the last hour'; invites = 0; }
+    else invites = Math.max(0, Math.min(invites, left));
+    out.invites_left_today = Math.max(0, left);
+  }
   if (approved && m >= 9 * 60 && m < 21 * 60 && invites > 0) {
     const due = (await env.DB.prepare(`SELECT o.phone, MAX(o.first_name) AS first_name FROM orders o JOIN shipments s ON s.order_id=o.order_id
         LEFT JOIN ref_codes rc ON rc.phone=o.phone
@@ -236,6 +251,8 @@ export async function referralSweep(env, { invites = 15 } = {}) {
 export const dateIst = (t) => new Date((Number(t) + 19800) * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 /* ---------- WhatsApp templates ---------- */
+/** invites per cron run (every 5 min) and per 24 hours */
+export const INVITE_RUN = 2, INVITE_DAY = 25;
 export const INVITE_TEMPLATE = 'ik_refer_v2', CREDIT_TEMPLATE = 'ik_ref_credit_v2';
 export function referralTemplates() {
   return [
