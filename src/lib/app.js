@@ -544,16 +544,6 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
-  /* diagnostic (temporary): WhatsApp sends and failures by type in the last 3 hours, no phone numbers */
-  try {
-    const q = await env.DB.prepare(`SELECT trigger, template, status, LEFT(COALESCE(error,''),140) AS err, COUNT(*) AS n, COUNT(DISTINCT phone) AS phones, MIN(ts) AS first, MAX(ts) AS last
-      FROM messages WHERE direction='out' AND ts>? GROUP BY 1,2,3,4 ORDER BY n DESC LIMIT 40`).bind(now() - 3 * 3600).all();
-    console.log('waDiag', JSON.stringify(q.results.map((r) => [r.trigger, r.template, r.status, r.err, Number(r.n), Number(r.phones), new Date(Number(r.first) * 1000 + 19800000).toISOString().slice(11, 16), new Date(Number(r.last) * 1000 + 19800000).toISOString().slice(11, 16)])));
-    const u = await env.DB.prepare(`SELECT COUNT(DISTINCT phone) AS n FROM messages WHERE direction='out' AND status IN ('sent','delivered','read','accepted') AND ts>?`).bind(now() - 86400).first();
-    let ph = {};
-    try { ph = await (await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_ID}?fields=display_phone_number,messaging_limit_tier,quality_rating,throughput,status,name_status`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json(); } catch (e) { ph = { err: e.message }; }
-    console.log('waDiag2', JSON.stringify({ unique24h: Number(u?.n) || 0, tier: ph.messaging_limit_tier, quality: ph.quality_rating, throughput: ph.throughput, status: ph.status, name: ph.name_status, num: String(ph.display_phone_number || '').slice(-4), err: ph.error?.message || ph.err }));
-  } catch (e) { console.log('waDiag failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }
