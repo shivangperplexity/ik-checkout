@@ -1448,6 +1448,11 @@ const ACTIONS = {
     return { ok: true };
   },
   /** Refer and earn: numbers for the dashboard (codes, invites, referral orders, credit given / used, top referrers). */
+  /* Instagram comment -> DM (lib/ig-dm.js) */
+  async ig(env) { const I = await import('./ig-dm.js'); return I.igDashboard(env); },
+  async ig_save(env, b) { const I = await import('./ig-dm.js'); return I.igSave(env, b); },
+  async ig_connect(env) { const I = await import('./ig-dm.js'); return { ok: true, url: await I.connectUrl(env) }; },
+  async ig_disconnect(env) { const I = await import('./ig-dm.js'); await I.saveIg(env, { token: '', user_id: '', username: '', on: false }); return I.igDashboard(env); },
   async referrals(env) { const R = await import('./referral.js'); return R.referralStats(env); },
   /** Refer and earn: a customer's code (made if missing) and credit, by phone. */
   async referral_lookup(env, b) {
@@ -1882,6 +1887,7 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
+  try { const { igRefresh } = await import('./ig-dm.js'); const r = await igRefresh(env); if (r.refreshed || r.error) out.ig = r; } catch (e) { console.error('ig refresh', e); }
   try { const { creatorSweep } = await import('./creators.js'); const r = await creatorSweep(env); if (r.placed || r.earned || r.void || r.vouchers) out.creators = r; } catch (e) { console.error('creators', e); }
   try { const { referralSweep } = await import('./referral.js'); const r = await referralSweep(env); if (r.released || r.credited || r.void || r.invited) out.referral = r; } catch (e) { console.error('referral', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */

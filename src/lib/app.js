@@ -468,6 +468,8 @@ export async function handle(req, env0, ctx) {
     }
     if (path === '/api/wa/webhook') return await handleWa(req, env, ctx);
     /* creator program: apply, WhatsApp-code login and the creator's dashboard (lib/creators.js); /c/CODE counts a link open */
+    /* Instagram comment -> DM: Meta webhook and the login callback (lib/ig-dm.js) */
+    if (path === '/api/ig/webhook' || path === '/api/ig/callback') { const { handleIg } = await import('./ig-dm.js'); return await handleIg(req, env, ctx); }
     if (path.startsWith('/api/refer/')) { const { handleRefer } = await import('./refer-me.js'); return await handleRefer(req, env); }
     if (path.startsWith('/api/creator/')) {
       if (path === '/api/creator/go') { const { click } = await import('./creators.js'); return await click(env, url.searchParams.get('code'), req); }

@@ -222,7 +222,7 @@ function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app'
 var AS={msgs:[],busy:false,props:{},loaded:false};
 function asSave(){}
 function asLoad(){if(AS.loaded)return;AS.loaded=true;ls('ik_as_msgs',null);rpc('assistant_history').then(function(j){if(AS.msgs.length)return;AS.msgs=(j.messages||[]).map(function(m){return {role:m.role,content:String(m.content||'').replace(/\n\[[^\]]*\]$/,'')}});asDraw()}).catch(function(){AS.loaded=false})}
-var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['creators','Creators','Creator program: applications, approvals, orders, payouts'],['referrals','Refer and earn','Referral codes, friend orders, store credit given and used'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
+var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['creators','Creators','Creator program: applications, approvals, orders, payouts'],['referrals','Refer and earn','Referral codes, friend orders, store credit given and used'],['ig','Instagram DM','Comment on a reel, get the design link in DM: setup, links per post, orders'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
 function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
 function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
  $('#main').onclick=function(e){var b=e.target.closest('[data-go]');if(b)go(b.dataset.go)};
@@ -485,7 +485,7 @@ function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){r
  [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t||(inMore&&b.dataset.t==='more'))});
  var ml=$('#morelbl');if(ml)ml.textContent=moreName(t)?'More · '+moreName(t):'More';$('#main').onclick=null;
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
+ ({revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,ig:loadIg,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 /* ---- creator program (lib/creators.js) ---- */
 var CRF='pending';
 function loadCreators(){rpc('creators').then(function(r){
@@ -525,6 +525,44 @@ function loadRefs(){rpc('referrals').then(function(r){
  $('#main').innerHTML=h;
  $('#rf_go').onclick=function(){var o=$('#rf_out');o.textContent='…';rpc('referral_lookup',{phone:$('#rf_ph').value}).then(function(x){o.innerHTML='Code <b>'+esc(x.code)+'</b> · <a target="_blank" rel="noopener" href="'+esc(x.link)+'">'+esc(x.link)+'</a> · credit ₹'+x.credit+(x.invited_at?' · sent '+ist(x.invited_at):' · not sent yet')}).catch(function(e){o.textContent=e.message})};
 }).catch(fail)}
+
+/* ---- Instagram comment -> DM (lib/ig-dm.js) ---- */
+function loadIg(){rpc('ig').then(function(r){if(tab!=='ig')return;$('#main').innerHTML=igHtml(r);igWire(r)}).catch(fail)}
+function igHtml(r){
+ function k(v,l,s){return '<div class="card"><div class="small mut">'+l+'</div><div style="font-size:22px;font-weight:700">'+v+'</div>'+(s?'<div class="small mut">'+s+'</div>':'')+'</div>'}
+ var h='<div class="card"><h3 style="margin:0 0 4px">Instagram comment → DM</h3><p class="small mut" style="margin:0">Someone comments a keyword (link, price, chahiye…) on a reel or post: they get that design\'s link in their DMs, and a short reply under their comment. Orders from these links show up as <b>Instagram comment DM</b> in the reports. One DM per person per post; Meta allows it within 7 days of the comment.</p></div>';
+ /* setup */
+ h+='<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">1. Meta app</h3>'
+  +'<p class="small mut" style="margin:0 0 8px">Meta app → Instagram → API setup with Instagram business login. Copy the <b>Instagram app ID</b> and <b>Instagram app secret</b> from there.</p>'
+  +'<div class="row" style="flex-wrap:wrap;gap:8px"><input id="ig_aid" placeholder="Instagram app ID" value="'+esc(r.app_id)+'" style="max-width:220px"><input id="ig_sec" type="password" placeholder="'+(r.has_app?'App secret saved (type to replace)':'Instagram app secret')+'" style="max-width:260px"><button class="btn sm" id="ig_svapp">Save</button></div>'
+  +'<p class="small" style="margin:10px 0 0">In the Meta app, under <b>Configure webhooks</b>:<br>Callback URL <code>'+esc(r.webhook)+'</code><br>Verify token <code>'+esc(r.verify_token||'(save once to create)')+'</code><br>then subscribe to <b>comments</b>. Under <b>Set up Instagram business login</b>, add the redirect URL <code>'+esc(r.callback)+'</code>.</p></div>';
+ h+='<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">2. Instagram account</h3>'
+  +(r.connected?'<p style="margin:0">Connected: <b>@'+esc(r.username)+'</b> <button class="btn sm ghost" id="ig_disc">Disconnect</button></p>':'<p class="small mut" style="margin:0 0 8px">On the phone with the Instagram account: Settings → Messages and calls → Message controls → Connected tools → <b>Allow access to messages</b>. Then connect here.</p><button class="btn sm" id="ig_conn"'+(r.has_app?'':' disabled')+'>Connect Instagram</button>')+'</div>';
+ if(!r.connected)return h;
+ h+='<div class="grid two" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:10px">'+k(r.totals.comments,'Comments seen','last 60 days')+k(r.totals.sent,'DMs sent','')+k(r.totals.orders,'Orders from DMs',r.totals.delivered+' delivered')+k('₹'+r.totals.sales,'Sales from DMs','')+'</div>';
+ h+='<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">3. Auto-DM</h3>'
+  +'<label class="row"><input type="checkbox" id="ig_on"'+(r.on?' checked':'')+'> <b>Send the DM automatically</b></label>'
+  +'<div class="row" style="margin-top:8px;gap:12px;flex-wrap:wrap"><label><input type="radio" name="ig_mode" value="keywords"'+(r.mode!=='all'?' checked':'')+'> Only comments with a keyword</label><label><input type="radio" name="ig_mode" value="all"'+(r.mode==='all'?' checked':'')+'> Every comment</label></div>'
+  +'<label class="small mut" style="display:block;margin-top:8px">Keywords (comma separated)<textarea id="ig_kw" rows="2" style="width:100%">'+esc((r.keywords||[]).join(', '))+'</textarea></label>'
+  +'<label class="small mut" style="display:block;margin-top:8px">DM text ({name} = @username, {link} = the design link)<textarea id="ig_tx" rows="4" style="width:100%">'+esc(r.text)+'</textarea></label>'
+  +'<label class="row" style="margin-top:8px"><input type="checkbox" id="ig_pr"'+(r.public_reply?' checked':'')+'> Reply under the comment:</label><input id="ig_pt" value="'+esc(r.public_text)+'" style="width:100%">'
+  +'<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><label class="small mut">Link when a post has none<input id="ig_du" value="'+esc(r.default_url)+'" style="min-width:260px"></label><label class="small mut">Max DMs per hour<input id="ig_cap" inputmode="numeric" value="'+esc(r.hourly_cap)+'" style="width:80px"></label></div>'
+  +'<button class="btn sm" id="ig_sv" style="margin-top:10px">Save</button></div>';
+ h+='<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">4. Link for each post</h3><p class="small mut" style="margin:0 0 8px">Paste the product link for the design in each reel (e.g. https://www.inkkulture.in/products/…). Posts without one get the default link.</p>'
+  +(r.media_error?'<p class="err small">'+esc(r.media_error)+'</p>':'')
+  +(r.media||[]).map(function(m){return '<div class="row" style="gap:10px;align-items:flex-start;border-top:1px solid var(--line,#eee);padding:8px 0">'+(m.thumb?'<img src="'+esc(m.thumb)+'" style="width:56px;height:56px;object-fit:cover;border-radius:8px">':'<div style="width:56px;height:56px;background:#eee;border-radius:8px"></div>')+'<div style="flex:1;min-width:0"><div class="small"><a target="_blank" rel="noopener" href="'+esc(m.url)+'">'+esc(m.type||'post')+'</a> · '+esc(String(m.at||'').slice(0,10))+' · '+m.comments+' comments · '+m.sent+' DMs · <b>'+m.orders+' orders</b> ('+m.delivered+' delivered)</div><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(m.caption)+'</div><div class="row" style="gap:6px;margin-top:4px"><input data-igl="'+esc(m.id)+'" value="'+esc(m.link)+'" placeholder="Product link" style="flex:1"><button class="btn sm ghost" data-igsave="'+esc(m.id)+'">Save</button></div></div></div>'}).join('')+'</div>';
+ h+=(r.recent.length?'<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">Recent comments</h3><table style="width:100%"><tr class="mut" style="text-align:left"><th>When</th><th>Who</th><th>Comment</th><th>DM</th></tr>'+r.recent.map(function(x){return '<tr><td>'+ist(x.created_at)+'</td><td>@'+esc(x.username||'')+'</td><td>'+esc(x.text||'')+'</td><td>'+esc(x.status)+(x.error?'<div class="small err">'+esc(x.error)+'</div>':'')+'</td></tr>'}).join('')+'</table></div>':'');
+ return h;
+}
+function igWire(r){
+ function save(d,msg){return rpc('ig_save',d).then(function(x){toast(msg||'Saved');$('#main').innerHTML=igHtml(x);igWire(x)}).catch(function(e){toast(e.message)})}
+ var b;
+ if(b=$('#ig_svapp'))b.onclick=function(){save({app_id:$('#ig_aid').value,app_secret:$('#ig_sec').value})};
+ if(b=$('#ig_conn'))b.onclick=function(){rpc('ig_connect').then(function(x){location.href=x.url}).catch(function(e){toast(e.message)})};
+ if(b=$('#ig_disc'))b.onclick=function(){if(confirm('Disconnect Instagram? Auto-DMs stop.'))rpc('ig_disconnect').then(function(x){$('#main').innerHTML=igHtml(x);igWire(x)}).catch(function(e){toast(e.message)})};
+ if(b=$('#ig_sv'))b.onclick=function(){var m=document.querySelector('input[name=ig_mode]:checked');save({on:$('#ig_on').checked,mode:m?m.value:'keywords',keywords:$('#ig_kw').value,text:$('#ig_tx').value,public_reply:$('#ig_pr').checked,public_text:$('#ig_pt').value,default_url:$('#ig_du').value,hourly_cap:$('#ig_cap').value})};
+ [].forEach.call(document.querySelectorAll('[data-igsave]'),function(x){x.onclick=function(){var id=x.dataset.igsave;save({media_id:id,link:document.querySelector('[data-igl="'+id+'"]').value},'Link saved')}});
+}
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */

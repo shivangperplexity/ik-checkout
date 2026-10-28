@@ -42,6 +42,7 @@ export function sourceOf(attrs = {}) {
   const detail = [src && `${src}${med ? '/' + med : ''}`, content, campaign && /^\d{6,}$/.test(campaign) ? 'campaign ' + campaign : campaign].filter(Boolean).join(' · ').slice(0, 160);
 
   if (/link_in_bio|bio/i.test(content) || (/^(ig|instagram)$/.test(src) && /bio/.test(med))) return { key: 'ig_bio', label: 'Instagram bio link', detail };
+  if (/^(ig|instagram)$/.test(src) && med === 'dm') return { key: 'ig_dm', label: 'Instagram comment DM', detail };
   if (/^(ig|instagram|fb|facebook|meta|an|msg|messenger)$/.test(src) || (!src && fbclid)) {
     const p = metaPlatform(fbclid, src);
     if (paid || (/^\d{6,}$/.test(campaign) && !/social|organic/.test(med))) return { key: p.toLowerCase().slice(0, 2) + '_ad', label: p + ' ad', detail };
