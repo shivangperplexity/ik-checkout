@@ -253,6 +253,10 @@ export async function askOne(env, row, { send, force = false } = {}) {
     return { skipped: r.skipped };
   }
   const err = String(r?.error || 'not sent');
+  if (r?.deferred) {   /* WhatsApp paused after a rate limit: ask again in 30 minutes, not a failed try */
+    await env.DB.prepare('UPDATE review_asks SET hold_until=?, note=?, updated_at=? WHERE order_id=?').bind(t + 1800, 'waiting: WhatsApp rate limit pause', t, row.order_id).run();
+    return { held: true, error: err };
+  }
   if (WAIT.test(err)) {   /* template still in review at Meta: try again in an hour */
     await env.DB.prepare('UPDATE review_asks SET hold_until=?, note=?, updated_at=? WHERE order_id=?').bind(t + 3600, 'waiting for the WhatsApp template to be approved', t, row.order_id).run();
     return { held: true, error: err };

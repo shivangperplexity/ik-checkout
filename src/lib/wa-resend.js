@@ -18,6 +18,8 @@ const TRIGGERS = ['ship_picked', 'ship_transit', 'ship_ofd', 'ship_delivered', '
 
 export async function resendFailed(env, { max = 6, hours = 36 } = {}) {
   const t = now();
+  const { pauseState } = await import('./wa-gate.js');
+  if ((await pauseState(env)).paused) return { paused: 'WhatsApp rate limit pause' };
   const hot = await env.DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE direction='out' AND status='failed' AND error ILIKE '%rate limit%' AND ts>?").bind(t - 20 * 60).first();
   if (Number(hot?.n) > 0) return { paused: 'rate limit in the last 20 minutes' };
   const rows = (await env.DB.prepare(`SELECT m.id, m.ts, m.trigger, m.order_name, m.phone FROM messages m

@@ -68,6 +68,7 @@ export async function sendOtp(env, phone, { send = metaSendOtp, log = null } = {
   try { wamid = await send(env, phone, code); }
   catch (e) {
     if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'failed', error: String(e.message || e).slice(0, 300), preview: 'COD verification code' }).catch(() => {});
+    try { const G = await import('./wa-gate.js'); if (G.RATE_LIMIT.test(String(e.message || e))) await G.pushback(env); } catch { /* best effort */ }
     return { ok: false, fallback: true, error: String(e.message || e).slice(0, 200) };
   }
   await env.DB.prepare(`INSERT INTO cod_otps (phone, code_hash, sent_at, expires_at, tries, sends, window_start, verified_at, wamid, dstatus, drank) VALUES (?,?,?,?,0,1,?,NULL,?,NULL,0)

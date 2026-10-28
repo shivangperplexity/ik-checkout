@@ -399,7 +399,13 @@ async function handleWa(req, env, ctx) {
       const payload = await dedupeInbound(env, payload0);
       const replies = parseReplies(payload);
       for (const st of parseStatuses(payload)) {
-        await env.DB.prepare('UPDATE messages SET status=?, error=CASE WHEN ?<>\'\' THEN ? ELSE error END WHERE wamid=?').bind(st.status, st.error, st.error, st.id).run();
+        const row = await env.DB.prepare('UPDATE messages SET status=?, error=CASE WHEN ?<>\'\' THEN ? ELSE error END WHERE wamid=? RETURNING trigger, template').bind(st.status, st.error, st.error, st.id).first().catch(() => null);
+        /* back-off after Meta's "Rate limit hit"; a delivered template ends it (lib/wa-gate.js) */
+        try {
+          const G = await import('./wa-gate.js');
+          if (st.status === 'failed' && G.RATE_LIMIT.test(st.error)) await G.pushback(env);
+          else if ((st.status === 'delivered' || st.status === 'read') && row && row.template && !['ai', 'agent', 'reply'].includes(row.trigger)) await G.clear(env);
+        } catch (e) { console.error('wa gate', e.message); }
         await otpStatus(env, st.id, st.status).catch((e) => console.error('otp status', e.message));
       }
       /* Typed replies ("yes", "cancel", STOP) and buttons whose payload was lost go through the same safe rules as
@@ -545,17 +551,9 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
-  /* diagnostic (temporary): Meta's own view of the number and the account (health_status says what blocks sending and why) */
-  try {
-    const g = async (path) => { try { return await (await fetch(`https://graph.facebook.com/v21.0/${path}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json(); } catch (e) { return { err: e.message }; } };
-    const ph = await g(`${env.WA_PHONE_ID}?fields=display_phone_number,health_status,throughput,quality_rating,messaging_limit_tier,status,platform_type,account_mode`);
-    const waba = env.WA_WABA_ID || env.SETTINGS?.wa?.waba_id;
-    const wb = waba ? await g(`${waba}?fields=id,name,health_status,account_review_status,business_verification_status,primary_funding_id,currency`) : {};
-    console.log('waHealth', JSON.stringify({ transport: env.SETTINGS?.wa?.transport || '', waba, ph: { ...ph, display_phone_number: String(ph.display_phone_number || '').slice(-4) }, wb }).slice(0, 3500));
-  } catch (e) { console.log('waHealth failed', e.message); }
   /* diagnostic (temporary): does the courier tracking carry the delivery person's name / phone? (numbers masked) */
   try {
-    if (new Date().getUTCMinutes() % 15 < 5) {
+    {
       const { trackRaw } = await import('./shiprocket.js');
       const rows = (await env.DB.prepare("SELECT awb, courier, provider FROM shipments WHERE awb IS NOT NULL AND (LOWER(status) LIKE '%out for%' OR LOWER(status) LIKE '%ofd%' OR LOWER(status) LIKE '%delivered%') AND updated_at>? ORDER BY updated_at DESC LIMIT 6").bind(now() - 2 * 86400).all()).results;
       for (const r of rows) {

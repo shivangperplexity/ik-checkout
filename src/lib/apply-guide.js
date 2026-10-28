@@ -49,6 +49,7 @@ export async function maybeSendApplyGuide(env, r, tr, sent) {
   if (Number.isFinite(at) && at / 1000 < now() - 2 * DAY) return { sent: { ...sent, guide: -now() }, retry: false };
   const { fireTrigger } = await import('./whatsapp.js');
   const res = await fireTrigger(env, 'ship_delivered', { to: r.phone, vars: { name: r.first_name || 'there', order: r.order_name, ytid: ytId(video) }, orderName: r.order_name });
+  if (res.deferred) return { sent, retry: true };   /* WhatsApp paused after a rate limit: next check */
   if (!res.ok && !res.skipped) return { sent: { ...sent, guide_fail: (sent.guide_fail || 0) + 1 }, retry: (sent.guide_fail || 0) < 3, failed: true };
   return { sent: { ...sent, guide: res.ok ? now() : -now() }, retry: false, ok: !!res.ok };
 }

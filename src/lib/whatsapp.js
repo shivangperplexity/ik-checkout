@@ -309,6 +309,14 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     if (!phone) { await logMsg(env, { ...base(), status: 'skipped', error: 'no phone number' }); return { skipped: 'nophone' }; }
     if (!waConnected(env)) { await logMsg(env, { ...base(), status: 'skipped', error: 'WhatsApp not connected' }); return { skipped: 'nowa' }; }
     if (t.marketing && (await optedOut(env, phone))) { await logMsg(env, { ...base(), status: 'skipped', error: 'customer replied STOP' }); return { skipped: 'optout' }; }
+    /* Meta throttled the number ("Rate limit hit"): wait it out instead of hammering (lib/wa-gate.js). The caller's retry sends it later. */
+    const { gate } = await import('./wa-gate.js');
+    const g = env.DB ? await gate(env, key).catch(() => ({ go: true })) : { go: true };
+    if (!g.go) return { ok: false, deferred: true, error: 'paused after a WhatsApp rate limit, sent later' };
+    /* never a burst: at least 0.7 s between template sends */
+    const gap = 700 - (Date.now() - lastTemplateAt);
+    if (gap > 0) await new Promise((ok) => setTimeout(ok, gap));
+    lastTemplateAt = Date.now();
 
     /* The real cart line and design image beat any generic text a caller passed ("your Ink Kulture cart"). */
     let image = v.image || '';
@@ -367,9 +375,11 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     return { ok: true, template: templateName };
   } catch (e) {
     await logMsg(env, { ...base(), status: 'failed', error: String(e.message || e) }).catch(() => {});
+    try { const G = await import('./wa-gate.js'); if (env.DB && G.RATE_LIMIT.test(String(e.message || e))) await G.pushback(env); } catch { /* best effort */ }
     return { ok: false, error: String(e.message || e) };
   }
 }
+let lastTemplateAt = 0;
 
 export async function waGet(env, path) {
   const res = await fetch(`${GRAPH}/${path}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } });
