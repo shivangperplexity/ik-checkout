@@ -551,6 +551,17 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
+  /* diagnostic (temporary): this month's orders by source and outcome */
+  try {
+    const since = Math.floor(Date.parse('2026-10-01T00:00:00+05:30') / 1000);
+    const q = await env.DB.prepare(`SELECT COALESCE(r.src,'none') AS src, COALESCE(r.src_label,'') AS label, COALESCE(r.pay,'') AS pay,
+        CASE WHEN s.stage='delivered' THEN 'delivered' WHEN s.stage='rto' OR s.rto=TRUE THEN 'rto' ELSE COALESCE(r.state,'') END AS outcome,
+        COUNT(*) AS n, SUM(COALESCE(r.total_paise,0)) AS paise
+      FROM rev_orders r LEFT JOIN shipments s ON s.order_id=r.order_id AND COALESCE(s.status,'')<>'cancelled'
+      WHERE r.created_at>=? GROUP BY 1,2,3,4 ORDER BY 1,3,4`).bind(since).all();
+    const tot = await env.DB.prepare('SELECT COUNT(*) AS n, MAX(scanned_at) AS sc, MAX(created_at) AS last FROM rev_orders WHERE created_at>=?').bind(since).first();
+    console.log('srcDiag', JSON.stringify({ tot, rows: q.results.map((r) => [r.src, r.pay, r.outcome, Number(r.n), Math.round(Number(r.paise) / 100)]) }).slice(0, 3800));
+  } catch (e) { console.log('srcDiag failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }
