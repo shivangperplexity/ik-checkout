@@ -551,22 +551,6 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
-  /* diagnostic (temporary): does the courier tracking carry the delivery person's name / phone? (numbers masked) */
-  try {
-    {
-      const { trackRaw } = await import('./shiprocket.js');
-      const rows = (await env.DB.prepare("SELECT awb, courier, provider FROM shipments WHERE awb IS NOT NULL AND (LOWER(status) LIKE '%out for%' OR LOWER(status) LIKE '%ofd%' OR LOWER(status) LIKE '%delivered%') AND updated_at>? ORDER BY updated_at DESC LIMIT 6").bind(now() - 2 * 86400).all()).results;
-      for (const r of rows) {
-        const raw = JSON.stringify(await trackRaw(env, r.awb, r).catch((e) => ({ err: e.message })));
-        const hits = [];
-        const re = /"([A-Za-z_]*)"\s*:\s*"([^"]{0,160})"/g; let m;
-        while ((m = re.exec(raw)) && hits.length < 12) {
-          if (/agent|executive|rider|boy|fe_|courier_person|delivery_person|emp|sr_name|mobile|phone|contact/i.test(m[1]) || /(?:^|\D)[6-9]\d{9}(?:\D|$)|executive|agent|rider|delivery boy|mob/i.test(m[2])) hits.push(m[1] + '=' + m[2].replace(/\d{6}(\d{4})/g, 'xxxxxx$1'));
-        }
-        console.log('ofdAgent', JSON.stringify({ courier: r.courier, provider: r.provider || 'shiprocket', len: raw.length, hits }));
-      }
-    }
-  } catch (e) { console.log('ofdAgent failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }
