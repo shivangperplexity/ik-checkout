@@ -462,6 +462,7 @@ export async function handle(req, env0, ctx) {
     }
     if (path === '/api/wa/webhook') return await handleWa(req, env, ctx);
     /* creator program: apply, WhatsApp-code login and the creator's dashboard (lib/creators.js); /c/CODE counts a link open */
+    if (path.startsWith('/api/refer/')) { const { handleRefer } = await import('./refer-me.js'); return await handleRefer(req, env); }
     if (path.startsWith('/api/creator/')) {
       if (path === '/api/creator/go') { const { click } = await import('./creators.js'); return await click(env, url.searchParams.get('code'), req); }
       const { handleCreator } = await import('./creators.js'); return await handleCreator(req, env);
@@ -544,6 +545,12 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
+  /* diagnostic (temporary): WhatsApp sends and failures by type since 12:15 IST today, no phone numbers */
+  try {
+    const q = await env.DB.prepare(`SELECT trigger, status, LEFT(COALESCE(error,''),160) AS err, COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last
+      FROM messages WHERE direction='out' AND ts>? GROUP BY 1,2,3 ORDER BY MAX(ts) DESC LIMIT 40`).bind(1793169600).all();
+    console.log('waDiag3', JSON.stringify(q.results.map((r) => [r.trigger, r.status, r.err, Number(r.n), new Date(Number(r.first) * 1000 + 19800000).toISOString().slice(11, 16), new Date(Number(r.last) * 1000 + 19800000).toISOString().slice(11, 16)])));
+  } catch (e) { console.log('waDiag failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }

@@ -19,6 +19,10 @@
       "destination": "/creator.html"
     },
     {
+      "source": "/refer",
+      "destination": "/refer.html"
+    },
+    {
       "source": "/c/:code",
       "destination": "/api/x?a=creator&b=go&code=:code"
     },

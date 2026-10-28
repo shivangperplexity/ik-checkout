@@ -91,7 +91,12 @@ export async function dedupeInbound(env, payload) {
 
 export function parseStatuses(payload) {
   const out = [];
-  for (const e of payload.entry || []) for (const c of e.changes || []) for (const st of c.value?.statuses || []) out.push({ id: st.id, status: st.status, error: st.errors?.[0]?.title || '' });
+  for (const e of payload.entry || []) for (const c of e.changes || []) for (const st of c.value?.statuses || []) {
+    const er = st.errors?.[0];
+    /* keep Meta's code and detail with the title ("Rate limit hit · 130429 · ..."): the title alone does not say which limit */
+    if (er) console.log('wa status error', JSON.stringify({ status: st.status, code: er.code, title: er.title, details: er.error_data?.details || er.message || '', pricing: st.pricing?.category || '', conv: st.conversation?.origin?.type || '' }));
+    out.push({ id: st.id, status: st.status, error: er ? [er.title || er.message || 'failed', er.code, er.error_data?.details].filter(Boolean).join(' · ') : '' });
+  }
   return out;
 }
 

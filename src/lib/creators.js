@@ -147,14 +147,15 @@ export async function reject(env, id, note = '') {
 
 /* ---------- login: WhatsApp code, then a signed token ---------- */
 const secret = (env) => env.ADMIN_SECRET || env.CRON_SECRET || 'ik|' + (env.DATABASE_URL || env.POSTGRES_URL || 'x');
-export async function makeToken(env, phone, ttl = 30 * 86400) {
+/* scope keeps a /refer login from opening the creator dashboard and the other way round */
+export async function makeToken(env, phone, ttl = 30 * 86400, scope = 'creator') {
   const exp = now() + ttl, body = `${phone}.${exp}`;
-  return `${body}.${(await hmacSha256hex(secret(env), 'creator:' + body)).slice(0, 32)}`;
+  return `${body}.${(await hmacSha256hex(secret(env), scope + ':' + body)).slice(0, 32)}`;
 }
-export async function readToken(env, tok) {
+export async function readToken(env, tok, scope = 'creator') {
   const m = /^(\d{10})\.(\d{10})\.([a-f0-9]{32})$/.exec(String(tok || ''));
   if (!m || Number(m[2]) < now()) return null;
-  const want = (await hmacSha256hex(secret(env), `creator:${m[1]}.${m[2]}`)).slice(0, 32);
+  const want = (await hmacSha256hex(secret(env), `${scope}:${m[1]}.${m[2]}`)).slice(0, 32);
   return safeEqual(want, m[3]) ? m[1] : null;
 }
 async function approvedBy(env, phone) {
