@@ -113,6 +113,7 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_status TEXT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_event_at BIGINT`,
   /* Refer and earn (lib/referral.js) */
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS retried_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS ref_codes (phone TEXT PRIMARY KEY, code TEXT UNIQUE, name TEXT, created_at BIGINT, invited_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS referrals (idem TEXT PRIMARY KEY, code TEXT, referrer_phone TEXT, friend_phone TEXT, order_id TEXT, order_name TEXT, amount BIGINT, status TEXT, note TEXT, created_at BIGINT, placed_at BIGINT, credited_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS referrals_status ON referrals (status)`,

@@ -1880,6 +1880,8 @@ export async function runAutomations(env) {
   } catch (e) { console.error('cancel-sync', e); }
   /* Shipments tab: keep every live parcel's Shiprocket status fresh (pickup-stage ones every 15 min) */
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
+  /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
+  try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { creatorSweep } = await import('./creators.js'); const r = await creatorSweep(env); if (r.placed || r.earned || r.void || r.vouchers) out.creators = r; } catch (e) { console.error('creators', e); }
   try { const { referralSweep } = await import('./referral.js'); const r = await referralSweep(env); if (r.released || r.credited || r.void || r.invited) out.referral = r; } catch (e) { console.error('referral', e); }
   /* Cancelled orders whose parcel is still booked: cancel the pickup (or flag it if the courier already has it) */
