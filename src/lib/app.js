@@ -544,6 +544,12 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
+  /* diagnostic (temporary): WhatsApp sends and failures by type in the last 3 hours, no phone numbers */
+  try {
+    const q = await env.DB.prepare(`SELECT trigger, template, status, LEFT(COALESCE(error,''),140) AS err, COUNT(*) AS n, COUNT(DISTINCT phone) AS phones, MIN(ts) AS first, MAX(ts) AS last
+      FROM messages WHERE direction='out' AND ts>? GROUP BY 1,2,3,4 ORDER BY n DESC LIMIT 40`).bind(now() - 3 * 3600).all();
+    console.log('waDiag', JSON.stringify(q.results.map((r) => [r.trigger, r.template, r.status, r.err, Number(r.n), Number(r.phones), new Date(Number(r.first) * 1000 + 19800000).toISOString().slice(11, 16), new Date(Number(r.last) * 1000 + 19800000).toISOString().slice(11, 16)])));
+  } catch (e) { console.log('waDiag failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }
