@@ -554,6 +554,9 @@ export async function runCron(env0, via = 'vercel') {
   /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
+  /* TEMP diag: money in transit */
+  try { const q = (await env.DB.prepare(`SELECT COALESCE(s.stage,'pickup_pending') AS stage, s.provider, o.method, COUNT(*)::int AS n, SUM(GREATEST(0, COALESCE(o.total_paise,0) - COALESCE(o.advance_paise,0)) * CASE WHEN o.method='cod' AND o.converted_at IS NULL THEN 1 ELSE 0 END)::bigint AS cod_due, SUM(COALESCE(o.total_paise,0))::bigint AS total, SUM(COALESCE(o.advance_paise,0))::bigint AS adv
+      FROM shipments s JOIN orders o ON o.order_id = s.order_id WHERE COALESCE(s.status,'')<>'cancelled' AND o.status<>'cancelled' AND COALESCE(s.stage,'pickup_pending') IN ('pickup_pending','transit','ofd','ndr') AND s.created_at > ? GROUP BY 1,2,3 ORDER BY 1,2,3`).bind(now() - 60 * 86400).all()).results; console.log('DIAG transit ' + JSON.stringify(q)); } catch (e) { console.log('DIAG err ' + e.message); }
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {
