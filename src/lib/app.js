@@ -561,6 +561,13 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
+  /* diagnostic (temporary): delivery estimate for a few PINs */
+  try {
+    const { deliveryEstimate } = await import('./edd.js');
+    const out = {};
+    for (const pin of ['400614', '110001', '560001', '744301', '194101', '799001']) { const e = await deliveryEstimate(env, { pin, cod: true }).catch((x) => ({ err: x.message })); out[pin] = [e.serviceable, e.edd, e.via, e.days, e.error || e.err || '']; }
+    console.log('eddDiag', JSON.stringify(out));
+  } catch (e) { console.log('eddDiag failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };
 }
