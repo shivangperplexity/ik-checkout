@@ -476,7 +476,7 @@ export async function handle(req, env0, ctx) {
     /* creator program: apply, WhatsApp-code login and the creator's dashboard (lib/creators.js); /c/CODE counts a link open */
     /* Instagram comment -> DM: Meta webhook and the login callback (lib/ig-dm.js) */
     if (path === '/api/ig/webhook' || path === '/api/ig/callback') { const { handleIg } = await import('./ig-dm.js'); return await handleIg(req, env, ctx); }
-    if (path.startsWith('/api/barter/')) { const { handleBarter } = await import('./barter.js'); return await handleBarter(req, env); }
+    if (path.startsWith('/api/barter/')) { const { handleBarter } = await import('./barter.js'); const r = await handleBarter(req, env); Object.entries(cors).forEach(([k, v]) => r.headers.set(k, v)); return r; }   /* /collab on Vercel and inkkulture.in/pages/collab */
     if (path.startsWith('/api/refer/')) { const { handleRefer } = await import('./refer-me.js'); return await handleRefer(req, env); }
     if (path.startsWith('/api/creator/')) {
       if (path === '/api/creator/go') { const { click } = await import('./creators.js'); return await click(env, url.searchParams.get('code'), req); }

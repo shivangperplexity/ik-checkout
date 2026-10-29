@@ -567,7 +567,7 @@ function igWire(r){
 /* ---- barter collab orders (lib/barter.js, page /collab) ---- */
 function loadBarter(){rpc('barter').then(function(r){if(tab!=='barter')return;
  var pend=r.rows.filter(function(x){return x.status==='pending'});
- var h='<div class="card"><h3 style="margin:0 0 4px">Barter collabs</h3><p class="small mut" style="margin:0">Send creators <b>ik-checkout.vercel.app/collab</b>. They pick up to 4 tattoos (10+ in stock, no sleeves), verify WhatsApp, and get an ID like IKC-1001. Approve only after they DM that ID to @inkkulture.in. Approve = a ₹0 paid order in Shopify, shown in To ship. Reject = the draft is deleted. '+pend.length+' waiting.</p><div class="row" style="margin-top:8px"><button class="btn sm" id="bt_copy">Copy creator link</button></div></div>';
+ var h='<div class="card"><h3 style="margin:0 0 4px">Barter collabs</h3><p class="small mut" style="margin:0">Send creators <b>inkkulture.in/pages/collab</b>. They pick up to 4 tattoos (10+ in stock, no sleeves), verify WhatsApp, and get an ID like IKC-1001. Approve only after they DM that ID to @inkkulture.in. Approve = a ₹0 paid order in Shopify, shown in To ship. Reject = the draft is deleted. '+pend.length+' waiting.</p><div class="row" style="margin-top:8px"><button class="btn sm" id="bt_copy">Copy creator link</button></div></div>';
  h+=r.rows.map(function(o){var a=o.address||{};
   var st=o.status==='pending'?'<span class="pill warn">Waiting for DM</span>':o.status==='approved'?'<span class="pill ok">Approved '+esc(o.order_name)+'</span>':'<span class="pill">'+esc(o.status)+'</span>';
   return '<div class="card" style="margin-top:10px"><div class="row" style="justify-content:space-between;align-items:center"><b style="font-size:17px">'+esc(o.ref)+'</b>'+st+'</div>'
@@ -578,7 +578,7 @@ function loadBarter(){rpc('barter').then(function(r){if(tab!=='barter')return;
   +(o.status==='pending'?'<div class="row" style="margin-top:10px;gap:8px"><button class="btn sm" data-bta="'+o.id+'">Approve (DM received)</button><button class="btn sm ghost" data-btr="'+o.id+'">Reject</button></div>':'')+'</div>'}).join('')||'';
  if(!r.rows.length)h+='<div class="card mut" style="margin-top:10px">No collab orders yet.</div>';
  $('#main').innerHTML=h;
- $('#bt_copy').onclick=function(){try{navigator.clipboard.writeText('https://ik-checkout.vercel.app/collab');toast('Link copied')}catch(e){toast('ik-checkout.vercel.app/collab')}};
+ $('#bt_copy').onclick=function(){try{navigator.clipboard.writeText('https://www.inkkulture.in/pages/collab');toast('Link copied')}catch(e){toast('inkkulture.in/pages/collab')}};
  function act(id,ok){var b=document.querySelector(ok?'[data-bta="'+id+'"]':'[data-btr="'+id+'"]');if(b){b.disabled=true;b.textContent='Working...'}
   rpc('barter_decide',{id:id,approve:ok}).then(function(x){toast(ok?'Approved: '+x.order:'Rejected');loadBarter()}).catch(function(e){toast(e.message);loadBarter()})}
  [].forEach.call(document.querySelectorAll('[data-bta]'),function(b){b.onclick=function(){if(confirm('Approve '+b.closest('.card').querySelector('b').textContent+'? Only after they sent the ID on Instagram.'))act(Number(b.dataset.bta),true)}});
