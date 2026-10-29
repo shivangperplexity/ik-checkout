@@ -112,8 +112,28 @@
   }
 
   /* ---------- 2. product page delivery date ---------- */
+  /* the theme's own "Check delivery" box (assets/ikl-pincode.js does the PIN check through /api/shipping, same dates):
+     fill its Delivery cell and result line from the visitor's location before they type a PIN */
+  function eddTheme(wrap) {
+    var cell = null;
+    [].forEach.call(wrap.querySelectorAll('*'), function (el) { if (!cell && el.children.length === 0 && /^\s*\d+\s*[–-]\s*\d+\s*days\s*$/i.test(el.textContent)) cell = el; });
+    var out = wrap.querySelector('[data-ikl-delivery-result]');
+    var saved = ''; try { saved = localStorage.getItem('ikl_pin') || ''; } catch (e) {}
+    get('/api/site/edd' + (/^\d{6}$/.test(saved) ? '?pin=' + saved : '')).then(function (j) {
+      if (!j || !j.edd) return;
+      if (cell) { cell.textContent = j.edd.replace(/^\w+,\s*/, ''); cell.title = j.edd; }
+      if (out && !saved && !out.textContent.trim()) {
+        out.className = 'ikl-delivery__result ikl-pin--ok';
+        out.innerHTML = '<span>🚚 Get it by <b>' + esc(j.edd) + '</b>' + (j.city ? ' to <b>' + esc(j.city) + '</b>' : '') + ' · enter your PIN for the exact date</span>';
+      }
+    }).catch(function () {});
+    /* after a PIN check, keep the Delivery cell in step with the result */
+    if (out && cell && window.MutationObserver) new MutationObserver(function () { var m = /arrives by\s*([^<·]+)/i.exec(out.textContent); if (m) cell.textContent = m[1].trim().replace(/^\w+,\s*/, ''); }).observe(out, { childList: true, subtree: true });
+  }
   function edd() {
     if (TEMPLATE !== 'product') return;
+    var themeBox = document.querySelector('.ikl-delivery');
+    if (themeBox) return eddTheme(themeBox);
     var form = document.querySelector('main form[action*="/cart/add"]') || document.querySelector('form[action*="/cart/add"]');
     if (!form) return;
     var box = document.createElement('div'); box.className = 'iks-edd'; box.innerHTML = '<span class="mut">🚚 Checking delivery date…</span>';
@@ -154,8 +174,8 @@
   /* ---------- 3. track page ---------- */
   function track() {
     var root = document.getElementById('ik-track'); if (!root) return;
-    var host = root.closest('.rte') || root.parentNode;
-    [].forEach.call(host.children, function (c) { if (c !== root) c.style.display = 'none'; });
+    /* hide only the page's fallback text next to the box (the theme wraps the page in .rte > .page-content > rte-formatter) */
+    [].forEach.call(root.parentNode.children, function (c) { if (c !== root && !c.contains(root)) c.style.display = 'none'; });
     root.className = 'ikt';
     var STEPS = ['Placed', 'Confirmed', 'Packed', 'On the way', 'Out for delivery', 'Delivered'];
     function applyHtml() {

@@ -130,6 +130,24 @@ export async function siteConfig(env) {
   return { ok: true, wa: waNumber(env), instagram: IG_URL, apply: { video, ytid: A.ytId(video), steps, note: 'Semi-permanent: lasts 1-2 weeks depending on your skin type, may last fewer days on sensitive skin.' }, topics: TOPICS, steps: STEPS };
 }
 
+/** A representative PIN for a city name (India Post directory), cached in edd_cache for 30 days. '' when unknown. */
+export async function cityPin(env, city) {
+  const c = String(city || '').trim();
+  if (!c) return '';
+  const key = 'city:' + c.toLowerCase();
+  const row = await env.DB.prepare('SELECT body, at FROM edd_cache WHERE k=?').bind(key).first().catch(() => null);
+  if (row && Number(row.at) > now() - 30 * 86400) return String(row.body || '');
+  let pin = '';
+  try {
+    const r = await (await Promise.race([fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(c)}`), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 4000))])).json();
+    const list = r?.[0]?.PostOffice || [];
+    const head = list.find((p) => /head office/i.test(p.BranchType || '') && new RegExp(c, 'i').test(p.District || p.Name)) || list.find((p) => new RegExp(c, 'i').test(p.District || '')) || list[0];
+    pin = /^\d{6}$/.test(String(head?.Pincode || '')) ? String(head.Pincode) : '';
+  } catch { pin = ''; }
+  await env.DB.prepare('INSERT INTO edd_cache (k, body, at) VALUES (?,?,?) ON CONFLICT (k) DO UPDATE SET body=EXCLUDED.body, at=EXCLUDED.at').bind(key, pin, now()).run().catch(() => {});
+  return pin;
+}
+
 /* ---------------- router ---------------- */
 
 export async function handleSite(req, env) {
@@ -146,6 +164,8 @@ export async function handleSite(req, env) {
       const { deliveryEstimate, ipPlace } = await import('./edd.js');
       let pin = String(url.searchParams.get('pin') || ''), city = '', byIp = false;
       if (!/^\d{6}$/.test(pin)) { const p = ipPlace(req); pin = p.pin; city = p.city; byIp = true; }
+      /* mobile networks often give a city but no PIN: use that city's main post office PIN (cached a month) */
+      if (!pin && city) pin = await cityPin(env, city);
       if (!pin) return json({ ok: true, by_ip: true, city, edd: '', generic: '3-6 days' });
       if (!(await limit('edd:' + ip, 120))) return json({ ok: false, error: 'Too many checks, try again later' }, 429);
       const e = await deliveryEstimate(env, { pin });
