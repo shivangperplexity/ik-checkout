@@ -109,7 +109,15 @@ export async function restore(env, handle) {
 /** Cron: once a day around 3 am IST, while switched on (settings 'merch_auto'). */
 export async function merchCron(env) {
   const on = await env.DB.prepare("SELECT v FROM settings WHERE k='merch_auto'").first().catch(() => null);
-  if (!on || on.v !== '1') return { skipped: 'off' };
+  if (!on) {
+    /* first run (asked for on 30 Oct): apply once now, then daily at 3 am; 'Restore' in the dashboard switches it off */
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO NOTHING").run();
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run();
+    const r = await merchandise(env, { apply: true });
+    console.log('merch first run', JSON.stringify(r).slice(0, 3000));
+    return r;
+  }
+  if (on.v !== '1') return { skipped: 'off' };
   const h = new Date(Date.now() + 19800000).getUTCHours();
   if (h !== 3) return { skipped: 'not 3 am' };
   const last = await env.DB.prepare("SELECT v FROM settings WHERE k='merch_at'").first().catch(() => null);
