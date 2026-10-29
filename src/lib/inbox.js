@@ -33,6 +33,7 @@ export async function aiPaused(env, phone) {
 
 export async function resolveHandoff(env, phone) {
   await env.DB.prepare("UPDATE wa_handoff SET state='resolved', resolved_at=?, ai_paused_until=NULL WHERE phone=?").bind(now(), clean(phone)).run();
+  await env.DB.prepare("UPDATE tickets SET status='closed', closed_at=? WHERE phone=? AND status='open'").bind(now(), clean(phone)).run().catch(() => {});
 }
 
 /** Chats for the list: open handoffs, unanswered messages, chats the customer wrote in, or every number we messaged
@@ -49,7 +50,7 @@ export async function inboxList(env, { filter = 'needs', q = '' } = {}) {
     only = [...new Set(hit)].filter((p) => p.length >= 10);
     if (!only.length) return [];
   }
-  const rows = (await env.DB.prepare(`SELECT m.phone, MAX(m.ts) AS last_ts, MAX(CASE WHEN m.direction='in' THEN m.ts END) AS last_in,
+  const rows = (await env.DB.prepare(`SELECT m.phone, MAX(m.ts) AS last_ts, MAX(CASE WHEN m.direction='in' AND m.trigger<>'ticket' THEN m.ts END) AS last_in,
       MAX(CASE WHEN m.direction='out' AND m.trigger IN ('ai','agent') AND COALESCE(m.status,'') NOT IN ('failed','capped','queued','expired') THEN m.ts END) AS last_answer,
       MAX(CASE WHEN m.direction='out' AND m.trigger IN ('ai','agent') AND COALESCE(m.status,'') NOT IN ('failed','capped','queued','expired') THEN m.id END) AS last_answer_id
     FROM messages m WHERE m.ts>? AND LENGTH(m.phone) >= 10 AND (m.direction='in' OR COALESCE(m.status,'') NOT IN ('skipped','queued','capped','merged'))${only ? ` AND m.phone IN (${only.map(() => '?').join(',')})` : ''}
@@ -126,9 +127,10 @@ export async function inboxThread(env, phone) {
   const h = await env.DB.prepare('SELECT * FROM wa_handoff WHERE phone=?').bind(p).first();
   const seenId = msgs.length ? Number(msgs[msgs.length - 1].id) : 0;
   await env.DB.prepare('INSERT INTO wa_handoff (phone, state, seen_at, seen_id) VALUES (?,?,?,?) ON CONFLICT (phone) DO UPDATE SET seen_at=EXCLUDED.seen_at, seen_id=GREATEST(COALESCE(wa_handoff.seen_id,0), EXCLUDED.seen_id)').bind(p, h?.state || 'none', now(), seenId).run();
-  const lastIn = [...msgs].reverse().find((m) => m.direction === 'in');
+  const lastIn = [...msgs].reverse().find((m) => m.direction === 'in' && m.trigger !== 'ticket');
+  const ticket = await env.DB.prepare("SELECT id FROM tickets WHERE phone=? AND status='open' ORDER BY id DESC LIMIT 1").bind(p).first().catch(() => null);
   return { phone: p, messages: msgs, orders: out, handoff: h && h.state === 'open' ? { reason: h.reason || '', opened_at: Number(h.opened_at), ai_paused_until: Number(h.ai_paused_until) || null } : null,
-    last_in: lastIn ? Number(lastIn.ts) : null, in_window: !!lastIn && Number(lastIn.ts) > now() - WINDOW };
+    last_in: lastIn ? Number(lastIn.ts) : null, in_window: !!lastIn && Number(lastIn.ts) > now() - WINDOW, ticket: ticket ? 'T' + ticket.id : '' };
 }
 
 /** A reply typed in the dashboard. Keeps the chat with the team (assistant paused) unless done is set. */
@@ -136,14 +138,27 @@ export async function inboxSend(env, phone, text, { done = false } = {}) {
   const p = clean(phone), body = String(text || '').trim().slice(0, 3000);
   if (p.length !== 10) throw new Error('Phone number needed');
   if (!body) throw new Error('Type a message');
-  const lastIn = await env.DB.prepare("SELECT ts, wamid FROM messages WHERE phone=? AND direction='in' ORDER BY id DESC LIMIT 1").bind(p).first();
-  if (!lastIn || Number(lastIn.ts) < now() - WINDOW) throw new Error('More than 24 hours since this customer last wrote, so WhatsApp will not deliver a typed message. Call them, or wait for them to message again.');
+  const lastIn = await env.DB.prepare("SELECT ts, wamid FROM messages WHERE phone=? AND direction='in' AND trigger<>'ticket' ORDER BY id DESC LIMIT 1").bind(p).first();
+  const ticket = await env.DB.prepare("SELECT id FROM tickets WHERE phone=? AND status='open' ORDER BY id DESC LIMIT 1").bind(p).first().catch(() => null);
+  if (!lastIn || Number(lastIn.ts) < now() - WINDOW) {
+    /* a support request from the website: the reply goes as the support template, which WhatsApp delivers any time */
+    if (!ticket) throw new Error('More than 24 hours since this customer last wrote, so WhatsApp will not deliver a typed message. Call them, or wait for them to message again.');
+    const { fireTrigger } = await import('./whatsapp.js');
+    const name = (await env.DB.prepare('SELECT first_name FROM orders WHERE phone=? AND first_name IS NOT NULL ORDER BY created_at DESC LIMIT 1').bind(p).first())?.first_name || 'there';
+    const r = await fireTrigger(env, 'support_reply', { to: p, vars: { name: String(name).split(/\s+/)[0], ticket: 'T' + ticket.id, reply: body.replace(/\n{2,}/g, '\n').slice(0, 900) }, force: true });
+    if (!r.ok) throw new Error('WhatsApp did not accept it: ' + (r.error || r.skipped || 'unknown error'));
+    await env.DB.prepare('UPDATE tickets SET replied_at=? WHERE id=?').bind(now(), ticket.id).run();
+    await logMsg(env, { direction: 'out', phone: p, trigger: 'agent', template: 'support_reply', status: 'sent', preview: body });
+    if (done) { await resolveHandoff(env, p); await env.DB.prepare("UPDATE tickets SET status='closed', closed_at=? WHERE phone=? AND status='open'").bind(now(), p).run(); }
+    return { ok: true, via: 'template' };
+  }
   const route = routeOf(lastIn.wamid);
   const e2 = route ? Object.assign(Object.create(null), env, { REPLY_ROUTE: route }) : env;
   const res = await sendText(e2, '91' + p, body);
   await logMsg(e2, { direction: 'out', phone: p, trigger: 'agent', template: '', status: res.ok ? 'accepted' : 'failed', wamid: res.id || '', error: res.ok ? '' : `${res.via}: ${res.error}`, preview: body });
   if (!res.ok) throw new Error('WhatsApp did not accept it: ' + (res.error || 'unknown error'));
-  if (done) await resolveHandoff(env, p);
+  if (ticket) await env.DB.prepare('UPDATE tickets SET replied_at=? WHERE id=?').bind(now(), ticket.id).run();
+  if (done) { await resolveHandoff(env, p); await env.DB.prepare("UPDATE tickets SET status='closed', closed_at=? WHERE phone=? AND status='open'").bind(now(), p).run().catch(() => {}); }
   else {
     const t = now();
     await env.DB.prepare(`INSERT INTO wa_handoff (phone, state, reason, opened_at, replied_at, ai_paused_until, seen_at) VALUES (?,?,?,?,?,?,?)

@@ -280,6 +280,7 @@
     var d = formData(); showErr('');
     var bad = invalid(d);
     if (bad) { paintFoot(); fieldError(bad[0]); goCheckout(true); return showErr(bad[1]); }
+    if (SHIP.no && SHIP.pin === d.pincode) { fieldError('pincode'); goCheckout(true); return showErr('Sorry, we can\u2019t deliver to PIN code ' + d.pincode + ' yet. Please use another address.'); }
     /* Build 039: no "you have 1 FREE tattoo" pop-up before paying (simpler checkout) */
     state.draft = d; rememberBuyer(d);
     var pcx = state.method === 'cod' && pcOn();

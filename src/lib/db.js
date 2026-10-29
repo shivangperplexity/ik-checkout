@@ -114,6 +114,11 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_event_at BIGINT`,
   /* Refer and earn (lib/referral.js) */
   `ALTER TABLE messages ADD COLUMN IF NOT EXISTS retried_at BIGINT`,
+  /* support requests from the storefront track page (lib/site.js) */
+  `CREATE TABLE IF NOT EXISTS tickets (id SERIAL PRIMARY KEY, phone TEXT, order_name TEXT, topic TEXT, message TEXT, status TEXT, created_at BIGINT, replied_at BIGINT, closed_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS tickets_phone ON tickets (phone, status)`,
+  /* delivery date + serviceability per PIN (lib/edd.js) */
+  `CREATE TABLE IF NOT EXISTS edd_cache (k TEXT PRIMARY KEY, body TEXT, at BIGINT)`,
   /* Instagram comment -> DM (lib/ig-dm.js) */
   `CREATE TABLE IF NOT EXISTS ig_dm (comment_id TEXT PRIMARY KEY, media_id TEXT, from_id TEXT, username TEXT, text TEXT, status TEXT, error TEXT, created_at BIGINT, sent_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS ig_dm_media ON ig_dm (media_id, from_id)`,

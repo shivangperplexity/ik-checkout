@@ -263,15 +263,16 @@
      GET {API}/api/shipping?pin=411001&cod=1  →  { ok, edd: "Mon, 13 Oct", days: 2 }
      The API asks NimbusPost (Delhivery / Xpressbees, from the 410206 warehouse) and returns only the fastest
      estimated delivery date. The shopper sees one option, "Express shipping", never the courier's name. */
-  var SHIP = { pin: '', cod: '', edd: null, busy: false };
+  /* Build 051: ShipPrime + Shiprocket date with the pickup day (server lib/edd.js); no = neither carrier delivers there */
+  var SHIP = { pin: '', cod: '', edd: null, busy: false, no: false };
   function fetchShipping() {
     var d = formData(), pin = d.pincode, cod = state.method === 'cod' ? '1' : '0';
     if (!/^\d{6}$/.test(pin)) return;
     if (SHIP.pin === pin && SHIP.cod === cod && (SHIP.edd !== null || SHIP.busy)) return;
-    SHIP = { pin: pin, cod: cod, edd: null, busy: true }; paintShip();
+    SHIP = { pin: pin, cod: cod, edd: null, busy: true, no: false }; paintShip();
     fetch(API + '/api/shipping?pin=' + pin + '&cod=' + cod).then(function (r) { return r.json(); }).then(function (j) {
       if (SHIP.pin !== pin || SHIP.cod !== cod) return;
-      SHIP.busy = false; SHIP.edd = (j && j.ok && j.edd) ? String(j.edd) : '';
+      SHIP.busy = false; SHIP.edd = (j && j.ok && j.edd) ? String(j.edd) : ''; SHIP.no = !!(j && j.ok && j.serviceable === false);
       paintShip();
       if (state.quote) track('AddShippingInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100, shipping_tier: 'Express' });
       tkOnce('shipping', { data: { pin: pin, edd: SHIP.edd } });
@@ -283,6 +284,7 @@
     if (!hasAddr) { box.innerHTML = '<div class="ikx-shipnote">Enter your shipping address to view available shipping methods.</div>'; return; }
     fetchShipping();
     var p = state.quote && state.quote[qk(state.method)], price = p ? (p.shipping ? money(p.shipping) : 'FREE') : 'FREE';
+    if (SHIP.no && SHIP.pin === d.pincode) { box.innerHTML = '<div class="ikx-shipnote" style="color:#b42318;border-color:#f3b8b2;background:#fdf0ef">Sorry, we can\u2019t deliver to PIN code ' + esc(d.pincode) + ' yet. Please use another address.</div>'; return; }
     var when = SHIP.busy ? '<i class="ikx-spin ikx-spin--pin"></i> Checking delivery date for ' + esc(d.pincode) + '…'
       : SHIP.edd ? 'Arrives by ' + esc(SHIP.edd) : 'Delivery in 2–5 business days';
     box.innerHTML = '<div class="ikx-shipopt is-on" role="radio" aria-checked="true"><span class="ikx-radio" aria-hidden="true"></span>' +

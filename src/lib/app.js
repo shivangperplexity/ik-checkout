@@ -132,6 +132,12 @@ async function handleOrder(req, env, ctx) {
 
   let buyer;
   try { buyer = validateBuyer(b.buyer || {}); } catch (e) { return json({ ok: false, error: e.message }, 400); }
+  /* neither ShipPrime nor Shiprocket delivers to this PIN: don't take the order (a failed courier lookup never blocks) */
+  try {
+    const { deliveryEstimate } = await import('./edd.js');
+    const e = await deliveryEstimate(env, { pin: buyer.pincode, cod: b.method === 'cod' });
+    if (e.ok && e.serviceable === false) return json({ ok: false, error: `Sorry, we can't deliver to PIN code ${buyer.pincode} yet. Please use another address.`, unserviceable: true }, 400);
+  } catch (e) { console.error('serviceability', e.message); }
 
   const raw = cartLines(b);
   const lines = await loadLines(env, raw);
@@ -529,6 +535,8 @@ export async function handle(req, env0, ctx) {
         if (!(await rateLimit(env, 'cv:' + ip, 120))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
         else { const { handleConvertApi } = await import('./wa-convert.js'); res = json(await handleConvertApi(req, env, ctx)); }
       }
+      /* storefront: track page, tickets, delivery date, floating assistant (lib/site.js) */
+      else if (path.startsWith('/api/site/')) { const { handleSite } = await import('./site.js'); res = await handleSite(req, env); }
       else res = json({ error: 'not found' }, 404);
       Object.entries(cors).forEach(([k, v]) => res.headers.set(k, v));
       return res;

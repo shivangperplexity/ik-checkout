@@ -1418,6 +1418,18 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, ...r };
   },
+  async support_templates(env, b) {
+    const S = await import('./site.js');
+    const { withSettings } = await import('./settings.js');
+    const { metaTemplate, clearMetaCache } = await import('./whatsapp.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const want = [];
+    for (const t of S.supportTemplates()) { const have = await metaTemplate(e2, t.name).catch(() => null); if (!have || have.status === 'REJECTED' || b?.force) want.push(t); }
+    if (!want.length) return { ok: true, created: [] };
+    const r = await ACTIONS.wa_create_templates(env, { templates: want });
+    clearMetaCache();
+    return { ok: true, ...r };
+  },
   /* ---- Creator program (lib/creators.js) ---- */
   async creator_templates(env, b) {
     const C = await import('./creators.js');
@@ -1448,6 +1460,9 @@ const ACTIONS = {
     return { ok: true };
   },
   /** Refer and earn: numbers for the dashboard (codes, invites, referral orders, credit given / used, top referrers). */
+  /* product order on the main collections (lib/merch.js) */
+  async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
+  async merch_restore(env, b) { const M = await import('./merch.js'); await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '0') ON CONFLICT (k) DO UPDATE SET v='0'").run(); return M.restore(env, String(b.handle || 'frontpage')); },
   /* Instagram comment -> DM (lib/ig-dm.js) */
   async ig(env) { const I = await import('./ig-dm.js'); return I.igDashboard(env); },
   async ig_save(env, b) { const I = await import('./ig-dm.js'); return I.igSave(env, b); },
@@ -1887,6 +1902,7 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
+  try { const { merchCron } = await import('./merch.js'); const r = await merchCron(env); if (r.collections) out.merch = r.collections.map((c) => [c.handle, c.moves]); } catch (e) { console.error('merch', e); }
   try { const { igRefresh } = await import('./ig-dm.js'); const r = await igRefresh(env); if (r.refreshed || r.error) out.ig = r; } catch (e) { console.error('ig refresh', e); }
   try { const { creatorSweep } = await import('./creators.js'); const r = await creatorSweep(env); if (r.placed || r.earned || r.void || r.vouchers) out.creators = r; } catch (e) { console.error('creators', e); }
   try { const { referralSweep } = await import('./referral.js'); const r = await referralSweep(env); if (r.released || r.credited || r.void || r.invited) out.referral = r; } catch (e) { console.error('referral', e); }

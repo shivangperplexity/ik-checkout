@@ -61,30 +61,14 @@ export async function shippingEstimate(req, env) {
   const cod = url.searchParams.get('cod') === '1';
   const amount = Number(url.searchParams.get('amount') || 499);
   if (!/^\d{6}$/.test(pin)) return reply({ ok: false, error: 'bad pin' }, 400);
-
-  const key = pin + ':' + (cod ? 'cod' : 'prepaid');
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL) return reply({ ...hit.body, cached: true });
-
+  /* ShipPrime + Shiprocket, pickup day included (lib/edd.js). serviceable:false = neither carrier delivers there. */
   try {
-    // All connected carriers are compared (lib/rates.js). The shopper still sees only the date of the courier we'd
-    // actually book: the cheapest one that is not more than `tolerance_days` slower than the fastest.
-    const { compareRates } = await import('./rates.js');
-    const r = await compareRates(env, { pin, cod, amount });
-    if (!r.options.length) {
-      if (!r.connected.length) throw new Error('No courier account connected');
-      if (r.errors.length) throw new Error(r.errors.join('; ')); // a failed lookup says nothing about serviceability
-      const body = { ok: true, serviceable: false, edd: '' }; // nothing we ship with reaches this PIN
-      cache.set(key, { at: Date.now(), body });
-      return reply(body);
-    }
-    const best = r.pick.eddDate;
-    const days = best ? Math.max(1, Math.round((best - Date.now()) / 86400000)) : null;
-    const body = { ok: true, serviceable: true, edd: best ? fmt(best) : '', days, courier: r.pick.courier };
-    cache.set(key, { at: Date.now(), body });
-    return reply(body);
+    const { deliveryEstimate } = await import('./edd.js');
+    const e = await deliveryEstimate(env, { pin, cod, amount });
+    if (!e.ok) return reply({ ok: false, error: e.error || 'lookup failed', edd: '' });
+    return reply({ ok: true, serviceable: e.serviceable !== false, unknown: e.serviceable === null, edd: e.edd, date: e.date, days: e.days });
   } catch (e) {
-    // Never block checkout on a courier API: the theme shows "Express shipping · 2–5 business days".
+    /* Never block checkout on a courier API: the theme shows "Express shipping · 2–5 business days". */
     return reply({ ok: false, error: String(e.message || e), edd: '' });
   }
 }
