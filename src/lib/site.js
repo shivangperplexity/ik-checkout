@@ -105,19 +105,28 @@ export async function ticketsOf(env, phone) {
 
 const WEB_NOTE = 'This chat is the help box on the inkkulture.in website, not WhatsApp. The visitor is anonymous, so you cannot see their orders: for order status tell them to tap "Track order" (inkkulture.in/pages/track) and log in with their WhatsApp number. Never tell them to reply YES, CANCEL, RE-ATTEMPT or RETURN here. Keep answers short. If they need a person, say they can message us on WhatsApp and end with [HANDOFF].';
 
-export async function siteChat(env, b) {
+/** Keep the website chat for later (questions people ask = FAQ, product and content ideas). */
+async function logChat(env, b, role, text, handoff = false, city = '') {
+  const session = String(b.session || '').replace(/[^\w-]/g, '').slice(0, 40) || 'anon';
+  await env.DB.prepare('INSERT INTO site_chats (session, role, text, handoff, page, city, created_at) VALUES (?,?,?,?,?,?,?)')
+    .bind(session, role, String(text || '').slice(0, 2000), !!handoff, String(b.page || '').slice(0, 200), String(city || '').slice(0, 60), now()).run().catch((e) => console.error('site chat log', e.message));
+}
+
+export async function siteChat(env, b, city = '') {
   const { aiOn, aiAnswer } = await import('./wa-ai.js');
   const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-10).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 800) })).filter((m) => m.content);
   const last = msgs.filter((m) => m.role === 'user').pop();
   if (!last) return { ok: false, error: 'Type a question' };
-  if (!aiOn(env)) return { ok: true, text: 'Our assistant is resting right now. Message us on WhatsApp and the team will reply.', handoff: true };
-  const thread = msgs.slice(0, msgs.lastIndexOf(last));
-  try {
-    const a = await aiAnswer(env, { phone: '', text: last.content, thread, note: WEB_NOTE });
-    return { ok: true, text: a.text, handoff: !!a.handoff };
-  } catch (e) {
-    return { ok: true, text: 'Sorry, I could not answer that right now. Message us on WhatsApp and the team will help.', handoff: true };
+  await logChat(env, b, 'user', last.content, false, city);
+  let out;
+  if (!aiOn(env)) out = { ok: true, text: 'Our assistant is resting right now. Message us on WhatsApp and the team will reply.', handoff: true };
+  else {
+    const thread = msgs.slice(0, msgs.lastIndexOf(last));
+    try { const a = await aiAnswer(env, { phone: '', text: last.content, thread, note: WEB_NOTE }); out = { ok: true, text: a.text, handoff: !!a.handoff }; }
+    catch (e) { out = { ok: true, text: 'Sorry, I could not answer that right now. Message us on WhatsApp and the team will help.', handoff: true }; }
   }
+  await logChat(env, b, 'assistant', out.text, out.handoff, city);
+  return out;
 }
 
 /* ---------------- config ---------------- */
@@ -190,9 +199,22 @@ export async function handleSite(req, env) {
       if (!v.ok) return json({ ok: false, error: v.error });
       return json({ ok: true, token: await makeToken(env, phone, 90 * 86400, 'site') });
     }
+    /* admin view: "<key>.<10-digit number>" typed in the track page's number box (key set in the dashboard) */
+    if (path === '/api/site/admin' && req.method === 'POST') {
+      if (!(await limit('sadm:' + ip, 8))) return json({ ok: false, error: 'Too many tries, please try again later' }, 429);
+      const phone = cleanPhone(b.phone);
+      const row = await env.DB.prepare("SELECT v FROM settings WHERE k='site_admin_key'").first().catch(() => null);
+      const { hmacSha256hex, safeEqual } = await import('./util.js');
+      const want = row ? String(row.v) : '';
+      const got = await hmacSha256hex(env.ADMIN_SECRET || env.CRON_SECRET || 'ik', 'sitekey:' + String(b.key || ''));
+      if (!want || !phone || !safeEqual(want, got)) return json({ ok: false, error: 'Enter your 10-digit WhatsApp number' });
+      console.log('site admin view', JSON.stringify({ phone: phone.slice(0, 2) + 'xxxxxx' + phone.slice(-2), ip: ip.slice(0, 7) }));
+      return json({ ok: true, admin: true, token: await makeToken(env, phone, 2 * 3600, 'site') });
+    }
     if (path === '/api/site/chat' && req.method === 'POST') {
       if (!(await limit('chat:' + ip, 40))) return json({ ok: true, text: 'You have asked a lot of questions in a short time. Message us on WhatsApp and the team will help.', handoff: true });
-      return json(await siteChat(env, b));
+      const { ipPlace } = await import('./edd.js');
+      return json(await siteChat(env, b, ipPlace(req).city));
     }
     /* below: logged in */
     const phone = await readToken(env, String(req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, ''), 'site');

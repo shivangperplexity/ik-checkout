@@ -1460,6 +1460,24 @@ const ACTIONS = {
     return { ok: true };
   },
   /** Refer and earn: numbers for the dashboard (codes, invites, referral orders, credit given / used, top referrers). */
+  /* website help chat log + the track page admin key (lib/site.js) */
+  async site_chats(env, b) {
+    const days = Math.min(90, Math.max(1, Number(b.days) || 14));
+    const rows = (await env.DB.prepare('SELECT session, role, text, handoff, page, city, created_at FROM site_chats WHERE created_at>? ORDER BY id DESC LIMIT 2000').bind(Math.floor(Date.now() / 1000) - days * 86400).all()).results;
+    const by = {};
+    for (const r of rows.reverse()) { const s = by[r.session] = by[r.session] || { session: r.session, city: r.city || '', page: r.page || '', first: Number(r.created_at), last: 0, handoff: false, msgs: [] }; s.msgs.push({ role: r.role, text: r.text, at: Number(r.created_at) }); s.last = Number(r.created_at); if (r.handoff) s.handoff = true; if (!s.city && r.city) s.city = r.city; }
+    const key = await env.DB.prepare("SELECT 1 AS x FROM settings WHERE k='site_admin_key'").first().catch(() => null);
+    const blast = await env.DB.prepare("SELECT v FROM settings WHERE k='track_blast'").first().catch(() => null);
+    let tb = null; try { tb = blast ? JSON.parse(blast.v) : null; } catch { tb = null; }
+    return { ok: true, chats: Object.values(by).sort((a, c) => c.last - a.last).slice(0, 300), questions: rows.filter((r) => r.role === 'user').length, has_key: !!key, blast: tb ? { sent: tb.sent, skipped: tb.skipped, done: (tb.done || []).length, finished: !!tb.finished } : null };
+  },
+  async site_admin_key(env, b) {
+    const k = String(b.key || '').trim();
+    if (k.length < 8 || /\./.test(k)) throw new Error('Use at least 8 characters, no dot');
+    const { hmacSha256hex } = await import('./util.js');
+    await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('site_admin_key', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(await hmacSha256hex(env.ADMIN_SECRET || env.CRON_SECRET || 'ik', 'sitekey:' + k)).run();
+    return { ok: true };
+  },
   /* product order on the main collections (lib/merch.js) */
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
   async merch_restore(env, b) { const M = await import('./merch.js'); await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '0') ON CONFLICT (k) DO UPDATE SET v='0'").run(); return M.restore(env, String(b.handle || 'frontpage')); },
@@ -1902,6 +1920,7 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
+  try { const { trackBlast } = await import('./track-blast.js'); const r = await trackBlast(env); if (r.sent !== undefined && !r.finished) out.trackBlast = r; } catch (e) { console.error('track blast', e); }
   try { const { merchCron } = await import('./merch.js'); const r = await merchCron(env); if (r.collections) out.merch = r.collections.map((c) => [c.handle, c.moves]); } catch (e) { console.error('merch', e); }
   try { const { igRefresh } = await import('./ig-dm.js'); const r = await igRefresh(env); if (r.refreshed || r.error) out.ig = r; } catch (e) { console.error('ig refresh', e); }
   try { const { creatorSweep } = await import('./creators.js'); const r = await creatorSweep(env); if (r.placed || r.earned || r.void || r.vouchers) out.creators = r; } catch (e) { console.error('creators', e); }

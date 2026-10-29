@@ -117,6 +117,9 @@ export const SCHEMA = [
   /* support requests from the storefront track page (lib/site.js) */
   `CREATE TABLE IF NOT EXISTS tickets (id SERIAL PRIMARY KEY, phone TEXT, order_name TEXT, topic TEXT, message TEXT, status TEXT, created_at BIGINT, replied_at BIGINT, closed_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS tickets_phone ON tickets (phone, status)`,
+  /* website help chat log (lib/site.js) */
+  `CREATE TABLE IF NOT EXISTS site_chats (id BIGSERIAL PRIMARY KEY, session TEXT, role TEXT, text TEXT, handoff BOOLEAN DEFAULT FALSE, page TEXT, city TEXT, created_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS site_chats_session ON site_chats (session, id)`,
   /* delivery date + serviceability per PIN (lib/edd.js) */
   `CREATE TABLE IF NOT EXISTS edd_cache (k TEXT PRIMARY KEY, body TEXT, at BIGINT)`,
   /* Instagram comment -> DM (lib/ig-dm.js) */

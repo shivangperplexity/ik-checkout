@@ -70,6 +70,7 @@
   function cfg() { if (CFG) return Promise.resolve(CFG); if (!cfgP) cfgP = get('/api/site/config').then(function (j) { CFG = j; return j; }).catch(function () { CFG = { wa: '917397973573', instagram: 'https://www.instagram.com/inkkulture.in/', apply: { ytid: '0GMHG7WmaL8', steps: [] }, topics: ['Something else'], steps: [] }; return CFG; }); return cfgP; }
   function waLink(text) { return 'https://wa.me/' + ((CFG && CFG.wa) || '917397973573') + (text ? '?text=' + encodeURIComponent(text) : ''); }
   var IG = 'https://www.instagram.com/inkkulture.in/';
+  function sid() { var k = 'iks_sid', v = ls(k); if (!v) { v = Date.now().toString(36) + Math.random().toString(36).slice(2, 8); ls(k, v); } return v; }
 
   /* ---------- 1. floating help + Instagram ---------- */
   function fab() {
@@ -101,7 +102,7 @@
       q = String(q || '').trim(); if (!q) return;
       add('user', esc(q)); hist.push({ role: 'user', content: q });
       var w = add('bot', '…');
-      post('/api/site/chat', { messages: hist }).then(function (j) {
+      post('/api/site/chat', { messages: hist, session: sid(), page: location.pathname }).then(function (j) {
         var t = (j && j.text) || 'Sorry, something went wrong. Message us on WhatsApp.';
         hist.push({ role: 'assistant', content: t });
         w.innerHTML = esc(t) + (j && j.handoff ? '<br><a class="iks-wa" target="_blank" rel="noopener" href="' + waLink('Hi, I have a question: ' + q) + '">Chat with us on WhatsApp</a>' : '');
@@ -192,12 +193,15 @@
     function wireVid() { var v = root.querySelector('.vid'); if (v) v.onclick = function () { v.innerHTML = '<iframe width="100%" height="100%" style="position:absolute;inset:0;border:0" src="https://www.youtube.com/embed/' + esc(v.getAttribute('data-yt')) + '?autoplay=1&rel=0" allow="autoplay;encrypted-media" allowfullscreen></iframe>'; }; }
     function login(msg) {
       root.innerHTML = '<h2>Track your order</h2><p class="mut" style="margin:0">Enter the WhatsApp number you ordered with. We’ll send a 4-digit code on WhatsApp.</p>' +
-        '<div class="card"><label class="small"><b>WhatsApp number</b><input id="ikt-ph" inputmode="numeric" maxlength="10" placeholder="10-digit number" autocomplete="tel-national"></label>' +
+        '<div class="card"><label class="small"><b>WhatsApp number</b><input id="ikt-ph" inputmode="decimal" maxlength="40" placeholder="10-digit number" autocomplete="tel-national"></label>' +
         '<button class="btn full" id="ikt-send">Send code on WhatsApp</button><div id="ikt-otp" style="display:none"><label class="small"><b>Code from WhatsApp</b><input id="ikt-code" class="otp" inputmode="numeric" maxlength="4" autocomplete="one-time-code"></label><button class="btn full" id="ikt-go">See my orders</button></div><p class="err" id="ikt-err">' + esc(msg || '') + '</p></div>' + applyHtml() + igHtml();
       wireVid();
       var phone = '';
       root.querySelector('#ikt-send').onclick = function () {
-        var b = this; phone = root.querySelector('#ikt-ph').value.replace(/\D/g, '').slice(-10); root.querySelector('#ikt-err').textContent = '';
+        var b = this, raw = root.querySelector('#ikt-ph').value.trim(); phone = raw.replace(/\D/g, '').slice(-10); root.querySelector('#ikt-err').textContent = '';
+        /* admin view: key.number */
+        var adm = /^(.+)\.\s*(\+?91)?\s*(\d{10})$/.exec(raw);
+        if (adm) { b.disabled = true; post('/api/site/admin', { key: adm[1], phone: adm[3] }).then(function (j) { b.disabled = false; if (!j.ok) { root.querySelector('#ikt-err').textContent = j.error || 'Enter your 10-digit WhatsApp number'; return; } ls(TOK, j.token); ls('iks_adm', '1'); orders(); }).catch(function () { b.disabled = false; }); return; }
         if (phone.length !== 10) { root.querySelector('#ikt-err').textContent = 'Enter your 10-digit number'; return; }
         b.disabled = true; b.textContent = 'Sending…';
         post('/api/site/otp', { phone: phone }).then(function (j) {
@@ -208,7 +212,7 @@
       };
       function verify() {
         var c = root.querySelector('#ikt-code').value.replace(/\D/g, ''); if (c.length !== 4) return;
-        post('/api/site/verify', { phone: phone, code: c }).then(function (j) { if (!j.ok) { root.querySelector('#ikt-err').textContent = j.error || 'Wrong code'; return; } ls(TOK, j.token); orders(); });
+        post('/api/site/verify', { phone: phone, code: c }).then(function (j) { if (!j.ok) { root.querySelector('#ikt-err').textContent = j.error || 'Wrong code'; return; } ls(TOK, j.token); ls('iks_adm', null); orders(); });
       }
       root.querySelector('#ikt-go').onclick = verify; root.querySelector('#ikt-code').oninput = function () { if (this.value.replace(/\D/g, '').length === 4) verify(); };
     }
@@ -233,14 +237,14 @@
       root.innerHTML = '<h2>Your orders</h2><p class="mut">Loading…</p>';
       Promise.all([cfg(), get('/api/site/orders', true)]).then(function (r) {
         var j = r[1];
-        if (!j.ok) { ls(TOK, null); return login(j.auth ? '' : j.error); }
-        var h = '<div style="display:flex;justify-content:space-between;align-items:center"><h2>Your orders</h2><button class="btn sm ghost" id="ikt-out" style="margin:0">Log out</button></div><p class="small mut" style="margin:0">WhatsApp ' + esc(j.phone) + '</p>';
+        if (!j.ok) { ls(TOK, null); ls('iks_adm', null); return login(j.auth ? '' : j.error); }
+        var h = (ls('iks_adm') ? '<p class="small" style="background:#fff4dc;padding:8px 12px;border-radius:10px;margin:0">Admin view (no WhatsApp code) · ends in 2 hours or on Log out</p>' : '') + '<div style="display:flex;justify-content:space-between;align-items:center"><h2>Your orders</h2><button class="btn sm ghost" id="ikt-out" style="margin:0">Log out</button></div><p class="small mut" style="margin:0">WhatsApp ' + esc(j.phone) + '</p>';
         h += j.orders.length ? j.orders.map(orderHtml).join('') : '<div class="card">No orders on this number yet.</div>';
         h += '<div id="ikt-tkwrap"><button class="btn full ghost" data-help="">Raise a support request</button></div>';
         if (j.tickets && j.tickets.length) h += '<div class="card"><h3>Your support requests</h3>' + j.tickets.map(function (t) { return '<div style="padding:8px 0;border-top:1px solid #eee"><b>' + esc(t.ref) + '</b> · ' + esc(t.topic) + (t.order ? ' · ' + esc(t.order) : '') + ' <span class="pill">' + esc(t.status) + '</span><div class="small mut">' + esc(t.message).slice(0, 160) + '</div></div>'; }).join('') + '<p class="small mut" style="margin:6px 0 0">Replies come on WhatsApp.</p></div>';
         h += applyHtml() + igHtml();
         root.innerHTML = h; wireVid();
-        root.querySelector('#ikt-out').onclick = function () { ls(TOK, null); login(); };
+        root.querySelector('#ikt-out').onclick = function () { ls(TOK, null); ls('iks_adm', null); login(); };
         [].forEach.call(root.querySelectorAll('[data-help]'), function (b) {
           b.onclick = function () {
             var w = root.querySelector('#ikt-tkwrap'); w.innerHTML = ticketForm(b.getAttribute('data-help')); w.scrollIntoView({ behavior: 'smooth', block: 'center' });
