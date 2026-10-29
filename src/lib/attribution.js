@@ -10,13 +10,19 @@ const FB_APPS = new Set(['350685531728', '6628568379', '256002347743983']); /* F
 
 /** The Meta app id inside an fbclid, or '' */
 export function fbclidApp(fbclid) {
-  const b = String(fbclid || '').split('_aem_')[0];
-  const i = b.indexOf('YXBwX2lk');                                   /* base64 of "app_id" */
-  if (i < 0) return '';
-  try {
-    const s = Buffer.from(b.slice(i, i + 48).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1');
-    return (/app_id.(\d{6,20})/.exec(s) || [])[1] || '';
-  } catch { return ''; }
+  /* fbclid = 2-letter prefix + base64url of a small binary record ("...app_id\x0f567067343352427..."). The record can
+     sit at any of the 4 base64 alignments, so decode from each and look for app_id. */
+  const b = String(fbclid || '').split('_aem_')[0].replace(/-/g, '+').replace(/_/g, '/');
+  if (b.length < 12) return '';
+  for (let k = 0; k < 4; k++) {
+    try {
+      let x = b.slice(k); x = x.slice(0, x.length - (x.length % 4));
+      const s = Buffer.from(x, 'base64').toString('latin1');
+      const m = /app_id.(\d{6,20})/.exec(s);
+      if (m) return m[1];
+    } catch { /* next alignment */ }
+  }
+  return '';
 }
 const metaPlatform = (fbclid, utmSource) => {
   const app = fbclidApp(fbclid);
