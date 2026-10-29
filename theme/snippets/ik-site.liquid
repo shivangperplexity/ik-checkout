@@ -80,8 +80,11 @@
     /* sit above the "View cart" pill and the product page's sticky add-to-cart bar when they show */
     function lift() {
       var top = innerHeight;
-      [].forEach.call(document.querySelectorAll('.ikx-pill, [class*="sticky-atc"], [class*="ikl-sticky"]'), function (el) {
-        if (el.hidden) return; var r = el.getBoundingClientRect(); if (r.height > 0 && r.bottom >= innerHeight - 4 && r.top < innerHeight && r.top > innerHeight * 0.5) top = Math.min(top, r.top);
+      /* any fixed bar near the bottom (the pill floats ~12 px above the edge, more on iPhones) */
+      [].forEach.call(document.querySelectorAll('.ikx-pill, [class*="sticky-atc"], [class*="ikl-sticky"], [class*="sticky"]'), function (el) {
+        if (el.hidden || el.closest('.iks-fab, .iks-panel')) return;
+        var cs = getComputedStyle(el); if (cs.position !== 'fixed' && cs.position !== 'sticky' || cs.display === 'none' || cs.visibility === 'hidden') return;
+        var r = el.getBoundingClientRect(); if (r.height > 0 && r.bottom > innerHeight - 90 && r.top < innerHeight && r.top > innerHeight * 0.45) top = Math.min(top, r.top);
       });
       f.style.bottom = (innerHeight - top + 14) + 'px';
     }
