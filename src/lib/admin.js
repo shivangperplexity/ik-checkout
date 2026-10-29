@@ -1480,6 +1480,9 @@ const ACTIONS = {
   },
   /* product order on the main collections (lib/merch.js) */
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
+  /* barter collab orders from /collab (lib/barter.js) */
+  async barter(env) { const B = await import('./barter.js'); return B.barterList(env); },
+  async barter_decide(env, b) { const B = await import('./barter.js'); return B.barterDecide(env, b.id, b.approve === true); },
   async merch_restore(env, b) { const M = await import('./merch.js'); await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '0') ON CONFLICT (k) DO UPDATE SET v='0'").run(); return M.restore(env, String(b.handle || 'frontpage')); },
   /* Instagram comment -> DM (lib/ig-dm.js) */
   async ig(env) { const I = await import('./ig-dm.js'); return I.igDashboard(env); },

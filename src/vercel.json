@@ -23,6 +23,10 @@
       "destination": "/refer.html"
     },
     {
+      "source": "/collab",
+      "destination": "/collab.html"
+    },
+    {
       "source": "/c/:code",
       "destination": "/api/x?a=creator&b=go&code=:code"
     },

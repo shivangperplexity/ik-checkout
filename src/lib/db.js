@@ -120,6 +120,10 @@ export const SCHEMA = [
   /* website help chat log (lib/site.js) */
   `CREATE TABLE IF NOT EXISTS site_chats (id BIGSERIAL PRIMARY KEY, session TEXT, role TEXT, text TEXT, handoff BOOLEAN DEFAULT FALSE, page TEXT, city TEXT, created_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS site_chats_session ON site_chats (session, id)`,
+  /* barter collab checkout (/collab): free orders for creators, approved by hand (lib/barter.js) */
+  `CREATE TABLE IF NOT EXISTS barter_orders (id BIGSERIAL PRIMARY KEY, phone TEXT, name TEXT, email TEXT, instagram TEXT, items_json TEXT, address_json TEXT, edd TEXT, post_date TEXT,
+    status TEXT DEFAULT 'pending', draft_id TEXT, draft_name TEXT, order_id TEXT, order_name TEXT, note TEXT, created_at BIGINT, decided_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS barter_orders_phone ON barter_orders (phone, status)`,
   /* delivery date + serviceability per PIN (lib/edd.js) */
   `CREATE TABLE IF NOT EXISTS edd_cache (k TEXT PRIMARY KEY, body TEXT, at BIGINT)`,
   /* Instagram comment -> DM (lib/ig-dm.js) */

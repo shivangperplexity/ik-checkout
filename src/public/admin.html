@@ -222,7 +222,7 @@ function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app'
 var AS={msgs:[],busy:false,props:{},loaded:false};
 function asSave(){}
 function asLoad(){if(AS.loaded)return;AS.loaded=true;ls('ik_as_msgs',null);rpc('assistant_history').then(function(j){if(AS.msgs.length)return;AS.msgs=(j.messages||[]).map(function(m){return {role:m.role,content:String(m.content||'').replace(/\n\[[^\]]*\]$/,'')}});asDraw()}).catch(function(){AS.loaded=false})}
-var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['creators','Creators','Creator program: applications, approvals, orders, payouts'],['referrals','Refer and earn','Referral codes, friend orders, store credit given and used'],['webchat','Website chats','What visitors ask the help chat on inkkulture.in, track page admin key, tracking-link send'],['ig','Instagram DM','Comment on a reel, get the design link in DM: setup, links per post, orders'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
+var MORE=[['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['creators','Creators','Creator program: applications, approvals, orders, payouts'],['barter','Barter collabs','Free orders from the /collab page: check the Instagram DM, approve or reject'],['referrals','Refer and earn','Referral codes, friend orders, store credit given and used'],['webchat','Website chats','What visitors ask the help chat on inkkulture.in, track page admin key, tracking-link send'],['ig','Instagram DM','Comment on a reel, get the design link in DM: setup, links per post, orders'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
 function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
 function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
  $('#main').onclick=function(e){var b=e.target.closest('[data-go]');if(b)go(b.dataset.go)};
@@ -485,7 +485,7 @@ function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){r
  [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t||(inMore&&b.dataset.t==='more'))});
  var ml=$('#morelbl');if(ml)ml.textContent=moreName(t)?'More · '+moreName(t):'More';$('#main').onclick=null;
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,ig:loadIg,webchat:loadWebchat,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
+ ({revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,ig:loadIg,webchat:loadWebchat,barter:loadBarter,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 /* ---- creator program (lib/creators.js) ---- */
 var CRF='pending';
 function loadCreators(){rpc('creators').then(function(r){
@@ -563,6 +563,27 @@ function igWire(r){
  if(b=$('#ig_sv'))b.onclick=function(){var m=document.querySelector('input[name=ig_mode]:checked');save({on:$('#ig_on').checked,mode:m?m.value:'keywords',keywords:$('#ig_kw').value,text:$('#ig_tx').value,public_reply:$('#ig_pr').checked,public_text:$('#ig_pt').value,default_url:$('#ig_du').value,hourly_cap:$('#ig_cap').value})};
  [].forEach.call(document.querySelectorAll('[data-igsave]'),function(x){x.onclick=function(){var id=x.dataset.igsave;save({media_id:id,link:document.querySelector('[data-igl="'+id+'"]').value},'Link saved')}});
 }
+
+/* ---- barter collab orders (lib/barter.js, page /collab) ---- */
+function loadBarter(){rpc('barter').then(function(r){if(tab!=='barter')return;
+ var pend=r.rows.filter(function(x){return x.status==='pending'});
+ var h='<div class="card"><h3 style="margin:0 0 4px">Barter collabs</h3><p class="small mut" style="margin:0">Send creators <b>ik-checkout.vercel.app/collab</b>. They pick up to 4 tattoos (10+ in stock, no sleeves), verify WhatsApp, and get an ID like IKC-1001. Approve only after they DM that ID to @inkkulture.in. Approve = a ₹0 paid order in Shopify, shown in To ship. Reject = the draft is deleted. '+pend.length+' waiting.</p><div class="row" style="margin-top:8px"><button class="btn sm" id="bt_copy">Copy creator link</button></div></div>';
+ h+=r.rows.map(function(o){var a=o.address||{};
+  var st=o.status==='pending'?'<span class="pill warn">Waiting for DM</span>':o.status==='approved'?'<span class="pill ok">Approved '+esc(o.order_name)+'</span>':'<span class="pill">'+esc(o.status)+'</span>';
+  return '<div class="card" style="margin-top:10px"><div class="row" style="justify-content:space-between;align-items:center"><b style="font-size:17px">'+esc(o.ref)+'</b>'+st+'</div>'
+  +'<div style="margin-top:6px"><b>'+esc(o.name)+'</b> · <a href="https://instagram.com/'+encodeURIComponent(o.instagram)+'" target="_blank" rel="noopener">@'+esc(o.instagram)+'</a> · '+esc(o.phone)+' · '+esc(o.email)+'</div>'
+  +'<div class="small mut" style="margin-top:4px">'+esc([a.address1,a.address2,a.city,a.state,a.pincode].filter(Boolean).join(', '))+'</div>'
+  +'<div class="small" style="margin-top:6px">Delivery '+esc(o.edd||'-')+' · <b>Reel by '+esc(o.post_date)+'</b> · '+ago(o.created_at)+'</div>'
+  +'<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">'+o.items.map(function(i){return '<div style="display:flex;gap:6px;align-items:center;font-size:13px">'+(i.image?'<img src="'+esc(i.image)+'&width=80" style="width:40px;height:40px;object-fit:cover;border-radius:6px">':'')+esc(i.title)+(i.qty>1?' ×'+i.qty:'')+'</div>'}).join('')+'</div>'
+  +(o.status==='pending'?'<div class="row" style="margin-top:10px;gap:8px"><button class="btn sm" data-bta="'+o.id+'">Approve (DM received)</button><button class="btn sm ghost" data-btr="'+o.id+'">Reject</button></div>':'')+'</div>'}).join('')||'';
+ if(!r.rows.length)h+='<div class="card mut" style="margin-top:10px">No collab orders yet.</div>';
+ $('#main').innerHTML=h;
+ $('#bt_copy').onclick=function(){try{navigator.clipboard.writeText('https://ik-checkout.vercel.app/collab');toast('Link copied')}catch(e){toast('ik-checkout.vercel.app/collab')}};
+ function act(id,ok){var b=document.querySelector(ok?'[data-bta="'+id+'"]':'[data-btr="'+id+'"]');if(b){b.disabled=true;b.textContent='Working...'}
+  rpc('barter_decide',{id:id,approve:ok}).then(function(x){toast(ok?'Approved: '+x.order:'Rejected');loadBarter()}).catch(function(e){toast(e.message);loadBarter()})}
+ [].forEach.call(document.querySelectorAll('[data-bta]'),function(b){b.onclick=function(){if(confirm('Approve '+b.closest('.card').querySelector('b').textContent+'? Only after they sent the ID on Instagram.'))act(Number(b.dataset.bta),true)}});
+ [].forEach.call(document.querySelectorAll('[data-btr]'),function(b){b.onclick=function(){if(confirm('Reject this collab order? The draft is deleted.'))act(Number(b.dataset.btr),false)}});
+}).catch(fail)}
 
 /* ---- website help chat log + track page admin key (lib/site.js) ---- */
 function loadWebchat(){rpc('site_chats',{days:30}).then(function(r){if(tab!=='webchat')return;
