@@ -62,7 +62,8 @@ export async function customerOrders(env, phone) {
     const d = details[i];
     if (d) items = (d.lineItems?.nodes || []).map((l) => ({ title: l.title, qty: l.quantity, image: l.image?.url || '' }));
     else { try { items = JSON.parse(o.contents_json || '[]').map((c) => ({ title: c.title || c.sku || 'Tattoo', qty: c.quantity || 1, image: '' })); } catch { items = []; } }
-    const edd = live?.edd || o.edd || '';
+    let edd = String(live?.edd || o.edd || '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(edd)) edd = new Date(edd.slice(0, 10) + 'T12:00:00+05:30').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
     return {
       name: o.order_name, date: Number(o.created_at), total: Math.round(Number(o.total_paise) / 100), pay: o.method === 'cod' ? 'Cash on delivery' : 'Paid online',
       status: st.text, key: st.key, step: st.step, edd: edd && !['delivered', 'returned', 'cancelled'].includes(st.key) ? edd : '',

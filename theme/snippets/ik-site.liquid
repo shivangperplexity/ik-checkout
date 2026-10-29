@@ -1,0 +1,242 @@
+{%- comment -%}
+  Build 051 — IK site extras (rendered from snippets/ik-checkout.liquid, so on every page). Talks to ik-checkout.vercel.app/api/site/*.
+  1. Floating help: chat bubble (assistant with the store's knowledge; "Talk to us on WhatsApp" when it can't help) + Instagram button.
+  2. Product page: "Delivery by <date> to <city>" from the visitor's IP location (ShipPrime date + pickup day), PIN check.
+  3. /pages/track (page body: <div id="ik-track"></div>): WhatsApp-code login, orders with live tracking, support
+     requests (replies come on WhatsApp), how-to-apply video and steps, Follow us on Instagram.
+  4. A "Follow us on Instagram" strip above the footer.
+{%- endcomment -%}
+<style>
+.iks-fab{position:fixed;right:16px;bottom:18px;z-index:2147482000;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+.iks-fab button,.iks-fab a{all:unset;cursor:pointer;display:grid;place-items:center;width:52px;height:52px;border-radius:50%;box-shadow:0 6px 20px rgba(0,0,0,.22);-webkit-tap-highlight-color:transparent}
+.iks-fab .iks-chatbtn{background:#0a0a0c;color:#fff}
+.iks-fab .iks-igbtn{width:44px;height:44px;background:radial-gradient(circle at 30% 107%,#fdf497 0,#fdf497 5%,#fd5949 45%,#d6249f 60%,#285aeb 90%);color:#fff}
+.iks-fab svg{width:24px;height:24px}
+.iks-panel{position:fixed;right:12px;bottom:12px;z-index:2147483000;width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 24px));background:#fff;color:#111;border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.iks-panel.on{display:flex}
+.iks-ph{background:#0a0a0c;color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
+.iks-ph b{font-size:15px}.iks-ph small{display:block;opacity:.7;font-size:12px}
+.iks-ph button{all:unset;cursor:pointer;margin-left:auto;font-size:22px;line-height:1;padding:4px 6px}
+.iks-msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px;background:#f6f4f0}
+.iks-m{max-width:85%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
+.iks-m.bot{background:#fff;border:1px solid #e7e3dd;align-self:flex-start;border-bottom-left-radius:4px}
+.iks-m.me{background:#0a0a0c;color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.iks-chips{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px 0;background:#f6f4f0}
+.iks-chips button,.iks-chips a{all:unset;cursor:pointer;font-size:13px;padding:7px 11px;border-radius:999px;border:1px solid #d9d4cc;background:#fff;color:#111}
+.iks-in{display:flex;gap:8px;padding:10px;border-top:1px solid #eee;background:#fff}
+.iks-in input{flex:1;border:1.5px solid #e2ddd5;border-radius:12px;padding:10px 12px;font:16px system-ui;outline:none}
+.iks-in button{all:unset;cursor:pointer;background:#0a0a0c;color:#fff;border-radius:12px;padding:0 16px;font-weight:600}
+.iks-wa{display:inline-block;margin-top:6px;background:#25d366;color:#fff!important;text-decoration:none;padding:8px 12px;border-radius:999px;font-weight:600;font-size:13px}
+.iks-edd{margin:12px 0;padding:11px 13px;border:1.5px solid #e7e3dd;border-radius:12px;font:14px/1.4 system-ui,-apple-system,sans-serif;color:#111;background:#fff}
+.iks-edd b{font-weight:700}.iks-edd .mut{color:#6b6760}.iks-edd .bad{color:#b42318}
+.iks-edd button{all:unset;cursor:pointer;text-decoration:underline;color:#111;font-weight:600;margin-left:6px}
+.iks-edd form{display:flex;gap:6px;margin-top:8px}.iks-edd input{flex:1;border:1.5px solid #e2ddd5;border-radius:10px;padding:8px 10px;font:16px system-ui;min-width:0}
+.iks-edd form button{text-decoration:none;background:#0a0a0c;color:#fff;border-radius:10px;padding:8px 14px;margin:0}
+.iks-igstrip{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;padding:22px 16px;background:#0a0a0c;color:#fff;text-align:center;font:15px system-ui,-apple-system,sans-serif}
+.iks-igstrip a{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;background:#fff;color:#0a0a0c;font-weight:700;padding:11px 18px;border-radius:999px}
+.iks-igstrip svg{width:20px;height:20px}
+/* track page */
+.ikt{max-width:760px;margin:0 auto;padding:8px 16px 40px;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#111}
+.ikt h2{font-size:24px;margin:8px 0 6px;letter-spacing:-.01em}.ikt h3{font-size:17px;margin:0 0 8px}
+.ikt .card{background:#fff;border:1px solid #e7e3dd;border-radius:16px;padding:16px;margin:12px 0}
+.ikt .mut{color:#6b6760}.ikt .small{font-size:13px}.ikt .err{color:#b42318;font-size:14px;min-height:1em;margin:8px 0 0}
+.ikt input,.ikt select,.ikt textarea{width:100%;box-sizing:border-box;border:1.5px solid #e2ddd5;border-radius:12px;padding:12px 14px;font:16px system-ui;margin-top:6px;background:#fff;color:#111}
+.ikt .btn{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;justify-content:center;align-items:center;gap:8px;background:#0a0a0c;color:#fff;border-radius:999px;padding:13px 20px;font-weight:600;margin-top:10px;text-align:center}
+.ikt .btn.full{display:flex;width:100%}.ikt .btn.ghost{background:#fff;color:#0a0a0c;border:1.5px solid #0a0a0c}.ikt .btn.sm{padding:8px 14px;font-size:14px}
+.ikt .steps{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin:12px 0 4px}
+.ikt .steps i{height:5px;border-radius:3px;background:#e7e3dd}.ikt .steps i.on{background:#0a0a0c}
+.ikt .slabels{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;font-size:10.5px;color:#6b6760}
+.ikt .pill{display:inline-block;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:999px;background:#efece6}
+.ikt .pill.delivered{background:#e3f4ea;color:#13804b}.ikt .pill.ofd,.ikt .pill.ndr{background:#fff4dc;color:#a15c07}.ikt .pill.cancelled,.ikt .pill.returned{background:#fdecea;color:#b42318}
+.ikt .items{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ikt .items img{width:54px;height:54px;object-fit:cover;border-radius:10px;border:1px solid #eee}
+.ikt .scan{border-left:2px solid #e7e3dd;padding:0 0 10px 12px;margin-left:4px;font-size:13.5px}.ikt .scan:first-child{border-color:#0a0a0c}
+.ikt .vid{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000;cursor:pointer}
+.ikt .vid img{width:100%;height:100%;object-fit:cover;opacity:.85}.ikt .vid span{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:54px}
+.ikt ol{padding-left:20px;margin:10px 0}.ikt ol li{margin:5px 0}
+.ikt .otp{letter-spacing:.5em;text-align:center;font-size:24px!important;font-weight:700}
+</style>
+<script>
+(function () {
+  if (window.__iks) return; window.__iks = 1;
+  var API = 'https://ik-checkout.vercel.app', TOK = 'iks_tok';
+  var TEMPLATE = {{ template.name | json }};
+  var IG_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>';
+  var CHAT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } }
+  function get(p, auth) { return fetch(API + p, { headers: auth ? { Authorization: 'Bearer ' + ls(TOK) } : {} }).then(function (r) { return r.json(); }); }
+  function post(p, b, auth) { return fetch(API + p, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, auth ? { Authorization: 'Bearer ' + ls(TOK) } : {}), body: JSON.stringify(b || {}) }).then(function (r) { return r.json(); }); }
+  var CFG = null, cfgP = null;
+  function cfg() { if (CFG) return Promise.resolve(CFG); if (!cfgP) cfgP = get('/api/site/config').then(function (j) { CFG = j; return j; }).catch(function () { CFG = { wa: '917397973573', instagram: 'https://www.instagram.com/inkkulture.in/', apply: { ytid: '0GMHG7WmaL8', steps: [] }, topics: ['Something else'], steps: [] }; return CFG; }); return cfgP; }
+  function waLink(text) { return 'https://wa.me/' + ((CFG && CFG.wa) || '917397973573') + (text ? '?text=' + encodeURIComponent(text) : ''); }
+  var IG = 'https://www.instagram.com/inkkulture.in/';
+
+  /* ---------- 1. floating help + Instagram ---------- */
+  function fab() {
+    if (TEMPLATE === 'product') document.body.classList.add('iks-pdp');
+    var f = document.createElement('div'); f.className = 'iks-fab';
+    f.innerHTML = '<a class="iks-igbtn" href="' + IG + '" target="_blank" rel="noopener" aria-label="Follow Ink Kulture on Instagram">' + IG_ICON + '</a><button class="iks-chatbtn" type="button" aria-label="Ask us anything">' + CHAT_ICON + '</button>';
+    document.body.appendChild(f);
+    /* sit above the "View cart" pill and the product page's sticky add-to-cart bar when they show */
+    function lift() {
+      var top = innerHeight;
+      [].forEach.call(document.querySelectorAll('.ikx-pill, [class*="sticky-atc"], [class*="ikl-sticky"]'), function (el) {
+        if (el.hidden) return; var r = el.getBoundingClientRect(); if (r.height > 0 && r.bottom >= innerHeight - 4 && r.top < innerHeight && r.top > innerHeight * 0.5) top = Math.min(top, r.top);
+      });
+      f.style.bottom = (innerHeight - top + 14) + 'px';
+    }
+    lift(); addEventListener('scroll', lift, { passive: true }); addEventListener('resize', lift); setInterval(lift, 1200);
+    var p = document.createElement('div'); p.className = 'iks-panel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Ink Kulture help');
+    p.innerHTML = '<div class="iks-ph"><div><b>Ink Kulture help</b><small>Ask about designs, delivery, applying, COD</small></div><button type="button" aria-label="Close">×</button></div>' +
+      '<div class="iks-msgs"></div><div class="iks-chips"><a href="/pages/track">📦 Track my order</a><button type="button" data-q="How do I apply the tattoo?">How to apply</button><button type="button" data-q="How long does delivery take?">Delivery time</button><button type="button" data-q="How long does the tattoo last?">How long it lasts</button><a href="' + IG + '" target="_blank" rel="noopener">Follow on Instagram</a></div>' +
+      '<form class="iks-in"><input placeholder="Type your question…" maxlength="500" aria-label="Your question"><button type="submit">Send</button></form>';
+    document.body.appendChild(p);
+    var msgs = p.querySelector('.iks-msgs'), hist = [];
+    function add(role, html) { var d = document.createElement('div'); d.className = 'iks-m ' + (role === 'user' ? 'me' : 'bot'); d.innerHTML = html; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d; }
+    add('bot', 'Hi! 🖤 Ask me anything about our semi-permanent tattoos. For your order status, tap <b>Track my order</b>.');
+    function ask(q) {
+      q = String(q || '').trim(); if (!q) return;
+      add('user', esc(q)); hist.push({ role: 'user', content: q });
+      var w = add('bot', '…');
+      post('/api/site/chat', { messages: hist }).then(function (j) {
+        var t = (j && j.text) || 'Sorry, something went wrong. Message us on WhatsApp.';
+        hist.push({ role: 'assistant', content: t });
+        w.innerHTML = esc(t) + (j && j.handoff ? '<br><a class="iks-wa" target="_blank" rel="noopener" href="' + waLink('Hi, I have a question: ' + q) + '">Chat with us on WhatsApp</a>' : '');
+        msgs.scrollTop = msgs.scrollHeight;
+      }).catch(function () { w.innerHTML = 'Could not reach us. <a class="iks-wa" target="_blank" rel="noopener" href="' + waLink(q) + '">Ask on WhatsApp</a>'; });
+    }
+    f.querySelector('.iks-chatbtn').onclick = function () { cfg(); p.classList.add('on'); p.querySelector('input').focus(); };
+    p.querySelector('.iks-ph button').onclick = function () { p.classList.remove('on'); };
+    p.querySelector('form').onsubmit = function (e) { e.preventDefault(); var i = p.querySelector('input'); ask(i.value); i.value = ''; };
+    [].forEach.call(p.querySelectorAll('[data-q]'), function (b) { b.onclick = function () { ask(b.getAttribute('data-q')); }; });
+  }
+
+  /* ---------- 2. product page delivery date ---------- */
+  function edd() {
+    if (TEMPLATE !== 'product') return;
+    var form = document.querySelector('main form[action*="/cart/add"]') || document.querySelector('form[action*="/cart/add"]');
+    if (!form) return;
+    var box = document.createElement('div'); box.className = 'iks-edd'; box.innerHTML = '<span class="mut">🚚 Checking delivery date…</span>';
+    form.parentNode.insertBefore(box, form);
+    function show(j, pin) {
+      if (!j || !j.ok && !j.generic) { box.innerHTML = '🚚 Free delivery in <b>3-6 days</b> across India<button type="button">Check PIN</button>'; return wire(); }
+      if (j.pin && j.serviceable === false) { box.innerHTML = '<span class="bad">Sorry, we don’t deliver to <b>' + esc(j.pin) + '</b> yet.</span><button type="button">Try another PIN</button>'; return wire(); }
+      var where = j.city ? ' to <b>' + esc(j.city) + (pin ? ' ' + esc(pin) : '') + '</b>' : (pin ? ' to <b>' + esc(pin) + '</b>' : '');
+      box.innerHTML = j.edd ? '🚚 Get it by <b>' + esc(j.edd) + '</b>' + where + ' · free delivery<button type="button">' + (pin ? 'Change' : 'Not here?') + '</button>'
+        : '🚚 Free delivery in <b>3-6 days</b>' + where + '<button type="button">Check PIN</button>';
+      wire();
+    }
+    function wire() {
+      var b = box.querySelector('button'); if (!b) return;
+      b.onclick = function () {
+        box.insertAdjacentHTML('beforeend', '<form><input inputmode="numeric" maxlength="6" placeholder="Your PIN code" aria-label="PIN code" value="' + esc(ls('iks_pin') || '') + '"><button type="submit">Check</button></form>');
+        b.remove(); var f = box.querySelector('form'), i = f.querySelector('input'); i.focus();
+        f.onsubmit = function (e) { e.preventDefault(); var pin = i.value.replace(/\D/g, ''); if (pin.length !== 6) { i.style.borderColor = '#b42318'; return; } ls('iks_pin', pin); load(pin); };
+      };
+    }
+    function load(pin) {
+      box.innerHTML = '<span class="mut">🚚 Checking delivery for ' + (pin ? esc(pin) : 'your area') + '…</span>';
+      get('/api/site/edd' + (pin ? '?pin=' + pin : '')).then(function (j) { show(j, pin); }).catch(function () { show(null, pin); });
+    }
+    var saved = ls('iks_pin') || (function () { try { return (JSON.parse(localStorage.getItem('ikx_buyer') || '{}').pincode) || ''; } catch (e) { return ''; } })();
+    load(/^\d{6}$/.test(saved || '') ? saved : '');
+  }
+
+  /* ---------- 4. Instagram strip above the footer ---------- */
+  function igStrip() {
+    var foot = document.querySelector('footer') || document.querySelector('.footer') || document.querySelector('[id*="footer"]');
+    if (!foot || document.querySelector('.iks-igstrip')) return;
+    var s = document.createElement('div'); s.className = 'iks-igstrip';
+    s.innerHTML = '<span>New designs, how-tos and real customer looks every day</span><a href="' + IG + '" target="_blank" rel="noopener">' + IG_ICON + 'Follow @inkkulture.in</a>';
+    foot.parentNode.insertBefore(s, foot);
+  }
+
+  /* ---------- 3. track page ---------- */
+  function track() {
+    var root = document.getElementById('ik-track'); if (!root) return;
+    var host = root.closest('.rte') || root.parentNode;
+    [].forEach.call(host.children, function (c) { if (c !== root) c.style.display = 'none'; });
+    root.className = 'ikt';
+    var STEPS = ['Placed', 'Confirmed', 'Packed', 'On the way', 'Out for delivery', 'Delivered'];
+    function applyHtml() {
+      var a = (CFG && CFG.apply) || {};
+      return '<div class="card" id="ikt-apply"><h3>How to apply your tattoo</h3>' +
+        (a.ytid ? '<div class="vid" data-yt="' + esc(a.ytid) + '"><img loading="lazy" src="https://i.ytimg.com/vi/' + esc(a.ytid) + '/hqdefault.jpg" alt="How to apply"><span>▶</span></div>' : '') +
+        (a.steps && a.steps.length ? '<ol>' + a.steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ol>' : '') +
+        '<p class="small mut" style="margin:0">' + esc(a.note || '') + '</p></div>';
+    }
+    function igHtml() { return '<div class="card" style="text-align:center"><b>Follow us on Instagram</b><p class="small mut" style="margin:4px 0 0">New designs, styling ideas and real customer looks.</p><a class="btn" href="' + IG + '" target="_blank" rel="noopener">' + IG_ICON.replace('<svg', '<svg width="18" height="18"') + ' Follow @inkkulture.in</a></div>'; }
+    function wireVid() { var v = root.querySelector('.vid'); if (v) v.onclick = function () { v.innerHTML = '<iframe width="100%" height="100%" style="position:absolute;inset:0;border:0" src="https://www.youtube.com/embed/' + esc(v.getAttribute('data-yt')) + '?autoplay=1&rel=0" allow="autoplay;encrypted-media" allowfullscreen></iframe>'; }; }
+    function login(msg) {
+      root.innerHTML = '<h2>Track your order</h2><p class="mut" style="margin:0">Enter the WhatsApp number you ordered with. We’ll send a 4-digit code on WhatsApp.</p>' +
+        '<div class="card"><label class="small"><b>WhatsApp number</b><input id="ikt-ph" inputmode="numeric" maxlength="10" placeholder="10-digit number" autocomplete="tel-national"></label>' +
+        '<button class="btn full" id="ikt-send">Send code on WhatsApp</button><div id="ikt-otp" style="display:none"><label class="small"><b>Code from WhatsApp</b><input id="ikt-code" class="otp" inputmode="numeric" maxlength="4" autocomplete="one-time-code"></label><button class="btn full" id="ikt-go">See my orders</button></div><p class="err" id="ikt-err">' + esc(msg || '') + '</p></div>' + applyHtml() + igHtml();
+      wireVid();
+      var phone = '';
+      root.querySelector('#ikt-send').onclick = function () {
+        var b = this; phone = root.querySelector('#ikt-ph').value.replace(/\D/g, '').slice(-10); root.querySelector('#ikt-err').textContent = '';
+        if (phone.length !== 10) { root.querySelector('#ikt-err').textContent = 'Enter your 10-digit number'; return; }
+        b.disabled = true; b.textContent = 'Sending…';
+        post('/api/site/otp', { phone: phone }).then(function (j) {
+          if (!j.ok) { b.disabled = false; b.textContent = 'Send code on WhatsApp'; root.querySelector('#ikt-err').textContent = j.error || 'Could not send'; return; }
+          b.textContent = 'Code sent on WhatsApp'; root.querySelector('#ikt-otp').style.display = ''; root.querySelector('#ikt-code').focus();
+          setTimeout(function () { b.disabled = false; b.textContent = 'Send again'; }, 30000);
+        }).catch(function () { b.disabled = false; b.textContent = 'Send code on WhatsApp'; root.querySelector('#ikt-err').textContent = 'Network problem, try again'; });
+      };
+      function verify() {
+        var c = root.querySelector('#ikt-code').value.replace(/\D/g, ''); if (c.length !== 4) return;
+        post('/api/site/verify', { phone: phone, code: c }).then(function (j) { if (!j.ok) { root.querySelector('#ikt-err').textContent = j.error || 'Wrong code'; return; } ls(TOK, j.token); orders(); });
+      }
+      root.querySelector('#ikt-go').onclick = verify; root.querySelector('#ikt-code').oninput = function () { if (this.value.replace(/\D/g, '').length === 4) verify(); };
+    }
+    function orderHtml(o) {
+      var steps = o.step >= 0 ? '<div class="steps">' + STEPS.map(function (s, i) { return '<i class="' + (i <= o.step ? 'on' : '') + '"></i>'; }).join('') + '</div><div class="slabels">' + STEPS.map(function (s) { return '<span>' + s + '</span>'; }).join('') + '</div>' : '';
+      var d = new Date(o.date * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      return '<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><b>Order ' + esc(o.name) + '</b><div class="small mut">' + d + ' · ₹' + o.total + ' · ' + esc(o.pay) + '</div></div><span class="pill ' + esc(o.key) + '">' + esc(o.status) + '</span></div>' + steps +
+        (o.edd ? '<p style="margin:10px 0 0">🚚 Expected by <b>' + esc(o.edd) + '</b></p>' : '') +
+        (o.items && o.items.length ? '<div class="items">' + o.items.slice(0, 8).map(function (i) { return i.image ? '<img loading="lazy" src="' + esc(i.image + (i.image.indexOf('?') > 0 ? '&' : '?') + 'width=120') + '" alt="' + esc(i.title) + '" title="' + esc(i.title + ' ×' + i.qty) + '">' : '<span class="pill">' + esc(i.title) + ' ×' + i.qty + '</span>'; }).join('') + '</div>' : '') +
+        (o.scans && o.scans.length ? '<details style="margin-top:10px"><summary class="small"><b>Courier updates</b></summary><div style="margin-top:8px">' + o.scans.map(function (s) { return '<div class="scan"><b>' + esc(s.text) + '</b><div class="small mut">' + esc(String(s.at).slice(0, 16)) + (s.place ? ' · ' + esc(s.place) : '') + '</div></div>'; }).join('') + '</div></details>' : '') +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' + (o.track_url ? '<a class="btn sm ghost" target="_blank" rel="noopener" href="' + esc(o.track_url) + '">Courier tracking</a>' : '') + '<button class="btn sm ghost" data-help="' + esc(o.name) + '">Need help with this order?</button></div></div>';
+    }
+    function ticketForm(order) {
+      var t = (CFG && CFG.topics) || ['Something else'];
+      return '<div class="card" id="ikt-tk"><h3>Get help' + (order ? ' with ' + esc(order) : '') + '</h3><p class="small mut" style="margin:0">Our team replies on WhatsApp, usually within a few hours.</p>' +
+        '<label class="small"><b>What’s it about?</b><select id="ikt-topic">' + t.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="small"><b>Tell us more</b><textarea id="ikt-msg" rows="4" maxlength="1500" placeholder="What happened?"></textarea></label>' +
+        '<button class="btn full" id="ikt-tksend">Send to our team</button><p class="err" id="ikt-tkerr"></p></div>';
+    }
+    function orders() {
+      if (!ls(TOK)) return login();
+      root.innerHTML = '<h2>Your orders</h2><p class="mut">Loading…</p>';
+      Promise.all([cfg(), get('/api/site/orders', true)]).then(function (r) {
+        var j = r[1];
+        if (!j.ok) { ls(TOK, null); return login(j.auth ? '' : j.error); }
+        var h = '<div style="display:flex;justify-content:space-between;align-items:center"><h2>Your orders</h2><button class="btn sm ghost" id="ikt-out" style="margin:0">Log out</button></div><p class="small mut" style="margin:0">WhatsApp ' + esc(j.phone) + '</p>';
+        h += j.orders.length ? j.orders.map(orderHtml).join('') : '<div class="card">No orders on this number yet.</div>';
+        h += '<div id="ikt-tkwrap"><button class="btn full ghost" data-help="">Raise a support request</button></div>';
+        if (j.tickets && j.tickets.length) h += '<div class="card"><h3>Your support requests</h3>' + j.tickets.map(function (t) { return '<div style="padding:8px 0;border-top:1px solid #eee"><b>' + esc(t.ref) + '</b> · ' + esc(t.topic) + (t.order ? ' · ' + esc(t.order) : '') + ' <span class="pill">' + esc(t.status) + '</span><div class="small mut">' + esc(t.message).slice(0, 160) + '</div></div>'; }).join('') + '<p class="small mut" style="margin:6px 0 0">Replies come on WhatsApp.</p></div>';
+        h += applyHtml() + igHtml();
+        root.innerHTML = h; wireVid();
+        root.querySelector('#ikt-out').onclick = function () { ls(TOK, null); login(); };
+        [].forEach.call(root.querySelectorAll('[data-help]'), function (b) {
+          b.onclick = function () {
+            var w = root.querySelector('#ikt-tkwrap'); w.innerHTML = ticketForm(b.getAttribute('data-help')); w.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var order = b.getAttribute('data-help');
+            w.querySelector('#ikt-tksend').onclick = function () {
+              var s = this; s.disabled = true; s.textContent = 'Sending…';
+              post('/api/site/ticket', { order: order, topic: w.querySelector('#ikt-topic').value, message: w.querySelector('#ikt-msg').value }, true).then(function (k) {
+                if (!k.ok) { s.disabled = false; s.textContent = 'Send to our team'; w.querySelector('#ikt-tkerr').textContent = k.error || 'Could not send'; return; }
+                w.innerHTML = '<div class="card"><b>Request ' + esc(k.ticket) + ' sent ✓</b><p class="small mut" style="margin:4px 0 0">We’ll reply on WhatsApp' + (k.whatsapp ? ' (we’ve sent you a confirmation there)' : '') + '.</p></div>';
+              }).catch(function () { s.disabled = false; s.textContent = 'Send to our team'; });
+            };
+          };
+        });
+      }).catch(function () { root.innerHTML = '<p class="err">Could not load. Check your internet and refresh.</p>'; });
+    }
+    cfg().then(orders);
+  }
+
+  function boot() { try { fab(); } catch (e) {} try { edd(); } catch (e) {} try { igStrip(); } catch (e) {} try { track(); } catch (e) {} }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
