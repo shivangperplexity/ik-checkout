@@ -23,10 +23,6 @@
       "destination": "/refer.html"
     },
     {
-      "source": "/collab",
-      "destination": "/collab.html"
-    },
-    {
       "source": "/c/:code",
       "destination": "/api/x?a=creator&b=go&code=:code"
     },
@@ -44,5 +40,12 @@
       "includeFiles": "node_modules/{pdfjs-dist/legacy/build/pdf.worker.mjs,pdfjs-dist/standard_fonts/**,@napi-rs/**}",
       "maxDuration": 60
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/collab",
+      "destination": "https://www.inkkulture.in/pages/collab",
+      "permanent": false
+    }
+  ]
 }
