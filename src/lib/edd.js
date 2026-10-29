@@ -2,7 +2,7 @@
  * When will a parcel to this PIN arrive, and can we deliver there at all?
  *
  * We ship with ShipPrime (Shiprocket as the second carrier). Pickup takes a day, so the date is: next working day
- * pickup + the courier's transit days (ShipPrime's own EDD, the slower end of its range so the promise holds),
+ * pickup + the courier's transit days (ShipPrime's own EDD range, its middle rounded up),
  * Sundays skipped (lib/shipprime.js arrivalDate). Without a ShipPrime EDD, Shiprocket's date for the courier it
  * would pick, plus the pickup day.
  *
@@ -28,7 +28,11 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
   const serviceable = srOk === true || spOk === true ? true : srOk === false && !spFailed ? false : null;
   let date = '', via = '';
   if (serviceable !== false) {
-    if (sp?.edd && (sp.edd.max != null || sp.edd.min != null)) { date = arrivalDate(sp.edd.max ?? sp.edd.min, from); via = 'shipprime'; }
+    if (sp?.edd && (sp.edd.max != null || sp.edd.min != null)) {
+      /* ShipPrime's range is per state (coarse): the middle of it, rounded up */
+      const lo = sp.edd.min ?? sp.edd.max, hi = sp.edd.max ?? sp.edd.min;
+      date = arrivalDate(Math.ceil((lo + hi) / 2), from); via = 'shipprime';
+    }
     else if (sr?.pick?.eddDate) {
       /* Shiprocket counts from today: add our pickup day (Sunday skipped) */
       const d = new Date(+sr.pick.eddDate); d.setUTCDate(d.getUTCDate() + 1); if (new Date(+d + 19800000).getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
@@ -41,7 +45,7 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
 
 export async function deliveryEstimate(env, { pin, cod = false, amount = 499 } = {}) {
   if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
-  const key = `v3:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
+  const key = `v4:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
   const m = mem.get(key);
   if (m && m.at > now() - TTL) return m.body;
   const row = await env.DB?.prepare('SELECT body, at FROM edd_cache WHERE k=?').bind(key).first().catch(() => null);

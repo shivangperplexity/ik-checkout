@@ -7,7 +7,7 @@ const thu = Date.UTC(2026, 9, 29, 6);   /* Thu 29 Oct 2026, 11:30 IST */
 test('date: pickup next working day + ShipPrime max days, Sundays skipped', () => {
   const r = combine({ options: [{ charge: 60 }], pick: null }, { rates: [], edd: { min: 2, max: 4 } }, { from: thu, arrivalDate });
   assert.equal(r.serviceable, true);
-  assert.equal(r.date, '2026-11-04');     /* pickup Fri 30, +4 working days: Sat 31, Mon 2, Tue 3, Wed 4 */
+  assert.equal(r.date, '2026-11-03');     /* pickup Fri 30, +3 working days (middle of 2-4): Sat 31, Mon 2, Tue 3 */
   assert.equal(r.via, 'shipprime');
 });
 test('no ShipPrime EDD: Shiprocket date + 1 pickup day', () => {
