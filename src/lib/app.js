@@ -565,17 +565,8 @@ export async function runCron(env0, via = 'vercel') {
   try {
     const { deliveryEstimate } = await import('./edd.js');
     const out = {};
-    for (const pin of ['400614', '110001', '560001', '744301', '194101', '799001']) { const e = await deliveryEstimate(env, { pin, cod: true }).catch((x) => ({ err: x.message })); out[pin] = [e.serviceable, e.edd, e.via, e.days, e.error || e.err || '']; }
+    for (const pin of ['400614', '110001', '560001', '744301', '194101', '799001', '682001', '737101']) { const e = await deliveryEstimate(env, { pin, cod: true }).catch((x) => ({ err: x.message })); out[pin] = [e.serviceable, e.edd, e.via, e.days, e.error || e.err || '']; }
     console.log('eddDiag', JSON.stringify(out));
-    const { compareRates } = await import('./rates.js');
-    const SP = await import('./shipprime.js');
-    const pk = await SP.spPickup(env);
-    for (const pin of ['560001', '400614', '799001']) {
-      const r = await compareRates(env, { pin, cod: true, amount: 499 }).catch((x) => ({ err: x.message }));
-      const sr = await SP.spRates(env, { from: pk.pincode, pin, weightGrams: 50, cod: true, amount: 499 }).catch((x) => ({ err: x.message }));
-      const ed = await SP.spEdd(env, pk.pincode, pin).catch((x) => ({ err: x.message }));
-      console.log('eddRaw', pin, JSON.stringify({ sr: r.err || { n: r.options.length, errors: r.errors, connected: r.connected, top: r.options.slice(0, 3).map((o) => [o.courier, o.charge, o.edd]) }, sp: sr.err || sr.slice(0, 5).map((x) => [x.code, x.charge, x.serviceable]), edd: ed }).slice(0, 1500));
-    }
   } catch (e) { console.log('eddDiag failed', e.message); }
   const auto = await runAutomations(env);
   return { flagged: results.length, ...auto };

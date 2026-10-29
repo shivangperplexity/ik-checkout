@@ -23,8 +23,9 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
   const srOk = sr ? sr.options.length > 0 : null;                                   /* null = unknown */
   const spRates = sp?.rates || [];
   const spOk = sp ? (spRates.some((r) => r.serviceable === true) ? true : spRates.length && spRates.every((r) => r.serviceable === false) ? false : null) : null;
-  /* yes if either carrier can; no only when BOTH say no explicitly (30 Oct: Shiprocket returned nothing for Bangalore) */
-  const serviceable = srOk === true || spOk === true ? true : srOk === false && spOk === false ? false : null;
+  /* yes if either carrier can; no when Shiprocket's whole network has no courier for the PIN and ShipPrime didn't fail
+     (ShipPrime's own answer is "unknown" until it books) */
+  const serviceable = srOk === true || spOk === true ? true : srOk === false && !spFailed ? false : null;
   let date = '', via = '';
   if (serviceable !== false) {
     if (sp?.edd && (sp.edd.max != null || sp.edd.min != null)) { date = arrivalDate(sp.edd.max ?? sp.edd.min, from); via = 'shipprime'; }
@@ -40,7 +41,7 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
 
 export async function deliveryEstimate(env, { pin, cod = false, amount = 499 } = {}) {
   if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
-  const key = `v2:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
+  const key = `v3:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
   const m = mem.get(key);
   if (m && m.at > now() - TTL) return m.body;
   const row = await env.DB?.prepare('SELECT body, at FROM edd_cache WHERE k=?').bind(key).first().catch(() => null);
@@ -48,7 +49,15 @@ export async function deliveryEstimate(env, { pin, cod = false, amount = 499 } =
 
   const { compareRates } = await import('./rates.js');
   const SP = await import('./shipprime.js');
-  const [a, b] = await Promise.allSettled([
+  /* serviceability from Shiprocket's whole network (blocked / never-use couriers included): our own courier filters
+     say nothing about whether the PIN can be reached */
+  const network = (async () => {
+    const { srRates } = await import('./shiprocket.js');
+    const { packOrder, packCfg } = await import('./packing.js');
+    const r = await srRates(env, { pin, cod, amount, pack: packOrder([{ quantity: 1 }], packCfg(env.SETTINGS?.shipping?.pack)) }, { all: true });
+    return r.list.length;
+  })();
+  const [a, b, n] = await Promise.allSettled([
     compareRates(env, { pin, cod, amount }),
     (async () => {
       if (!SP.spConnected(env)) return null;
@@ -57,9 +66,13 @@ export async function deliveryEstimate(env, { pin, cod = false, amount = 499 } =
       if (r.status === 'rejected' && e.status === 'rejected') throw r.reason;
       return { rates: r.status === 'fulfilled' ? r.value : [], edd: e.status === 'fulfilled' ? e.value : null };
     })(),
+    network,
   ]);
   let sr = a.status === 'fulfilled' ? a.value : null;
   if (sr && !sr.options.length && sr.errors.length) sr = null;                     /* a failed lookup is not a "no" */
+  /* the yes/no comes from the network count; the date still from the courier we would pick */
+  if (n.status === 'fulfilled') sr = { ...(sr || { pick: null }), options: n.value > 0 ? (sr?.options?.length ? sr.options : [{ network: true }]) : [] };
+  else if (sr && !sr.options.length) sr = null;
   const sp = b.status === 'fulfilled' ? b.value : null;
   if (!sr && !sp) return { ok: false, error: 'courier lookup failed', serviceable: null, edd: '' };
   const c = combine(sr, sp, { arrivalDate: SP.arrivalDate, spFailed: b.status === 'rejected' });
