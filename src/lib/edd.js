@@ -40,7 +40,7 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
 
 export async function deliveryEstimate(env, { pin, cod = false, amount = 499 } = {}) {
   if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
-  const key = `${pin}:${cod ? 'cod' : 'pp'}`;
+  const key = `v2:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
   const m = mem.get(key);
   if (m && m.at > now() - TTL) return m.body;
   const row = await env.DB?.prepare('SELECT body, at FROM edd_cache WHERE k=?').bind(key).first().catch(() => null);
