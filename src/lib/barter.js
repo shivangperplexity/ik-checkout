@@ -17,7 +17,8 @@ const now = () => Math.floor(Date.now() / 1000);
 export const COLLECTION = 'creator-collab-ik26x';
 export const MAX_ITEMS = 4, MIN_STOCK = 10, POST_MIN = 4, POST_DEF = 6, POST_MAX = 10;
 export const TERMS = [
-  'I will post 1 reel and 1 Instagram story featuring the Ink Kulture tattoos, tagging @inkkulture.in.',
+  'I will post 1 reel as an Instagram Collab post with @inkkulture.in (I add @inkkulture.in as a collaborator when posting, so the reel shows on both profiles).',
+  'I will also post 1 Instagram story with the tattoos, tagging @inkkulture.in.',
   'Ink Kulture may reuse the reel and story (commercial rights) on its own pages and in ads.',
   'I will post the reel on the date I pick below (4 to 10 days after delivery).',
   'My order is sent only after I DM the order ID to @inkkulture.in on Instagram and it is approved.',
@@ -97,7 +98,7 @@ async function placeBarter(env, phone, b) {
   const input = {
     lineItems: lines.map((l) => ({ variantId: `gid://shopify/ProductVariant/${l.id}`, quantity: l.qty })),
     shippingAddress: addr, billingAddress: addr, phone: '+91' + phone, email, tags: ['barter-collab', 'barter-pending', 'ik-checkout'],
-    customAttributes: [{ key: 'Collab ID', value: ref }, { key: 'Instagram', value: '@' + ig }, { key: 'Reel posting date', value: post }, { key: 'Deliverables', value: '1 reel + 1 IG story, commercial rights' }, { key: 'Terms accepted', value: new Date().toISOString() }],
+    customAttributes: [{ key: 'Collab ID', value: ref }, { key: 'Instagram', value: '@' + ig }, { key: 'Reel posting date', value: post }, { key: 'Deliverables', value: '1 Collab reel with @inkkulture.in + 1 IG story, commercial rights' }, { key: 'Terms accepted', value: new Date().toISOString() }],
     note: `Barter collab ${ref} · @${ig} · reel by ${post}`,
     appliedDiscount: { title: 'Creator collab', description: 'Barter collab: 1 reel + 1 story', value: value, valueType: 'FIXED_AMOUNT' },
     shippingLine: { title: 'Free shipping', price: '0' },

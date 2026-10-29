@@ -179,14 +179,14 @@
       '<p class="lede">We are a tiny team making semi-permanent tattoos in India. Pick the designs you love, we send them to you free, and you show the world how they look on you.</p>' +
       '<div class="deal"><div><div class="k">You pick</div><div class="v serif">Up to 4</div><div class="s">tattoos of your choice</div></div>' +
       '<div><div class="k">You pay</div><div class="v serif">&#8377;0</div><div class="s">free delivery to your door</div></div>' +
-      '<div><div class="k">You post</div><div class="v serif">1 reel + 1 story</div><div class="s">4 to 10 days after delivery</div></div></div>' +
+      '<div><div class="k">You post</div><div class="v serif">1 collab reel + 1 story</div><div class="s">reel in collab with @inkkulture.in</div></div></div>' +
       '<p style="margin:24px 0 0"><button class="btn light" id="jump">Pick your tattoos &darr;</button></p></div>' +
       '<div id="mine"></div>' +
       '<section><h2 class="serif">How it works</h2><p class="sub">Four simple steps. No payment, no app.</p><div class="steps">' +
       '<div class="step"><div class="n serif">01</div><b>Pick up to 4</b><p>Choose the designs you would actually wear on camera.</p></div>' +
       '<div class="step"><div class="n serif">02</div><b>Verify and check out</b><p>WhatsApp code, your Instagram, address and the date you will post.</p></div>' +
       '<div class="step"><div class="n serif">03</div><b>DM us your order ID</b><p>Send the ID (like IKC-1001) to @inkkulture.in on Instagram, in the chat where we spoke.</p></div>' +
-      '<div class="step"><div class="n serif">04</div><b>We approve and ship</b><p>Once we see your DM, your tattoos are on the way. Track them on WhatsApp.</p></div>' +
+      '<div class="step"><div class="n serif">04</div><b>Post in collab with us</b><p>We ship once we see your DM. 4 to 10 days after delivery, post the reel in collaboration with @inkkulture.in + a story.</p></div>' +
       '</div><ul class="terms" id="terms"></ul></section>' +
       '<section id="pick"><h2 class="serif">Pick your tattoos</h2><p class="sub" id="picksub">Tap to select. Up to 4 designs.</p>' +
       '<div class="toolbar"><input class="search" id="q" type="search" placeholder="Search: lotus, script, dragon&hellip;" autocomplete="off">' +
@@ -275,7 +275,7 @@
         '<label class="f"><span>Area, landmark (optional)</span><input class="i" id="a2" autocomplete="address-line2" value="' + esc(d.address2 || '') + '"></label>' +
         '<div class="row2"><label class="f"><span>City</span><input class="i" id="ct" autocomplete="address-level2" value="' + esc(d.city || '') + '"></label><label class="f"><span>State</span><select class="i" id="stt"><option value="">Select</option>' + STATES.map(function (s) { return '<option' + (s === d.state ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></label></div>' +
         '<div class="box" id="pd"></div>' +
-        '<div class="box"><b>The collab</b><ul class="mini">' + TERMS.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul><label class="agree"><input type="checkbox" id="ag"><span>I agree: 1 reel + 1 Instagram story tagging @inkkulture.in, with commercial rights for Ink Kulture to reuse them.</span></label></div>' +
+        '<div class="box"><b>The collab</b><ul class="mini">' + TERMS.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul><label class="agree"><input type="checkbox" id="ag"><span>I agree: 1 reel posted in collaboration with @inkkulture.in (Instagram Collab, I add them as collaborator) + 1 story tagging @inkkulture.in, with commercial rights for Ink Kulture to reuse them.</span></label></div>' +
         '<div class="err" id="er"></div><button class="btn full" id="pl">Place collab order &middot; &#8377;0</button><p style="text-align:center;margin:10px 0 0;font-size:12.5px;color:var(--mut)">Verified as +91 ' + esc(PHONE) + ' &middot; <button class="link" id="lo" style="padding:0;font-size:12.5px">change</button></p>';
       dates();
       $('#lo').onclick = function () { TOKEN = ''; ls('ikc_tok', null); login(); };
@@ -322,7 +322,7 @@
       open(); $('#sht').textContent = 'Almost done';
       $('#sbd').innerHTML = '<div class="done"><span class="pill">Waiting for your DM</span><p style="margin:16px 0 0;color:var(--mut)">Your collab order ID</p><div class="id serif">' + esc(r.ref) + '</div><button class="link" id="cp">Copy ID</button>' +
         '<a class="btn full" style="margin-top:14px" href="https://ig.me/m/inkkulture.in" target="_blank" rel="noopener">DM this ID to @inkkulture.in</a>' +
-        '<ol><li>Send <b>' + esc(r.ref) + '</b> to <b>@inkkulture.in</b> on Instagram, in the chat where we connected.</li><li>We approve it there and ship your tattoos' + (r.edd ? ' (delivery by <b>' + esc(r.edd) + '</b>)' : '') + '. Updates come on WhatsApp.</li><li>Post your reel + story on <b>' + esc(nice(r.post_date)) + '</b>, tagging @inkkulture.in.</li></ol>' +
+        '<ol><li>Send <b>' + esc(r.ref) + '</b> to <b>@inkkulture.in</b> on Instagram, in the chat where we connected.</li><li>We approve it there and ship your tattoos' + (r.edd ? ' (delivery by <b>' + esc(r.edd) + '</b>)' : '') + '. Updates come on WhatsApp.</li><li>On <b>' + esc(nice(r.post_date)) + '</b>, post your reel <b>in collaboration with @inkkulture.in</b> (tap Tag people &rarr; Invite collaborator &rarr; @inkkulture.in) and a story tagging us.</li></ol>' +
         '<p style="font-size:13px;color:var(--mut)">Orders are not shipped until we get your DM.</p><button class="link" id="nw">Close</button></div>';
       $('#cp').onclick = function () { var t = this; try { navigator.clipboard.writeText(r.ref).then(function () { t.textContent = 'Copied \u2713'; }); } catch (e) { /* ignore */ } };
       $('#nw').onclick = close;
