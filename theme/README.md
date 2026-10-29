@@ -48,3 +48,12 @@ Part 4 also has the code box under the bill ("Have a creator or referral code?")
 friend's referral code or a creator credit voucher V…), re-quotes, and says "This code is not valid" when the API
 gives it no value. Creator program: `src/lib/creators.js`, page `src/public/creator.html` (built from
 `src/tools/creator.tpl.html` by `node src/tools/build-creator.mjs`).
+
+## Build 051: track page, help chat, delivery date (Oct 2026)
+`snippets/ik-site.liquid` (rendered at the end of `snippets/ik-checkout.liquid`, so on every page), talks to `/api/site/*`:
+floating help chat (the WhatsApp assistant's knowledge, WhatsApp hand-off) + Instagram button that rise above the cart pill /
+sticky add-to-cart; product page "Get it by <date> to <city>" from the visitor's IP location, with a PIN check (ShipPrime
+date + one pickup day, lib/edd.js); `/pages/track` (page body `<div id="ik-track"></div>`): WhatsApp-code login, orders
+with live courier scans, support requests (into the Chats tab, replies on WhatsApp), how-to-apply video and steps;
+"Follow @inkkulture.in" strip above the footer. Parts 2 and 4: a PIN code neither ShipPrime nor Shiprocket delivers to is
+shown in red and the order can't be placed (the server refuses it too).
