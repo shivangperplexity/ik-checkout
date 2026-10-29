@@ -23,8 +23,8 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
   const srOk = sr ? sr.options.length > 0 : null;                                   /* null = unknown */
   const spRates = sp?.rates || [];
   const spOk = sp ? (spRates.some((r) => r.serviceable === true) ? true : spRates.length && spRates.every((r) => r.serviceable === false) ? false : null) : null;
-  /* yes if either carrier can; no only when Shiprocket says no and ShipPrime didn't fail (its "unknown" defers to Shiprocket) */
-  const serviceable = srOk === true || spOk === true ? true : srOk === false && !spFailed ? false : null;
+  /* yes if either carrier can; no only when BOTH say no explicitly (30 Oct: Shiprocket returned nothing for Bangalore) */
+  const serviceable = srOk === true || spOk === true ? true : srOk === false && spOk === false ? false : null;
   let date = '', via = '';
   if (serviceable !== false) {
     if (sp?.edd && (sp.edd.max != null || sp.edd.min != null)) { date = arrivalDate(sp.edd.max ?? sp.edd.min, from); via = 'shipprime'; }

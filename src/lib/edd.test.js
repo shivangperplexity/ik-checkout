@@ -17,8 +17,8 @@ test('no ShipPrime EDD: Shiprocket date + 1 pickup day', () => {
 test('serviceability: either carrier yes = yes; Shiprocket no + ShipPrime unknown = no; a failed carrier never blocks', () => {
   const none = { options: [], pick: null };
   assert.equal(combine(none, { rates: [{ code: 'X', serviceable: true }], edd: null }, { arrivalDate }).serviceable, true);
-  assert.equal(combine(none, { rates: [{ code: 'X', serviceable: null }], edd: null }, { arrivalDate }).serviceable, false);
-  assert.equal(combine(none, null, { arrivalDate }).serviceable, false);                         /* ShipPrime not connected */
+  assert.equal(combine(none, { rates: [{ code: 'X', serviceable: null }], edd: null }, { arrivalDate }).serviceable, null);
+  assert.equal(combine(none, { rates: [{ code: 'X', serviceable: false }], edd: null }, { arrivalDate }).serviceable, false);
   assert.equal(combine(none, null, { arrivalDate, spFailed: true }).serviceable, null);
   assert.equal(combine(null, { rates: [{ code: 'X', serviceable: null }], edd: { max: 3 } }, { arrivalDate }).serviceable, null);
   assert.equal(combine(none, { rates: [], edd: null }, { arrivalDate }).edd, '');
