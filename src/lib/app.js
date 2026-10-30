@@ -556,8 +556,6 @@ export async function runCron(env0, via = 'vercel') {
   /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
-  /* TEMP one-off: re-create IKC-1021 (Shopify refused the gmail.con email) */
-  try { const f = await env.DB.prepare("SELECT 1 AS x FROM settings WHERE k='barter_fix21'").first(); if (!f) { await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('barter_fix21', '1') ON CONFLICT (k) DO NOTHING").run(); const B = await import('./barter.js'); console.log('DIAG fix21 ' + JSON.stringify(await B.makeDraft(env, 21))); } } catch (e) { console.log('DIAG fix21 err ' + e.message); }
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {
