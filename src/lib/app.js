@@ -476,6 +476,20 @@ export async function handle(req, env0, ctx) {
     /* creator program: apply, WhatsApp-code login and the creator's dashboard (lib/creators.js); /c/CODE counts a link open */
     /* Instagram comment -> DM: Meta webhook and the login callback (lib/ig-dm.js) */
     if (path === '/api/ig/webhook' || path === '/api/ig/callback') { const { handleIg } = await import('./ig-dm.js'); return await handleIg(req, env, ctx); }
+    /* TEMP (Meesho listing): hand a blob of public product data from the browser to the build script; key-protected, 24h */
+    if (path === '/api/tmp/put' || path === '/api/tmp/get') {
+      const H = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Content-Type': 'application/json' };
+      const k = String(url.searchParams.get('k') || '');
+      if (!/^[a-z0-9]{24,64}$/.test(k)) return new Response('{"ok":false}', { status: 400, headers: H });
+      if (path === '/api/tmp/put') {
+        const body = (await req.text()).slice(0, 4000000);
+        await env.DB.prepare('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v').bind('tmp:' + k, JSON.stringify({ at: now(), body })).run();
+        return new Response(JSON.stringify({ ok: true, n: body.length }), { headers: H });
+      }
+      const r = await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind('tmp:' + k).first();
+      const v = r ? JSON.parse(r.v) : null;
+      return new Response(v && v.at > now() - 86400 ? v.body : '{"ok":false}', { headers: H });
+    }
     if (path.startsWith('/api/barter/')) { const { handleBarter } = await import('./barter.js'); const r = await handleBarter(req, env); Object.entries(cors).forEach(([k, v]) => r.headers.set(k, v)); return r; }   /* /collab on Vercel and inkkulture.in/pages/collab */
     if (path.startsWith('/api/refer/')) { const { handleRefer } = await import('./refer-me.js'); return await handleRefer(req, env); }
     if (path.startsWith('/api/creator/')) {
