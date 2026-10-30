@@ -556,6 +556,8 @@ export async function runCron(env0, via = 'vercel') {
   /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
+  /* TEMP diag: failed barter orders */
+  try { const q = (await env.DB.prepare("SELECT id, status, note, email, address_json FROM barter_orders WHERE status='failed' ORDER BY id DESC LIMIT 5").all()).results; console.log('DIAG barter ' + JSON.stringify(q)); } catch (e) { console.log('DIAG err ' + e.message); }
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {
