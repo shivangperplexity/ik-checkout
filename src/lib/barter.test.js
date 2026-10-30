@@ -22,3 +22,10 @@ test('barter: reel date 4 to 10 days after delivery, 6 by default', () => {
   assert.ok(w.min < w.def && w.def < w.max);
   assert.equal(refOf(1), 'IKC-1001');
 });
+
+test('barter: email typo fix', async () => {
+  const { emailFix } = await import('./barter.js');
+  assert.equal(emailFix('ankitajuyal211@gmail.con'), 'ankitajuyal211@gmail.com');
+  assert.equal(emailFix(' Riya@GMIAL.com '), 'riya@gmail.com');
+  assert.equal(emailFix('a@company.in'), 'a@company.in');
+});

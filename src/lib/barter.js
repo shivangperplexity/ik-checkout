@@ -64,6 +64,46 @@ export async function catalogue(env) {
 }
 
 /* ---------------- order ---------------- */
+/** Pure: common email domain typos (gmail.con, gmial.com, yahoo.co ...) -> the likely address. */
+const DOMAIN_FIX = { 'gmail.con': 'gmail.com', 'gmail.co': 'gmail.com', 'gmail.cm': 'gmail.com', 'gmail.om': 'gmail.com', 'gmail.comm': 'gmail.com', 'gmail.coom': 'gmail.com', 'gmail.in': 'gmail.com',
+  'gmial.com': 'gmail.com', 'gmai.com': 'gmail.com', 'gamil.com': 'gmail.com', 'gmal.com': 'gmail.com', 'gmaill.com': 'gmail.com', 'gnail.com': 'gmail.com', 'gmail.vom': 'gmail.com', 'gmail.xom': 'gmail.com',
+  'yahoo.con': 'yahoo.com', 'yahoo.co': 'yahoo.com', 'yaho.com': 'yahoo.com', 'hotmail.con': 'hotmail.com', 'hotmal.com': 'hotmail.com', 'outlook.con': 'outlook.com', 'icloud.con': 'icloud.com' };
+export function emailFix(email) {
+  const e = String(email || '').trim().toLowerCase().replace(/\s+/g, '');
+  const at = e.lastIndexOf('@'); if (at < 1) return e;
+  const dom = e.slice(at + 1); return DOMAIN_FIX[dom] ? e.slice(0, at + 1) + DOMAIN_FIX[dom] : e;
+}
+
+/** Create (or re-create) the ₹0 Shopify draft for a barter row. If Shopify refuses the email, retry without it
+ *  (the email stays on our row and in the order note) so a typo never blocks the collab. */
+export async function makeDraft(env, id) {
+  const row = await env.DB.prepare('SELECT * FROM barter_orders WHERE id=?').bind(Number(id)).first();
+  if (!row) return { ok: false, error: 'not found' };
+  const ref = refOf(row.id), a = JSON.parse(row.address_json || '{}'), lines = JSON.parse(row.items_json || '[]');
+  const email = emailFix(row.email);
+  const [firstName, ...rest] = String(row.name || '').split(' ');
+  const addr = { firstName, lastName: rest.join(' '), address1: a.address1, address2: a.address2, city: a.city, provinceCode: stateCode(a.state), zip: a.pincode, countryCode: 'IN', phone: '+91' + row.phone };
+  const value = lines.reduce((s, l) => s + (Number(l.price) || 0) * (Number(l.qty) || 1), 0);
+  const input = {
+    lineItems: lines.map((l) => ({ variantId: `gid://shopify/ProductVariant/${l.id}`, quantity: Number(l.qty) || 1 })),
+    shippingAddress: addr, billingAddress: addr, phone: '+91' + row.phone, email, tags: ['barter-collab', 'barter-pending', 'ik-checkout'],
+    customAttributes: [{ key: 'Collab ID', value: ref }, { key: 'Instagram', value: '@' + row.instagram }, { key: 'Email', value: String(row.email || '') }, { key: 'Reel posting date', value: row.post_date }, { key: 'Deliverables', value: '1 Collab reel with @inkkulture.in + 1 IG story, commercial rights' }, { key: 'Terms accepted', value: new Date(Number(row.created_at) * 1000).toISOString() }],
+    note: `Barter collab ${ref} · @${row.instagram} · reel by ${row.post_date}`,
+    appliedDiscount: { title: 'Creator collab', description: 'Barter collab: 1 reel + 1 story', value, valueType: 'FIXED_AMOUNT' },
+    shippingLine: { title: 'Free shipping', price: '0' },
+  };
+  const run = (inp) => gql(env, `mutation($input:DraftOrderInput!){ draftOrderCreate(input:$input){ draftOrder{ id name } userErrors{ field message } } }`, { input: inp });
+  let d = await run(input), ue = d.draftOrderCreate.userErrors;
+  if (ue?.length && ue.some((x) => /email/i.test(x.message + ' ' + (x.field || []).join('.')))) { const { email: _e, ...noEmail } = input; d = await run(noEmail); ue = d.draftOrderCreate.userErrors; }
+  if (ue?.length) {
+    const msg = ue.map((x) => x.message).join('; ').slice(0, 300);
+    console.error('barter draft failed', ref, msg);
+    await env.DB.prepare("UPDATE barter_orders SET status='failed', note=? WHERE id=?").bind(msg, row.id).run();
+    return { ok: false, error: msg };
+  }
+  await env.DB.prepare("UPDATE barter_orders SET status='pending', note=NULL, email=?, draft_id=?, draft_name=? WHERE id=?").bind(email, d.draftOrderCreate.draftOrder.id, d.draftOrderCreate.draftOrder.name, row.id).run();
+  return { ok: true, ref, draft: d.draftOrderCreate.draftOrder.name };
+}
 async function placeBarter(env, phone, b) {
   const items = (Array.isArray(b.items) ? b.items : []).map((x) => ({ id: String(x.id || '').replace(/\D/g, ''), qty: Math.max(1, Math.min(MAX_ITEMS, parseInt(x.qty, 10) || 1)) })).filter((x) => x.id);
   const count = items.reduce((a, x) => a + x.qty, 0);
@@ -79,6 +119,8 @@ async function placeBarter(env, phone, b) {
     : !/^\d{6}$/.test(a.pincode) ? 'Enter a valid 6-digit PIN code' : a.address1.length < 5 ? 'Enter your full address' : !a.city ? 'Enter your city' : !stateCode(a.state) ? 'Select your state'
     : !b.agree ? 'Please accept the collab terms' : '';
   if (err) throw new Error(err);
+  const fix = emailFix(email);
+  if (fix !== email.toLowerCase()) throw new Error(`Please check your email. Did you mean ${fix}?`);
   /* one live collab per number and per Instagram account */
   const dup = await env.DB.prepare("SELECT id, status FROM barter_orders WHERE (phone=? OR instagram=?) AND status IN ('pending','approved') AND created_at>? LIMIT 1").bind(phone, ig, now() - 45 * 86400).first();
   if (dup) throw new Error(dup.status === 'pending' ? `You already have a collab order waiting: ${refOf(dup.id)}. DM that ID to @inkkulture.in on Instagram.` : 'You already have a collab order with us. Message us on Instagram for another one.');
@@ -92,21 +134,8 @@ async function placeBarter(env, phone, b) {
   const r = await env.DB.prepare(`INSERT INTO barter_orders (phone, name, email, instagram, items_json, address_json, edd, post_date, status, created_at) VALUES (?,?,?,?,?,?,?,?, 'pending', ?) RETURNING id`)
     .bind(phone, name, email, ig, JSON.stringify(lines.map((l) => ({ id: l.id, title: l.title, qty: l.qty, image: l.image, price: l.price }))), JSON.stringify(a), e.date || '', post, now()).first();
   const ref = refOf(r.id);
-  const [firstName, ...rest] = name.split(' ');
-  const addr = { firstName, lastName: rest.join(' '), address1: a.address1, address2: a.address2, city: a.city, provinceCode: stateCode(a.state), zip: a.pincode, countryCode: 'IN', phone: '+91' + phone };
-  const value = lines.reduce((s, l) => s + l.price * l.qty, 0);
-  const input = {
-    lineItems: lines.map((l) => ({ variantId: `gid://shopify/ProductVariant/${l.id}`, quantity: l.qty })),
-    shippingAddress: addr, billingAddress: addr, phone: '+91' + phone, email, tags: ['barter-collab', 'barter-pending', 'ik-checkout'],
-    customAttributes: [{ key: 'Collab ID', value: ref }, { key: 'Instagram', value: '@' + ig }, { key: 'Reel posting date', value: post }, { key: 'Deliverables', value: '1 Collab reel with @inkkulture.in + 1 IG story, commercial rights' }, { key: 'Terms accepted', value: new Date().toISOString() }],
-    note: `Barter collab ${ref} · @${ig} · reel by ${post}`,
-    appliedDiscount: { title: 'Creator collab', description: 'Barter collab: 1 reel + 1 story', value: value, valueType: 'FIXED_AMOUNT' },
-    shippingLine: { title: 'Free shipping', price: '0' },
-  };
-  const d = await gql(env, `mutation($input:DraftOrderInput!){ draftOrderCreate(input:$input){ draftOrder{ id name } userErrors{ field message } } }`, { input });
-  const ue = d.draftOrderCreate.userErrors;
-  if (ue?.length) { await env.DB.prepare("UPDATE barter_orders SET status='failed', note=? WHERE id=?").bind(ue.map((x) => x.message).join('; ').slice(0, 300), r.id).run(); throw new Error('Could not create the order, please try again'); }
-  await env.DB.prepare('UPDATE barter_orders SET draft_id=?, draft_name=? WHERE id=?').bind(d.draftOrderCreate.draftOrder.id, d.draftOrderCreate.draftOrder.name, r.id).run();
+  const made = await makeDraft(env, r.id);
+  if (!made.ok) throw new Error('Could not create the order: ' + made.error);
   return { ok: true, ref, edd: e.edd || '', post_date: post, instagram: ig };
 }
 

@@ -575,6 +575,7 @@ function loadBarter(){rpc('barter').then(function(r){if(tab!=='barter')return;
   +'<div class="small mut" style="margin-top:4px">'+esc([a.address1,a.address2,a.city,a.state,a.pincode].filter(Boolean).join(', '))+'</div>'
   +'<div class="small" style="margin-top:6px">Delivery '+esc(o.edd||'-')+' · <b>Reel by '+esc(o.post_date)+'</b> · '+ago(o.created_at)+'</div>'
   +'<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">'+o.items.map(function(i){return '<div style="display:flex;gap:6px;align-items:center;font-size:13px">'+(i.image?'<img src="'+esc(i.image)+'&width=80" style="width:40px;height:40px;object-fit:cover;border-radius:6px">':'')+esc(i.title)+(i.qty>1?' ×'+i.qty:'')+'</div>'}).join('')+'</div>'
+  +(o.status==='failed'?'<div class="small" style="margin-top:8px;color:var(--bad)">Shopify said: '+esc(o.note||'unknown error')+'</div><div class="row" style="margin-top:8px"><button class="btn sm" data-btx="'+o.id+'">Retry (fixes email typos)</button></div>':'')
   +(o.status==='pending'?'<div class="row" style="margin-top:10px;gap:8px"><button class="btn sm" data-bta="'+o.id+'">Approve (DM received)</button><button class="btn sm ghost" data-btr="'+o.id+'">Reject</button></div>':'')+'</div>'}).join('')||'';
  if(!r.rows.length)h+='<div class="card mut" style="margin-top:10px">No collab orders yet.</div>';
  $('#main').innerHTML=h;
@@ -582,6 +583,7 @@ function loadBarter(){rpc('barter').then(function(r){if(tab!=='barter')return;
  function act(id,ok){var b=document.querySelector(ok?'[data-bta="'+id+'"]':'[data-btr="'+id+'"]');if(b){b.disabled=true;b.textContent='Working...'}
   rpc('barter_decide',{id:id,approve:ok}).then(function(x){toast(ok?'Approved: '+x.order:'Rejected');loadBarter()}).catch(function(e){toast(e.message);loadBarter()})}
  [].forEach.call(document.querySelectorAll('[data-bta]'),function(b){b.onclick=function(){if(confirm('Approve '+b.closest('.card').querySelector('b').textContent+'? Only after they sent the ID on Instagram.'))act(Number(b.dataset.bta),true)}});
+ [].forEach.call(document.querySelectorAll('[data-btx]'),function(b){b.onclick=function(){b.disabled=true;b.textContent='Retrying...';rpc('barter_retry',{id:Number(b.dataset.btx)}).then(function(x){toast('Created draft '+x.draft);loadBarter()}).catch(function(e){toast(e.message);loadBarter()})}});
  [].forEach.call(document.querySelectorAll('[data-btr]'),function(b){b.onclick=function(){if(confirm('Reject this collab order? The draft is deleted.'))act(Number(b.dataset.btr),false)}});
 }).catch(fail)}
 
