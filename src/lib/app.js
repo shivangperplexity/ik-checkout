@@ -556,6 +556,31 @@ export async function runCron(env0, via = 'vercel') {
   /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
+  /* TEMP diag: audience sizes */
+  try {
+    const f = await env.DB.prepare("SELECT v FROM settings WHERE k='aud_diag_at'").first();
+    if (!f || Number(f.v) < now() - 3000) {
+      await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('aud_diag_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run();
+      const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all()).results;
+      const p10 = (x) => String(x || '').replace(/\D/g, '').slice(-10);
+      const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
+      const ord = await q(`SELECT o.phone, o.status, o.created_at, s.stage FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id`);
+      const buyers = new Set(), delivered = new Set(), badOnly = {};
+      for (const r of ord) { const ph = p10(r.phone); if (!ph) continue; buyers.add(ph); if (r.stage === 'delivered') delivered.add(ph); }
+      const leads = await q('SELECT phone, created_at, updated_at FROM leads');
+      const inbound = await q("SELECT phone, MAX(ts) AS ts FROM messages WHERE direction='in' GROUP BY phone");
+      const t = now(), d = 86400, out = {};
+      const seg = (name, phones) => { const u = [...new Set(phones.map(p10))].filter((x) => x.length === 10 && !opt.has(x)); out[name] = u.length; return u; };
+      const L = (days) => leads.filter((r) => Number(r.updated_at || r.created_at) > t - days * d).map((r) => r.phone).filter((ph) => !buyers.has(p10(ph)));
+      seg('lead_noorder_7d', L(7)); seg('lead_noorder_30d', L(30)); seg('lead_noorder_90d', L(90)); const A = seg('lead_noorder_all', L(9999));
+      const B = seg('wa_chat_noorder', inbound.map((r) => r.phone).filter((ph) => !buyers.has(p10(ph))));
+      const C = seg('delivered_customers', [...delivered]);
+      seg('buyers_never_delivered', [...buyers].filter((x) => !delivered.has(x)));
+      seg('all_buyers', [...buyers]);
+      out.potential_union = new Set([...A, ...B]).size; out.optout = opt.size; out.leads_total = leads.length;
+      console.log('DIAG aud ' + JSON.stringify(out));
+    }
+  } catch (e) { console.log('DIAG aud err ' + e.message); }
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {
