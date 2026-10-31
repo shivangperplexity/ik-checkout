@@ -1482,6 +1482,7 @@ const ACTIONS = {
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
   /* barter collab orders from /collab (lib/barter.js) */
   async barter(env) { const B = await import('./barter.js'); return B.barterList(env); },
+  async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
   async broadcast(env) { const B = await import('./broadcast.js'); return B.overview(env); },
   async broadcast_submit(env, b) { const B = await import('./broadcast.js'); return B.submit(env, b.video); },
   async broadcast_start(env) { const B = await import('./broadcast.js'); return B.start(env); },
