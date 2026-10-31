@@ -218,3 +218,18 @@ export async function igSave(env, b) {
   await saveIg(env, p);
   return igDashboard(env);
 }
+
+/**
+ * Reels ranked for ads (read-only): the account's recent posts with likes / comments, and how many people commented to
+ * get the DM (ig_dm) and then ordered. Comment-to-DM is the strongest buying signal we have per reel.
+ */
+export async function reelsReport(env, { limit = 40 } = {}) {
+  const c = await igCfg(env);
+  if (!c.token) throw new Error('Instagram is not connected');
+  const j = await ig(env, c, 'GET', `/me/media?fields=id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count&limit=${Math.min(50, limit)}`);
+  const media = j.data || [];
+  const dm = Object.fromEntries((await env.DB.prepare("SELECT media_id, COUNT(*) AS n, SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent FROM ig_dm GROUP BY media_id").all()).results.map((r) => [String(r.media_id), r]));
+  return media.map((m) => ({ id: m.id, type: m.media_product_type || m.media_type, date: String(m.timestamp || '').slice(0, 10), likes: m.like_count || 0, comments: m.comments_count || 0,
+    dm_asks: Number(dm[m.id]?.n) || 0, dm_sent: Number(dm[m.id]?.sent) || 0, link: m.permalink, caption: String(m.caption || '').replace(/\s+/g, ' ').slice(0, 70) }))
+    .sort((a, b) => b.dm_asks - a.dm_asks || b.comments - a.comments || b.likes - a.likes);
+}

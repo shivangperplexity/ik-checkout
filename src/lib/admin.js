@@ -1674,6 +1674,7 @@ const ACTIONS = {
     const csv = ['phone,fn,ln,ct,st,zip,country', ...[...rows.values()].map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
     return { ok: true, rows: rows.size, csv };
   },
+  async ig_reels(env) { const I = await import('./ig-dm.js'); return { ok: true, rows: await I.reelsReport(await withSettingsFresh(env)) }; },
   async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
   async cancel_request_close(env, b) { const C = await import('./self-cancel.js'); return C.closeRequest(env, b.id, b.how === 'cancel' ? 'cancel' : 'dismiss'); },
   async ndr_run(env, b) {
