@@ -1641,6 +1641,7 @@ const ACTIONS = {
     }));
     return { ok: true, at: now(), sr_open: list.length, sr_escalate, sr_failed, sp };
   },
+  async track_link(env, b) { const C = await import('./self-cancel.js'); return { ok: true, url: await C.trackLink(env, String(b.id || '')) }; },
   async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
   async cancel_request_close(env, b) { const C = await import('./self-cancel.js'); return C.closeRequest(env, b.id, b.how === 'cancel' ? 'cancel' : 'dismiss'); },
   async ndr_run(env, b) {
