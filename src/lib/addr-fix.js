@@ -24,10 +24,10 @@ export function nextPickup(from = Date.now()) {
   return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 }
 
-export async function rebookAfterFix(env, orderId) {
+export async function rebookAfterFix(env, orderId, provider = 'shipprime') {
   const { action } = await import('./admin.js');
   const id = String(orderId);
-  const r = await action('ship_book')(env, { id, provider: 'shipprime' });
+  const r = await action('ship_book')(env, { id, provider });
   const awb = r.shipment?.awb;
   if (!awb) return r;
   const o = await env.DB.prepare('SELECT order_name, phone, first_name FROM orders WHERE order_id=?').bind(id).first();
@@ -37,6 +37,6 @@ export async function rebookAfterFix(env, orderId) {
   const A = await import('./apply-guide.js');
   const e2 = await withSettings(env);
   const courier = String(r.shipment?.courier || '').replace(/\s+(Premium|Surface|Air)$/i, '') || 'our courier';
-  await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup: nextPickup(), edd: '4-7 days after pickup', track: spTrackUrl(awb), ytid: A.ytId(A.applyVideo(e2)) }, orderName: o.order_name, force: true });
+  await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup: nextPickup(), edd: r.shipment?.edd || '4-7 days after pickup', track: r.shipment?.track_url || spTrackUrl(awb), ytid: A.ytId(A.applyVideo(e2)) }, orderName: o.order_name, force: true });
   return r;
 }

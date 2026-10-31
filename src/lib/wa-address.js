@@ -34,6 +34,18 @@ export const fmtAddress = (a) => [
 /** Shopify still lets us change it: not cancelled, nothing shipped yet. */
 export const editable = (o) => !!o && !o.cancelledAt && (!o.displayFulfillmentStatus || o.displayFulfillmentStatus === 'UNFULFILLED');
 
+/** Still changeable: not shipped yet, or booked but the courier has not picked it up (the booking is then cancelled,
+    the address changed and the parcel booked again). { ok, rec } where rec is the live booking to redo, if any. */
+const NOT_PICKED = new Set(['', 'booked', 'new', 'pending', 'pickup_pending', 'pickup_failed', 'pickup_scheduled', 'manifested', 'ready']);
+export async function canEdit(env, o, orderId) {
+  if (!o || o.cancelledAt) return { ok: false, why: 'cancelled' };
+  if (editable(o)) return { ok: true };
+  const { liveShipment } = await import('./ship-cancel.js');
+  const rec = await liveShipment(env, orderId).catch(() => null);
+  if (rec && !rec.picked_at && rec.cancel_state !== 'picked' && NOT_PICKED.has(String(rec.stage || '').toLowerCase())) return { ok: true, rec };
+  return { ok: false, why: 'shipped' };
+}
+
 async function sendInteractive(env, phone91, interactive) {
   const res = await fetch(`${GRAPH}/${env.WA_PHONE_ID}/messages`, {
     method: 'POST',
@@ -50,7 +62,7 @@ export async function sendAddressCheck(env, row) {
   try {
     const o = await orderDetail(env, row.order_id);
     const a = o?.shippingAddress;
-    if (!a || !editable(o)) return { skipped: true };
+    if (!a || !(await canEdit(env, o, row.order_id)).ok) return { skipped: true };
     const text = `Delivery address for order ${row.order_name}:\n\n${fmtAddress(a)}\n\nIs this correct?`;
     let wamid = '';
     if (viaG4w(env)) {
@@ -101,8 +113,8 @@ export async function handleAddressReply(env, rep) {
       return;
     }
     const o = await orderDetail(env, row.order_id);
-    if (!editable(o)) {
-      await sendText(env, to, `Order ${row.order_name} has already been ${o?.cancelledAt ? 'cancelled' : 'packed for shipping'}, so the address can't be changed here. Reply with the correct address and our team will help.`);
+    if (!(await canEdit(env, o, row.order_id)).ok) {
+      await sendText(env, to, `Order ${row.order_name} has already been ${o?.cancelledAt ? 'cancelled' : 'picked up by the courier'}, so the address can't be changed here. Reply with the correct address and our team will help.`);
       await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'address', template: 'ADDR_EDIT', status: 'too-late', orderName: row.order_name });
       return;
     }
@@ -199,7 +211,8 @@ export async function handleAddr(req, env0) {
     console.error('addr detail', orderId, e.message);
     return page(`Order ${name}`, 'We could not load this order right now. Please try again in a minute.');
   }
-  if (!editable(o)) return page(`Order ${name}`, o?.cancelledAt ? 'This order was cancelled.' : 'This order has already been packed for shipping, so the address can no longer be changed here. Reply on WhatsApp and our team will help.');
+  const ce = await canEdit(env, o, orderId);
+  if (!ce.ok) return page(`Order ${name}`, o?.cancelledAt ? 'This order was cancelled.' : 'The courier has already picked this parcel up, so the address can no longer be changed here. Reply on WhatsApp and our team will tell the courier.');
   const a = o.shippingAddress || {};
   const current = { name: a.name || [row.first_name, row.last_name].filter(Boolean).join(' '), address1: a.address1, address2: a.address2, pincode: a.zip, city: a.city, state: a.province };
 
@@ -208,6 +221,15 @@ export async function handleAddr(req, env0) {
   const v = readForm(await req.text());
   const err = validate(v);
   if (err) return page('Delivery address', `Check or update where order ${name} should be delivered.`, form(orderId, sig, row, v, err));
+  /* booked but not picked up: cancel the booking first (it un-fulfils the Shopify order), then change, then book again */
+  let redo = '';
+  if (ce.rec) {
+    const { stopShipment } = await import('./ship-cancel.js');
+    const st = await stopShipment(env, orderId, 'Address fix: customer changed the address, booking again');
+    if (st.state === 'picked') return page(`Order ${name}`, 'The courier has just picked this parcel up, so the address can no longer be changed here. Reply on WhatsApp and our team will tell the courier.');
+    if (st.state === 'error') return page('Delivery address', 'We could not update the courier booking right now. Please try again in a few minutes.', form(orderId, sig, row, v));
+    redo = ce.rec.provider === 'shipprime' ? 'shipprime' : 'shiprocket';
+  }
   const [firstName, ...rest] = v.name.split(' ');
   const addr = { firstName, lastName: rest.join(' '), address1: v.address1, address2: v.address2, city: v.city, provinceCode: stateCode(v.state), zip: v.pincode, countryCode: 'IN', phone: a.phone || '+91' + row.phone };
   let saved;
@@ -218,18 +240,20 @@ export async function handleAddr(req, env0) {
     saved = d.orderUpdate.order.shippingAddress;
   } catch (e) {
     console.error('addr save', orderId, e.message);
+    /* the booking was already cancelled: put the parcel back on the old address rather than leave it unbooked */
+    if (redo) { try { const { rebookAfterFix } = await import('./addr-fix.js'); await rebookAfterFix(env0, orderId, redo); } catch (x) { console.error('addr rebook (old address)', orderId, x.message); } }
     return page('Delivery address', `Check or update where order ${name} should be delivered.`, form(orderId, sig, row, v, e.user ? e.message : 'Could not save right now. Please try again.'));
   }
   await addTags(env, gidOf(orderId), ['address-edited-by-customer']).catch(() => {});
   await env.DB.prepare('UPDATE orders SET city=?, state_code=?, pincode=? WHERE order_id=?').bind(v.city, stateCode(v.state), v.pincode, orderId).run().catch(() => {});
   await sendText(env, '91' + row.phone, `Address updated for order ${row.order_name}. We'll deliver to:\n\n${fmtAddress(saved)}`).catch(() => {});
   await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'address', template: 'form', status: 'address-updated', orderName: row.order_name, preview: `Address changed (PIN ${v.pincode})` }).catch(() => {});
-  /* the pickup was stopped because the address was a link (admin addr_fix): book it again now */
+  /* booking cancelled above, or stopped earlier because the address was a link (admin addr_fix): book it again now */
   try {
-    const sh = await env.DB.prepare("SELECT cancel_note FROM shipments WHERE order_id=? AND cancel_state='cancelled'").bind(orderId).first();
-    if (sh && /^Address fix/.test(String(sh.cancel_note || ''))) {
+    const sh = redo ? null : await env.DB.prepare("SELECT cancel_note, provider FROM shipments WHERE order_id=? AND cancel_state='cancelled'").bind(orderId).first();
+    if (redo || (sh && /^Address fix/.test(String(sh.cancel_note || '')))) {
       const { rebookAfterFix } = await import('./addr-fix.js');
-      await rebookAfterFix(env0, orderId);
+      await rebookAfterFix(env0, orderId, redo || (sh.provider === 'shiprocket' ? 'shiprocket' : 'shipprime'));
     }
   } catch (e) { console.error('addr rebook', orderId, e.message); }
   /* a corrected address is a confirmed address: the pay-online offer follows */

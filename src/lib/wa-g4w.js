@@ -229,11 +229,11 @@ export async function handleAct(req, env0) {
     /* Show where it is going, with a way to fix it. Read live from Shopify; nothing is stored here. */
     let extra = '';
     try {
-      const { fmtAddress, editable } = await import('./wa-address.js');
+      const { fmtAddress, canEdit } = await import('./wa-address.js');
       const { orderDetail } = await import('./shopify.js');
       const { addrLink } = await import('./wa-token.js');
       const o = await orderDetail(env, orderId);
-      if (o?.shippingAddress && editable(o)) extra = `<p style="text-align:left;background:rgba(127,127,127,.08);border-radius:12px;padding:12px 14px;margin:0 0 14px"><b>Delivering to</b><br>${esc(fmtAddress(o.shippingAddress)).replace(/\n/g, '<br>')}</p><a class="btn n" href="${esc(await addrLink(env, orderId))}">Edit address</a>`;
+      if (o?.shippingAddress && (await canEdit(env, o, orderId)).ok) extra = `<p style="text-align:left;background:rgba(127,127,127,.08);border-radius:12px;padding:12px 14px;margin:0 0 14px"><b>Delivering to</b><br>${esc(fmtAddress(o.shippingAddress)).replace(/\n/g, '<br>')}</p><a class="btn n" href="${esc(await addrLink(env, orderId))}">Edit address</a>`;
     } catch (e) { console.error('act addr', orderId, e.message); }
     return page(`Order ${name} confirmed`, "Thank you! We'll pack it and ship it soon.", `<p style="font-size:14px;opacity:.8;margin:0 0 14px">Good to know: your tattoo is semi-permanent, not permanent. It lasts 1-2 weeks depending on your skin type, and may last fewer days on sensitive skin.</p>` + extra);
   }
