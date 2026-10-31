@@ -745,6 +745,13 @@ const ACTIONS = {
     if (l) await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(now(), phone).run();
     return { ok: true, template: r.template };
   },
+  /** Read-only: address edits / edit attempts vs the booking time, so a parcel booked on an old address is caught. */
+  async addr_audit(env) {
+    const rows = (await env.DB.prepare(`SELECT m.ts, m.order_name, m.template, m.status, o.order_id, o.phone, s.awb, s.courier, s.provider, s.created_at AS booked_at, s.stage, s.status AS ship_status, s.picked_at, s.cancel_state
+      FROM messages m JOIN orders o ON o.order_name=m.order_name LEFT JOIN shipments s ON s.order_id=o.order_id
+      WHERE m.direction='in' AND m.trigger='address' AND m.ts > ? ORDER BY m.ts DESC LIMIT 300`).bind(Math.floor(Date.now() / 1000) - 30 * 86400).all()).results;
+    return { ok: true, rows: rows.map((r) => ({ ...r, after_booking: !!(r.booked_at && Number(r.ts) > Number(r.booked_at)) })) };
+  },
   async messages(env) {
     return { messages: (await env.DB.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 150').all()).results };
   },
