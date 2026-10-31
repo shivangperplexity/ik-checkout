@@ -132,7 +132,7 @@ export async function submit(env, video, only = null) {
   return { ok: true, created, status: created[0]?.status || 'PENDING' };
 }
 
-/** now: the owner asked to send right away: allowed until 10 pm IST today, faster batches (40 per run). */
+/** now: the owner asked to send right away: allowed until 10 pm IST today, faster batches (30 per run). */
 export async function start(env, { now: rightAway = false } = {}) {
   const st = await state(env);
   if (!st.video) throw new Error('Submit the template with the video first');
@@ -151,7 +151,7 @@ export async function broadcastTick(env, { per: per0 = 15 } = {}) {
   const h = new Date(Date.now() + 19800000).getUTCHours();
   const rush = Number(st.now_until || 0) > now();
   if ((h < 10 || h >= 20) && !rush) return { waiting: 'daytime only' };
-  if (rush) per = Math.max(per, 40);
+  if (rush) per = Math.max(per, 30);
   const { fireTrigger } = await import('./whatsapp.js');
   const vs = await variantStatus(env);
   if (!vs.use) return { waiting: 'no variant approved yet' };
