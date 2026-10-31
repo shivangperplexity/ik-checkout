@@ -1482,6 +1482,10 @@ const ACTIONS = {
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
   /* barter collab orders from /collab (lib/barter.js) */
   async barter(env) { const B = await import('./barter.js'); return B.barterList(env); },
+  async broadcast(env) { const B = await import('./broadcast.js'); return B.overview(env); },
+  async broadcast_submit(env, b) { const B = await import('./broadcast.js'); return B.submit(env, b.video); },
+  async broadcast_start(env) { const B = await import('./broadcast.js'); return B.start(env); },
+  async broadcast_pause(env) { const B = await import('./broadcast.js'); return B.pause(env); },
   async courier_scorecard(env) { const A = await import('./allocate.js'); return A.scorecard(env); },
   async barter_retry(env, b) { const B = await import('./barter.js'); const r = await B.makeDraft(env, b.id); if (!r.ok) throw new Error(r.error); return r; },
   async barter_decide(env, b) { const B = await import('./barter.js'); return B.barterDecide(env, b.id, b.approve === true); },
@@ -1925,6 +1929,7 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
+  try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
   try { const { trackBlast } = await import('./track-blast.js'); const r = await trackBlast(env); if (r.sent !== undefined && !r.finished) out.trackBlast = r; } catch (e) { console.error('track blast', e); }
   try { const { merchCron } = await import('./merch.js'); const r = await merchCron(env); if (r.collections) out.merch = r.collections.map((c) => [c.handle, c.moves]); } catch (e) { console.error('merch', e); }
   try { const { igRefresh } = await import('./ig-dm.js'); const r = await igRefresh(env); if (r.refreshed || r.error) out.ig = r; } catch (e) { console.error('ig refresh', e); }

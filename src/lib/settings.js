@@ -55,6 +55,7 @@ export const TRIGGERS = {
   /* Creator program (lib/creators.js): sent when you approve an application in More > Creators */
   support_reply: { label: 'Support request: receipt and team reply', to: 'Customer', when: 'A support request from the website track page, and your reply in Chats when 24 h have passed since their last WhatsApp', vars: ['name', 'ticket', 'reply'], def: 'ik_support_reply_v1', on: true },
   creator_approved: { label: 'Creator program: approved', to: 'Creator', when: 'You approve their application (More > Creators): their code and the login link', vars: ['name', 'code'], def: 'ik_creator_status_v5', replaces: ['ik_creator_welcome_v1', 'ik_creator_approved_v2', 'ik_creator_approved_v3', 'ik_creator_status_v4'], on: true },
+  broadcast_video: { label: 'Video broadcast', to: 'People you choose (More > Broadcast)', when: 'Only while a broadcast you started is sending, 10 am to 8 pm', vars: ['name'], media: 'video', marketing: true, def: 'ik_video_offer_v1', on: true },
   admin_new_order: { label: 'New order alert', to: 'You (admin WhatsApp number)', when: 'Every new order', vars: ['order', 'total', 'method', 'risk'], def: 'admin_new_order', on: false },
   admin_high_risk: { label: 'High-risk order alert', to: 'You (admin WhatsApp number)', when: 'Order risk score is 65 or more', vars: ['order', 'risk', 'reasons'], def: 'admin_high_risk', on: false },
 };
