@@ -309,7 +309,8 @@
       track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
     }
     var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
-    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, pv: 2, otp: otp || undefined }).then(function (r) {
+    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, pv: 2, dupask: 1, confirm_new: state.confirmNew ? 1 : undefined, otp: otp || undefined }).then(function (r) {
+      state.confirmNew = false;
       if (!r.ok && r.otp_invalid) { state.busy = false; return otpError(r.error, r.expired); }
       otpClose();
       if (!r.ok && r.cod_off) { state.busy = false; hideOverlay(); tk('fail', { data: { error: 'cod_off' } }); return codGone(r.error); }
@@ -319,6 +320,23 @@
         state.pcKey = pcKeyNow(); state.pcNeed = true; state.pcHint = r.hint || ''; if (r.advance) state.pcAdvance = r.advance;
         paintPay(); paintBill(); paintFoot(); tk('fail', { data: { error: 'partial_required' } });
         return showErr(r.error);
+      }
+      /* Build 054: same number, another open order in the last 24 h -> ask once; exact repeat -> say so */
+      if (!r.ok && (r.existing || r.duplicate)) {
+        state.busy = false; hideOverlay(); paintFoot(); state.idem = uuid(); tk('fail', { data: { error: r.existing ? 'existing_order' : 'duplicate' } });
+        var ord = esc(r.existing || r.duplicate), trk = '/pages/track';
+        var box = el('div', { class: 'ikx-otpw', role: 'dialog', 'aria-modal': 'true', style: 'position:absolute;inset:0;z-index:60;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;box-sizing:border-box' },
+          '<div style="width:100%;max-width:420px;background:#fff;border-radius:18px;padding:22px 18px 18px;box-shadow:0 12px 32px rgba(16,24,40,.25);box-sizing:border-box">' +
+          '<h3 style="margin:0 0 8px;font-size:19px">' + (r.existing ? 'You already have an order' : 'Already ordered') + '</h3>' +
+          '<p class="ikx-m" style="margin:0 0 14px;font-size:14.5px;line-height:1.45">' + esc(r.error) + '</p>' +
+          (r.existing ? '<button type="button" class="ikx-btn" data-dup-new style="width:100%;margin:0 0 10px">Yes, place this as a new order</button>' : '') +
+          '<a class="ikx-btn ikx-btn--ghost" href="' + trk + '" style="display:flex;justify-content:center;width:100%;margin:0;box-sizing:border-box;text-decoration:none">See my order ' + ord + '</a>' +
+          '<button type="button" class="ikx-link" data-dup-x style="display:block;margin:12px auto 0">Close</button></div>');
+        $('.ikx-sheet', root).appendChild(box);
+        var nb = $('[data-dup-new]', box), xb = $('[data-dup-x]', box);
+        if (nb) nb.onclick = function () { box.remove(); state.confirmNew = true; placeOrder(d, pcx, otp); };
+        xb.onclick = function () { box.remove(); };
+        return;
       }
       if (!r.ok) {
         state.busy = false; hideOverlay(); paintFoot(); tk('fail', { data: { error: r.error || r._status } });

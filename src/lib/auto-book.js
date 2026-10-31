@@ -1,31 +1,35 @@
 /**
- * Daily booking (Nov 2026: parcels picked up 4+ days after the order came back 63% of the time, against 47-49%).
- * From `hour` IST (default 11) to hour + 3, each cron run books up to PER ready orders with ShipPrime (smart courier
- * choice, Blue Dart test included) and sends the customer the "booked + track page + how to apply" WhatsApp.
+ * Automatic booking (Nov 2026: parcels picked up 4+ days after the order came back 63% of the time, against 47-49%).
+ * Every order gets an editing window (`edit_h`, default 2 hours after it is placed) in which the customer can change
+ * the address or cancel from the WhatsApp message / track page. After it, the next cron run inside the booking hours
+ * (`from` - `to` IST, default 9 am - 7 pm) books it with ShipPrime (smart courier choice, Blue Dart test included) and
+ * sends the "booked + track page + how to apply" WhatsApp. An edit after booking still works until pickup (the
+ * booking is cancelled and redone, lib/wa-address.js).
  *
  * Ready = prepaid (paid), partial COD (advance paid), or COD that is confirmed (WhatsApp YES or checkout OTP);
- * placed at least an hour ago and within 10 days; no live booking; not cancelled; no open cancellation request;
+ * past its editing window and within 10 days; no live booking; not cancelled; no open cancellation request;
  * a typed address (no link / map code); and no Shopify tag hold / do-not-ship / risk-high.
  * Unconfirmed COD is never booked here (77% of those came back).
- * Settings shipping.auto_book { on (default true), hour (default 11), per (default 6) }.
+ * Settings shipping.auto_book { on (default true), edit_h (2), from (9), to (19), per (6) }.
  */
 const now = () => Math.floor(Date.now() / 1000);
 const HOLD_TAG = /^(hold|on-hold|do-not-ship|dont-ship|risk-high|fraud)$/i;
 
 export function bookCfg(env) {
   const c = env.SETTINGS?.shipping?.auto_book || {};
-  return { on: c.on !== false, hour: Math.max(0, Math.min(20, Number(c.hour ?? 11))), per: Math.max(1, Math.min(10, Number(c.per) || 6)) };
+  const from = Math.max(0, Math.min(22, Number(c.from ?? 9))), to = Math.max(from + 1, Math.min(23, Number(c.to ?? 19)));
+  return { on: c.on !== false, edit_h: Math.max(0, Math.min(48, Number(c.edit_h ?? 2))), from, to, per: Math.max(1, Math.min(10, Number(c.per) || 6)) };
 }
 
 export async function readyOrders(env, { limit = 40 } = {}) {
-  const t = now();
+  const t = now(), win = Math.round(bookCfg(env).edit_h * 3600);
   const rows = (await env.DB.prepare(`SELECT o.* FROM orders o
       LEFT JOIN shipments s ON s.order_id=o.order_id AND COALESCE(s.status,'')<>'cancelled' AND s.awb IS NOT NULL AND s.awb<>''
       LEFT JOIN cancel_requests r ON r.order_id=o.order_id AND r.status='open'
       WHERE o.order_id IS NOT NULL AND s.order_id IS NULL AND r.id IS NULL AND o.shipped_at IS NULL
         AND o.created_at < ? AND o.created_at > ?
         AND ((o.method='prepaid' AND o.status='paid') OR (o.method='cod' AND o.status='placed' AND (COALESCE(o.advance_paise,0)>0 OR o.confirmed_at IS NOT NULL OR o.otp_at IS NOT NULL OR o.converted_at IS NOT NULL)))
-      ORDER BY o.created_at LIMIT ?`).bind(t - 3600, t - 10 * 86400, limit).all()).results;
+      ORDER BY o.created_at LIMIT ?`).bind(t - win, t - 10 * 86400, limit).all()).results;
   if (!rows.length) return [];
   /* Shopify: still open, and not held by a tag */
   const { gql } = await import('./shopify.js');
@@ -44,7 +48,7 @@ export async function autoBook(env) {
   const c = bookCfg(env);
   if (!c.on || !env.DB) return { skipped: 'off' };
   const h = new Date(Date.now() + 19800000).getUTCHours();
-  if (h < c.hour || h >= c.hour + 3) return { skipped: 'outside the booking hours' };
+  if (h < c.from || h >= c.to) return { skipped: 'outside the booking hours' };
   const { spConnected } = await import('./shipprime.js');
   if (!spConnected(env)) return { skipped: 'ShipPrime not connected' };
   const list = (await readyOrders(env)).slice(0, c.per);

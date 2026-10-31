@@ -155,6 +155,16 @@ async function handleOrder(req, env, ctx) {
       const ids = lines.map((l) => ({ id: l.variantId.split('/').pop(), quantity: l.qty }));
       const hit = recent.find((r) => sameItems(ids, JSON.parse(r.contents_json || '[]')));
       if (hit) return json({ ok: false, duplicate: hit.order_name, error: `You already ordered these tattoos (order ${hit.order_name}). It is on its way, no need to order again. To add another design, message us on WhatsApp.` }, 409);
+      /* Build 054+ (dupask): any other open order from this number in the last 24 h -> ask "new order, or the same
+         one?" once; the shopper confirms with confirm_new. Older checkouts never get this question. */
+      if (b.dupask && !b.confirm_new) {
+        const open = await env.DB.prepare(`SELECT o.order_name, o.created_at, o.contents_json, s.awb FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id AND COALESCE(s.status,'')<>'cancelled'
+            WHERE o.phone=? AND o.created_at>? AND o.status NOT IN ('cancelled','failed','pending_payment','completing') AND o.order_name IS NOT NULL ORDER BY o.created_at DESC LIMIT 1`).bind(buyer.phone, Math.floor(Date.now() / 1000) - 24 * 3600).first();
+        if (open) {
+          const hrs = Math.max(1, Math.round((Date.now() / 1000 - Number(open.created_at)) / 3600));
+          return json({ ok: false, existing: open.order_name, existing_ago: hrs, existing_shipped: !!open.awb, error: `We found your order ${open.order_name} from ${hrs} hour${hrs > 1 ? 's' : ''} ago. Is this a new order?` }, 409);
+        }
+      }
     } catch (e) { console.error('dup check', e.message); }
   }
   applyUpsells(env, raw, lines);

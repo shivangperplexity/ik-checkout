@@ -18,6 +18,7 @@
 import { trackUrlOf } from './shipprime.js';
 import { sendText, logMsg } from './whatsapp.js';
 import { STAGES, LABEL as STAGE_LABEL } from './ship-status.js';
+import { cancellable } from './self-cancel.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const AI_DAILY_CAP = 25;
@@ -39,10 +40,10 @@ export const DEFAULT_KNOWLEDGE = `Ink Kulture sells semi-permanent tattoos (temp
 - The ink is skin-safe. Patch-test on a small area first if your skin is sensitive. Not for broken or irritated skin.
 - Sizes: small designs 5.5 x 5.5 cm (from Rs 399), forearm designs 8 x 13 cm (from Rs 499), arm bands, and large pieces 11 x 18 cm and up (Rs 699 to 1199).
 - Offer: Buy 1 Get 1 Free on every design. The lower-priced one in each pair is free automatically at checkout, no code needed.
-- Shipping: free above Rs 499, otherwise a small charge. Orders are dispatched within 1 to 2 working days from Navi Mumbai and usually deliver in 3 to 7 working days across India, up to 10 for remote pin codes.
-- Payment: UPI, cards and Cash on Delivery. COD orders are confirmed on WhatsApp first; unconfirmed COD orders are not shipped.
+- Shipping: free delivery on every order. Orders are booked with the courier within a few hours, picked up from Navi Mumbai the next working day, and usually deliver 3 to 6 days after pickup (up to 10 for remote pin codes).
+- Payment: UPI, cards and Cash on Delivery. Paying online takes Rs 50 off (or 10% if that is more); COD has a Rs 29 fee. Some COD orders (late night, a few states, or a number with an earlier returned parcel) pay a small advance (Rs 49 or 99) online and the rest on delivery. COD orders are confirmed with a WhatsApp code at checkout or a YES on WhatsApp; unconfirmed COD orders are not shipped.
 - Tracking: the customer gets the courier and tracking link on WhatsApp when the parcel is picked up.
-- Returns: as these are hygiene products they cannot be returned once opened. A damaged or wrong item is replaced; the customer should send a photo on this number within 48 hours of delivery.
+- Returns: as these are hygiene products they cannot be returned once opened. A damaged or wrong item is replaced (7-day replacement guarantee); the customer should send a photo on this number within 7 days of delivery.
 - Support hours: 10 am to 7 pm IST, Monday to Saturday. Outside these hours a person replies the next working day.`;
 
 const SYSTEM = (knowledge, orders, note = '') => `You are the WhatsApp assistant for Ink Kulture, an Indian semi-permanent tattoo brand. You reply to customers on the store's WhatsApp number.
@@ -54,6 +55,21 @@ Rules:
 - For a complaint, a damaged or wrong item, a refund or payment problem, anything angry, or a request to talk to a person: acknowledge briefly, say a team member will reply here, and end with [HANDOFF].
 - For "where is my order" use the CUSTOMER'S ORDERS: name the order, its status and the expected date if one is given, where the parcel was last scanned if that is given, and the tracking link if there is one. If there are no orders for this number, say you cannot see an order on this number and ask for the order number, then end with [HANDOFF].
 - To confirm or cancel a COD order the customer can reply YES or CANCEL; after a failed delivery they can reply RE-ATTEMPT or RETURN. Mention these only when relevant.
+- For "where is my order" with no order on this number: ask for the order number or the number used to order (do NOT hand off just for that).
+
+ACTIONS you can take yourself (put the token at the very end of your reply; the system does it and adds the result):
+- [TRACK #1234]: the order's own tracking / manage page link. Use it whenever you talk about an order's status.
+- [ADDRESS #1234]: a link where the customer changes the delivery address or phone. Only for orders whose line says "address can be changed".
+- [CANCEL #1234]: cancels a Cash on Delivery order at once. Only for orders whose line says "can be cancelled", and ONLY after the customer has clearly confirmed in this chat. The first time they ask, ask why in one line and offer the fitting alternative (change the address, a different delivery day, or keep it: it is already packed in their name), and ask them to confirm. If they confirm or insist, cancel: no more persuading.
+- [CANCEL_REQUEST #1234]: for a PAID (online) order that can be cancelled: raises the cancellation for the team, who refund it in 5-7 working days.
+- Never use an action for an order that is not in CUSTOMER'S ORDERS. After the courier has picked a parcel up it cannot be cancelled: say so kindly (they may refuse it at the door, nothing to pay for COD).
+
+CURRENT POLICIES (Nov 2026; they win over the store knowledge):
+- Free delivery on every order. Online payment: Rs 50 off (or 10% if more). COD: Rs 29 fee; some COD orders pay a Rs 49 / 99 advance online.
+- Orders are booked within a few hours and picked up the next working day; delivery 3 to 6 days after pickup.
+- Cancel or change the address any time before the courier picks the parcel up (here, or with the "Track or cancel order" button in our WhatsApp message, or at https://www.inkkulture.in/pages/track). Not after pickup.
+- Every Cash on Delivery order that is delivered gives Rs 50 off the next order paid online (60 days), applied automatically at checkout on the same number.
+- Damaged or wrong item: replacement within 7 days of delivery; ask for a photo, then hand off ([HANDOFF]) so the team ships it.
 - Do not discuss anything unrelated to Ink Kulture.
 
 FIXED PRODUCT FACTS (always true; they win over anything else below):
@@ -96,11 +112,13 @@ function orderLine(r, live) {
   } else if (r.shipped_at) state = `shipped${r.tracking ? ' (' + r.tracking + ')' : ''}`;
   else if (r.method === 'cod' && !r.confirmed_at) state = 'placed, COD not yet confirmed by the customer (they can reply YES to confirm); not shipped yet';
   else state = 'confirmed, being packed, not shipped yet (dispatch within 1 to 2 working days)';
-  return `- Order ${r.order_name} placed ${day(r.created_at)}, ${r.method === 'cod' ? 'Cash on Delivery' : 'prepaid'}, Rs ${Math.round(Number(r.total_paise || 0) / 100)}${items ? ', items: ' + items : ''}. Status: ${state}.`;
+  const pre = r.status !== 'cancelled' && cancellable({ status: r.status, stage: r.awb ? r.stage : '', picked_at: r.picked_at, delivered_at: r.delivered_at });
+  const can = pre ? ` It ${r.method === 'cod' && !(Number(r.advance_paise) > 0) ? 'can be cancelled ([CANCEL ' + r.order_name + '])' : 'can be cancelled by the team ([CANCEL_REQUEST ' + r.order_name + '])'} and its address can be changed ([ADDRESS ${r.order_name}]), as the courier has not picked it up yet.` : '';
+  return `- Order ${r.order_name} placed ${day(r.created_at)}, ${r.method === 'cod' ? 'Cash on Delivery' : 'prepaid'}, Rs ${Math.round(Number(r.total_paise || 0) / 100)}${items ? ', items: ' + items : ''}. Status: ${state}.${can}`;
 }
 
 const ORDER_SQL = `SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.total_paise, o.confirmed_at, o.shipped_at, o.tracking, o.created_at, o.contents_json, o.converted_at, o.advance_paise,
-    s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.status AS ship_status, s.ndr_choice, s.ndr_date
+    s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.status AS ship_status, s.ndr_choice, s.ndr_date, s.picked_at
     FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'`;
 
 /** Orders Shopify has for this phone when this database has none (placed outside the IK checkout). */
@@ -237,10 +255,51 @@ export async function aiAnswer(env, { phone, text, thread = [], note = '' }) {
   }
   if (!r.ok) { const e = new Error(`${P.label.split(' (')[0]} ${r.status}${r.status === 429 ? ' (free limit reached for now)' : ''}: ` + (j.error?.message || j.message || JSON.stringify(j).slice(0, 200))); e.status = r.status; throw e; }
   out = String(out || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/^[\s\S]*<\/think>/, '').trim();
-  const handoff = /\[HANDOFF\]/.test(out);
+  let handoff = /\[HANDOFF\]/.test(out);
   out = out.replace(/\s*\[HANDOFF\]\s*/g, ' ').replace(/\s+$/, '').trim();
+  /* actions the model asked for: only on this phone's own orders */
+  const acts = [...out.matchAll(/\[(TRACK|ADDRESS|CANCEL_REQUEST|CANCEL)\s+#?(\d{3,6})\]/g)].map((m) => ({ kind: m[1], name: '#' + m[2] }));
+  out = out.replace(/\s*\[(TRACK|ADDRESS|CANCEL_REQUEST|CANCEL)\s+#?\d{3,6}\]\s*/g, ' ').trim();
+  if (acts.length && phone) {
+    const r = await runActions(env, phone, acts).catch((e) => ({ text: '', handoff: true, err: e.message }));
+    if (r.text) out += '\n\n' + r.text;
+    if (r.handoff) handoff = true;
+  }
   if (!out) out = 'Thanks for your message. A team member will reply here shortly.';
   return { text: out, handoff, usage: j.usage || null, model: switched || c.model, switched };
+}
+
+/** Do what the assistant asked for, on the customer's own orders only. Returns { text, handoff }. */
+export async function runActions(env, phone, acts) {
+  const out = [], seen = new Set();
+  let handoff = false;
+  for (const a of acts.slice(0, 3)) {
+    const k = a.kind + a.name; if (seen.has(k)) continue; seen.add(k);
+    const o = await env.DB.prepare(`SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.advance_paise, s.stage, s.picked_at, s.delivered_at, s.rto, s.awb
+        FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id AND COALESCE(s.status,'')<>'cancelled' WHERE o.order_name=?`).bind(a.name).first();
+    if (!o || String(o.phone) !== String(phone)) continue;
+    const SC = await import('./self-cancel.js');
+    const pre = SC.cancellable({ ...o, stage: o.awb ? o.stage : '' });
+    if (a.kind === 'TRACK') out.push(`Track ${o.order_name}: ${await SC.trackLink(env, o.order_id)}`);
+    else if (a.kind === 'ADDRESS') {
+      if (pre) { const { addrLink } = await import('./wa-token.js'); out.push(`Change the address for ${o.order_name} here (takes 30 seconds): ${await addrLink(env, o.order_id)}`); }
+      else { out.push(`${o.order_name} is already with the courier, so the address can't be changed online. Send the full new address here and our team will pass it to the courier.`); handoff = true; }
+    } else if (a.kind === 'CANCEL' && o.method === 'cod' && !(Number(o.advance_paise) > 0)) {
+      if (!pre) { out.push(`${o.order_name} has already been picked up by the courier, so it can't be cancelled now.`); continue; }
+      const { action } = await import('./admin.js');
+      const res = (await action('cancel_orders')(env, { ids: [o.order_id] })).results?.[0] || {};
+      if (res.ok) {
+        out.push(res.queued ? `Cancelling ${o.order_name} ✅ It will show as cancelled in a few minutes.` : `Order ${o.order_name} is cancelled ✅`);
+        try { const { addTags } = await import('./shopify.js'); await addTags(env, `gid://shopify/Order/${o.order_id}`, ['cancelled-by-customer', 'cancel: whatsapp ai']); } catch { /* best effort */ }
+      } else { out.push(`I couldn't cancel ${o.order_name} automatically, our team will do it shortly.`); handoff = true; }
+    } else if (a.kind === 'CANCEL_REQUEST' || a.kind === 'CANCEL') {
+      if (!pre) { out.push(`${o.order_name} has already been picked up by the courier, so it can't be cancelled now.`); continue; }
+      const r = await SC.cancelRequest(env, phone, o.order_name, 'Other');
+      out.push(r.ok ? `Cancellation for ${o.order_name} is raised ✅ Our team will cancel it and refund your payment in 5-7 working days.` : `I couldn't raise the cancellation, our team will help shortly.`);
+      if (!r.ok) handoff = true;
+    }
+  }
+  return { text: out.join('\n'), handoff };
 }
 
 /* ---------------- rate limits, queue, answering ---------------- */
