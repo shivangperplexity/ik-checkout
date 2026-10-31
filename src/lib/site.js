@@ -11,7 +11,7 @@
  */
 import { json, cleanPhone } from './util.js';
 import { makeToken, readToken } from './creators.js';
-import { cancellable, CANCEL_REASONS, FAQS } from './self-cancel.js';
+import { cancellable, isPrepaid, CANCEL_REASONS, FAQS } from './self-cancel.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 export const IG_URL = 'https://www.instagram.com/inkkulture.in/';
@@ -45,7 +45,7 @@ async function liveTrack(env, o) {
 }
 
 export async function customerOrders(env, phone) {
-  const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.method, o.total_paise, o.confirmed_at, o.created_at, o.contents_json, o.pincode, o.city,
+  const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.method, o.converted_at, o.total_paise, o.confirmed_at, o.created_at, o.contents_json, o.pincode, o.city,
       s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.rto, s.provider, s.picked_at
     FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'
     WHERE o.phone=? AND o.order_id IS NOT NULL AND o.status NOT IN ('pending_payment','failed','completing') ORDER BY o.created_at DESC LIMIT 10`).bind(phone).all()).results;
@@ -69,8 +69,8 @@ export async function customerOrders(env, phone) {
       name: o.order_name, date: Number(o.created_at), total: Math.round(Number(o.total_paise) / 100), pay: o.method === 'cod' ? 'Cash on delivery' : 'Paid online',
       status: st.text, key: st.key, step: st.step, edd: edd && !['delivered', 'returned', 'cancelled'].includes(st.key) ? edd : '',
       awb: o.awb || '', track_url: o.awb ? trackUrlOf(o) : '', scans: live?.scans || [], items,
-      can_cancel: cancellable({ ...o, stage: live?.stage || o.stage }),
-      cancel_by: o.method === 'cod' ? 'code' : 'request',
+      can_cancel: !isPrepaid(o) && cancellable({ ...o, stage: live?.stage || o.stage }),
+      cancel_by: 'code',
     };
   });
 }
