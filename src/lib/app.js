@@ -141,6 +141,17 @@ async function handleOrder(req, env, ctx) {
 
   const raw = cartLines(b);
   const lines = await loadLines(env, raw);
+  /* Same person, same tattoos again within 48 h (double tap, or ordering again after a WhatsApp code): don't make a
+     second order. A new order that only repeats designs of an open one is refused with that order's number. */
+  if (env.DB) {
+    try {
+      const { sameItems } = await import('./dup-order.js');
+      const recent = (await env.DB.prepare("SELECT order_name, contents_json FROM orders WHERE phone=? AND created_at>? AND status NOT IN ('cancelled','failed') AND order_name IS NOT NULL ORDER BY created_at DESC LIMIT 5").bind(buyer.phone, Math.floor(Date.now() / 1000) - 48 * 3600).all()).results;
+      const ids = lines.map((l) => ({ id: l.variantId.split('/').pop(), quantity: l.qty }));
+      const hit = recent.find((r) => sameItems(ids, JSON.parse(r.contents_json || '[]')));
+      if (hit) return json({ ok: false, duplicate: hit.order_name, error: `You already ordered these tattoos (order ${hit.order_name}). It is on its way, no need to order again. To add another design, message us on WhatsApp.` }, 409);
+    } catch (e) { console.error('dup check', e.message); }
+  }
   applyUpsells(env, raw, lines);
   const price = priceCart(lines, method, {});
   /* Partial COD: the server decides again with the real total; a stale checkout gets told to switch. */
