@@ -194,8 +194,8 @@
           '<div class="ikx-row2">' + field('first_name', 'First name', 'autocomplete="shipping given-name" required') + field('last_name', 'Last name', 'autocomplete="shipping family-name" required') + '</div>' +
           '<label class="ikx-in ikx-in--float" data-f="phone"><span class="ikx-cc">+91</span><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder=" " required><span>Mobile number (WhatsApp)</span><em class="ikx-ferr" hidden></em></label>' +
           '<label class="ikx-check"><input type="checkbox" name="news" checked><span>Send me order updates and offers on WhatsApp</span></label>' +
-          field('address1', 'Address', 'autocomplete="shipping address-line1" required') +
-          field('address2', 'Apartment, suite, etc.', 'autocomplete="shipping address-line2"') +
+          field('address1', 'House / flat no., street, area', 'autocomplete="shipping address-line1" required') +
+          field('address2', 'Landmark (near school, temple, shop…)', 'autocomplete="shipping address-line2" required') +
           '<div class="ikx-row3">' + field('city', 'City', 'autocomplete="shipping address-level2" required') + field('state', 'State', 'autocomplete="shipping address-level1" required', 'select') + field('pincode', 'PIN code', 'inputmode="numeric" autocomplete="shipping postal-code" maxlength="6" required') + '</div>' +
           '<label class="ikx-check"><input type="checkbox" name="remember" ' + (REMEMBER ? 'checked' : '') + '><span>Save this information for next time</span></label>' +
           field('email', 'Email (optional, for your order receipt)', 'type="email" inputmode="email" autocomplete="email"') +

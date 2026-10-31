@@ -172,7 +172,10 @@
       d.last_name.length < 1 ? ['last_name', 'Enter a last name'] :
       !d.phone ? ['phone', 'Enter your mobile number'] :
       !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
-      d.address1.length < 5 ? ['address1', 'Enter an address'] :
+      d.address1.length < 5 ? ['address1', 'Enter your house / flat no. and street'] :
+      /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i.test(d.address1) ? ['address1', 'Please type your address. Links are not accepted'] :
+      d.address2.length < 3 ? ['address2', 'Enter a landmark, it helps the courier find you'] :
+      /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i.test(d.address2) ? ['address2', 'Please type a landmark. Links are not accepted'] :
       !d.city ? ['city', 'Enter a city'] :
       !d.state ? ['state', 'Select a state'] :
       !/^\d{6}$/.test(d.pincode) ? ['pincode', 'Enter a valid 6-digit PIN code'] :
@@ -269,7 +272,7 @@
       upi += '<button type="button" class="ikx-po__line' + (state.method === 'upi' ? ' is-on' : '') + '" data-ikx-method="upi" data-ikx-go' + dis + '><span class="ikx-po__qr">' + PI.qr + 'Scan QR with any UPI app</span>' + ICON.chev + '</button>';
     }
     upi += '</div>';
-    var codSub = pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' : (preOff ? 'Pay at your door · no ' + money(preOff) + ' discount' : 'Pay at your door'));
+    var codSub = pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' + (cod.total > pre.total ? ' · pay online, save ' + money(cod.total - pre.total) : '') : (preOff ? 'Pay at your door · no ' + money(preOff) + ' discount' : 'Pay at your door'));
     box.innerHTML = '<div class="ikx-po">' + upi +
       poRow('card', PI.card, 'Debit/Credit Cards', money(pre.total), '', ' ikx-po__row--dark') +
       poRow('nb', PI.bank, 'Netbanking', money(pre.total), '', ' ikx-po__row--dark') +

@@ -57,3 +57,13 @@ date + one pickup day, lib/edd.js); `/pages/track` (page body `<div id="ik-track
 with live courier scans, support requests (into the Chats tab, replies on WhatsApp), how-to-apply video and steps;
 "Follow @inkkulture.in" strip above the footer. Parts 2 and 4: a PIN code neither ShipPrime nor Shiprocket delivers to is
 shown in red and the order can't be placed (the server refuses it too).
+
+## Build 053: pricing v2, landmark, track page cancel + FAQs (Nov 2026)
+Parts 1-4: quotes and orders send `pv: 2` (server `pricingCfg`: online payment ₹50 or 10% off, whichever is more; ₹29 COD
+fee; amounts from Settings > checkout `prepaid_flat` / `cod_fee`); quote cache key `ikx_qc2`; bill rows "Online payment
+discount" / "COD fee"; COD tile "Incl. ₹29 COD fee · pay online, save ₹X". Address line 1 "House / flat no., street, area",
+line 2 "Landmark" (required, min 3 letters); links (http, www, maps.app, goo.gl) refused in both.
+`snippets/ik-site.liquid` track page: `?k=<signed order key>` (the "Track or cancel order" button / link in every WhatsApp
+order message, lib/self-cancel.js) logs in to that order's number and highlights it; "Cancel order" until the courier picks
+it up (COD: reason + WhatsApp code; paid online, or the code can't be sent: a cancellation request for the team, Home >
+Cancellation requests); FAQs from `/api/site/config` (`faqs`) at the bottom.

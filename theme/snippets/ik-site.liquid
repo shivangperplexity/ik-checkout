@@ -54,6 +54,10 @@
 .ikt .vid img{width:100%;height:100%;object-fit:cover;opacity:.85}.ikt .vid span{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:54px}
 .ikt ol{padding-left:20px;margin:10px 0}.ikt ol li{margin:5px 0}
 .ikt .otp{letter-spacing:.5em;text-align:center;font-size:24px!important;font-weight:700}
+.ikt .cx{margin-top:12px;padding:12px;border-radius:12px;background:#faf8f5;border:1px solid #eee7dc}
+.ikt .btn.red{background:#b42318}.ikt .lnk{all:unset;cursor:pointer;color:#6b6760;text-decoration:underline;font-size:13.5px;margin-top:10px;display:inline-block}
+.ikt .faq details{border-top:1px solid #eee;padding:11px 0}.ikt .faq details:first-of-type{border-top:0}.ikt .faq summary{cursor:pointer;font-weight:600;list-style:none}.ikt .faq summary::after{content:'+';float:right;color:#6b6760}.ikt .faq details[open] summary::after{content:'−'}.ikt .faq p{margin:8px 0 0;color:#444;font-size:14.5px}
+.ikt .hl{outline:2px solid #0a0a0c}
 </style>
 <script>
 (function () {
@@ -202,11 +206,15 @@
         '<p class="small mut" style="margin:0">' + esc(a.note || '') + '</p></div>';
     }
     function igHtml() { return '<div class="card" style="text-align:center"><b>Follow us on Instagram</b><p class="small mut" style="margin:4px 0 0">New designs, styling ideas and real customer looks.</p><a class="btn" href="' + IG + '" target="_blank" rel="noopener">' + IG_ICON.replace('<svg', '<svg width="18" height="18"') + ' Follow @inkkulture.in</a></div>'; }
+    function faqHtml() {
+      var f = (CFG && CFG.faqs) || [];
+      return f.length ? '<div class="card faq"><h3>Questions</h3>' + f.map(function (q) { return '<details><summary>' + esc(q[0]) + '</summary><p>' + esc(q[1]) + '</p></details>'; }).join('') + '</div>' : '';
+    }
     function wireVid() { var v = root.querySelector('.vid'); if (v) v.onclick = function () { v.innerHTML = '<iframe width="100%" height="100%" style="position:absolute;inset:0;border:0" src="https://www.youtube.com/embed/' + esc(v.getAttribute('data-yt')) + '?autoplay=1&rel=0" allow="autoplay;encrypted-media" allowfullscreen></iframe>'; }; }
     function login(msg) {
       root.innerHTML = '<h2>Track your order</h2><p class="mut" style="margin:0">Enter the WhatsApp number you ordered with. We’ll send a 4-digit code on WhatsApp.</p>' +
         '<div class="card"><label class="small"><b>WhatsApp number</b><input id="ikt-ph" inputmode="decimal" maxlength="40" placeholder="10-digit number" autocomplete="tel-national"></label>' +
-        '<button class="btn full" id="ikt-send">Send code on WhatsApp</button><div id="ikt-otp" style="display:none"><label class="small"><b>Code from WhatsApp</b><input id="ikt-code" class="otp" inputmode="numeric" maxlength="4" autocomplete="one-time-code"></label><button class="btn full" id="ikt-go">See my orders</button></div><p class="err" id="ikt-err">' + esc(msg || '') + '</p></div>' + applyHtml() + igHtml();
+        '<button class="btn full" id="ikt-send">Send code on WhatsApp</button><div id="ikt-otp" style="display:none"><label class="small"><b>Code from WhatsApp</b><input id="ikt-code" class="otp" inputmode="numeric" maxlength="4" autocomplete="one-time-code"></label><button class="btn full" id="ikt-go">See my orders</button></div><p class="err" id="ikt-err">' + esc(msg || '') + '</p></div>' + applyHtml() + faqHtml() + igHtml();
       wireVid();
       var phone = '';
       root.querySelector('#ikt-send').onclick = function () {
@@ -231,11 +239,13 @@
     function orderHtml(o) {
       var steps = o.step >= 0 ? '<div class="steps">' + STEPS.map(function (s, i) { return '<i class="' + (i <= o.step ? 'on' : '') + '"></i>'; }).join('') + '</div><div class="slabels">' + STEPS.map(function (s) { return '<span>' + s + '</span>'; }).join('') + '</div>' : '';
       var d = new Date(o.date * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-      return '<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><b>Order ' + esc(o.name) + '</b><div class="small mut">' + d + ' · ₹' + o.total + ' · ' + esc(o.pay) + '</div></div><span class="pill ' + esc(o.key) + '">' + esc(o.status) + '</span></div>' + steps +
+      return '<div class="card" data-order="' + esc(o.name) + '"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><b>Order ' + esc(o.name) + '</b><div class="small mut">' + d + ' · ₹' + o.total + ' · ' + esc(o.pay) + '</div></div><span class="pill ' + esc(o.key) + '">' + esc(o.status) + '</span></div>' + steps +
         (o.edd ? '<p style="margin:10px 0 0">🚚 Expected by <b>' + esc(o.edd) + '</b></p>' : '') +
         (o.items && o.items.length ? '<div class="items">' + o.items.slice(0, 8).map(function (i) { return i.image ? '<img loading="lazy" src="' + esc(i.image + (i.image.indexOf('?') > 0 ? '&' : '?') + 'width=120') + '" alt="' + esc(i.title) + '" title="' + esc(i.title + ' ×' + i.qty) + '">' : '<span class="pill">' + esc(i.title) + ' ×' + i.qty + '</span>'; }).join('') + '</div>' : '') +
         (o.scans && o.scans.length ? '<details style="margin-top:10px"><summary class="small"><b>Courier updates</b></summary><div style="margin-top:8px">' + o.scans.map(function (s) { return '<div class="scan"><b>' + esc(s.text) + '</b><div class="small mut">' + esc(String(s.at).slice(0, 16)) + (s.place ? ' · ' + esc(s.place) : '') + '</div></div>'; }).join('') + '</div></details>' : '') +
-        '<div style="display:flex;gap:8px;flex-wrap:wrap">' + (o.track_url ? '<a class="btn sm ghost" target="_blank" rel="noopener" href="' + esc(o.track_url) + '">Courier tracking</a>' : '') + '<button class="btn sm ghost" data-help="' + esc(o.name) + '">Need help with this order?</button></div></div>';
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' + (o.track_url ? '<a class="btn sm ghost" target="_blank" rel="noopener" href="' + esc(o.track_url) + '">Courier tracking</a>' : '') + '<button class="btn sm ghost" data-help="' + esc(o.name) + '">Need help with this order?</button>' +
+        (o.can_cancel ? '<button class="btn sm ghost" data-cancel="' + esc(o.name) + '" data-by="' + esc(o.cancel_by || 'code') + '">Cancel order</button>' : '') + '</div><div class="cxwrap"></div>' +
+        (!o.can_cancel && ['packed', 'transit', 'ofd', 'ndr'].indexOf(o.key) >= 0 ? '<p class="small mut" style="margin:10px 0 0">This order is with the courier now, so it can no longer be cancelled.</p>' : '') + '</div>';
     }
     function ticketForm(order) {
       var t = (CFG && CFG.topics) || ['Something else'];
@@ -243,6 +253,58 @@
         '<label class="small"><b>What’s it about?</b><select id="ikt-topic">' + t.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select></label>' +
         '<label class="small"><b>Tell us more</b><textarea id="ikt-msg" rows="4" maxlength="1500" placeholder="What happened?"></textarea></label>' +
         '<button class="btn full" id="ikt-tksend">Send to our team</button><p class="err" id="ikt-tkerr"></p></div>';
+    }
+    /* Cancel: COD -> WhatsApp code; paid online, or the code can't be sent -> a request our team handles */
+    function cancelFlow(w, order, by) {
+      var reasons = (CFG && CFG.cancel_reasons) || ['Changed my mind', 'Other'];
+      w.innerHTML = '<div class="cx"><b>Cancel order ' + esc(order) + '?</b>' +
+        '<label class="small"><b>Why are you cancelling?</b><select class="cx-r"><option value="" disabled selected>Choose a reason</option>' + reasons.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select></label>' +
+        '<p class="small mut cx-save" style="margin:8px 0 0"></p>' +
+        '<div class="cx-a"><button class="btn full red cx-go">' + (by === 'request' ? 'Request cancellation' : 'Send cancel code on WhatsApp') + '</button></div>' +
+        '<div class="cx-c" style="display:none"><label class="small"><b>4-digit code from WhatsApp</b><input class="otp cx-code" inputmode="numeric" maxlength="4" autocomplete="one-time-code"></label><button class="btn full red cx-ok">Cancel my order</button><button class="lnk cx-req" style="display:none">Code not coming? Send a cancellation request instead</button></div>' +
+        '<p class="err cx-e"></p><button class="lnk cx-keep">Keep my order</button></div>';
+      var $ = function (q) { return w.querySelector(q); }, err = function (t) { $('.cx-e').textContent = t || ''; };
+      $('.cx-r').onchange = function () {
+        var r = this.value, t = r === 'Want a different design' ? 'You can change the design instead: message us on WhatsApp before it ships.' : r === 'Delivery is too late' ? 'Most orders reach in 3-6 days after dispatch. The date above is the courier’s estimate.' : r === 'Ordered twice' ? 'If you placed two orders for the same tattoos, cancel the extra one here.' : '';
+        $('.cx-save').innerHTML = esc(t) + (r === 'Want a different design' ? ' <a href="' + waLink('Hi, I want to change the design in order ' + order) + '" target="_blank" rel="noopener">Message us</a>' : '');
+      };
+      $('.cx-keep').onclick = function () { orders(); };
+      function done(msg) { w.innerHTML = '<div class="cx"><b>' + msg + '</b></div>'; setTimeout(orders, 2500); }
+      function request() {
+        if (!$('.cx-r').value) return err('Choose a reason');
+        post('/api/site/cancel/request', { order: order, reason: $('.cx-r').value }, true).then(function (j) {
+          if (!j.ok) return err(j.error || 'Could not send');
+          done('Cancellation request sent ✓ Our team will cancel it' + (by === 'request' ? ' and refund your payment' : '') + ' and confirm on WhatsApp.');
+        }).catch(function () { err('Network problem, try again'); });
+      }
+      function showReq() { var q = $('.cx-req'); if (q) q.style.display = 'inline-block'; }
+      $('.cx-req').onclick = request;
+      $('.cx-go').onclick = function () {
+        if (!$('.cx-r').value) return err('Choose a reason');
+        if (by === 'request') return request();
+        var b = this; b.disabled = true; b.textContent = 'Sending…'; err('');
+        post('/api/site/cancel/code', { order: order }, true).then(function (j) {
+          if (j.request) { by = 'request'; b.disabled = false; b.textContent = 'Request cancellation'; return err(j.error); }
+          if (!j.ok) {
+            b.disabled = false; b.textContent = 'Send cancel code on WhatsApp'; err(j.error || 'Could not send the code');
+            if (j.fallback) { $('.cx-a').innerHTML = '<button class="btn full red">Send a cancellation request</button>'; $('.cx-a button').onclick = request; }
+            return;
+          }
+          b.textContent = 'Code sent on WhatsApp'; $('.cx-c').style.display = ''; $('.cx-code').focus();
+          setTimeout(function () { b.disabled = false; b.textContent = 'Send code again'; }, 30000);
+          /* the code failed to deliver, or 40 s and nothing: offer the request */
+          setTimeout(function poll() { get('/api/site/cancel/state', true).then(function (s) { if (s.state === 'failed') { err('The code could not be delivered on WhatsApp.'); showReq(); } }).catch(function () {}); }, 15000);
+          setTimeout(showReq, 40000);
+        }).catch(function () { b.disabled = false; b.textContent = 'Send cancel code on WhatsApp'; err('Network problem, try again'); });
+      };
+      $('.cx-ok').onclick = function () {
+        var c = $('.cx-code').value.replace(/\D/g, ''); if (c.length !== 4) return err('Enter the 4-digit code');
+        var b = this; b.disabled = true; b.textContent = 'Cancelling…';
+        post('/api/site/cancel', { order: order, code: c, reason: $('.cx-r').value }, true).then(function (j) {
+          if (!j.ok) { b.disabled = false; b.textContent = 'Cancel my order'; return err(j.error || 'Could not cancel'); }
+          done(j.queued ? 'Cancelling ✓ It will show as cancelled in a few minutes.' : 'Order ' + esc(order) + ' is cancelled ✓');
+        }).catch(function () { b.disabled = false; b.textContent = 'Cancel my order'; err('Network problem, try again'); });
+      };
     }
     function orders() {
       if (!ls(TOK)) return login();
@@ -254,8 +316,10 @@
         h += j.orders.length ? j.orders.map(orderHtml).join('') : '<div class="card">No orders on this number yet.</div>';
         h += '<div id="ikt-tkwrap"><button class="btn full ghost" data-help="">Raise a support request</button></div>';
         if (j.tickets && j.tickets.length) h += '<div class="card"><h3>Your support requests</h3>' + j.tickets.map(function (t) { return '<div style="padding:8px 0;border-top:1px solid #eee"><b>' + esc(t.ref) + '</b> · ' + esc(t.topic) + (t.order ? ' · ' + esc(t.order) : '') + ' <span class="pill">' + esc(t.status) + '</span><div class="small mut">' + esc(t.message).slice(0, 160) + '</div></div>'; }).join('') + '<p class="small mut" style="margin:6px 0 0">Replies come on WhatsApp.</p></div>';
-        h += applyHtml() + igHtml();
+        h += applyHtml() + faqHtml() + igHtml();
         root.innerHTML = h; wireVid();
+        if (FOCUS) { var fc = root.querySelector('[data-order="' + FOCUS + '"]'); if (fc) { fc.classList.add('hl'); setTimeout(function () { fc.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 200); } FOCUS = ''; }
+        [].forEach.call(root.querySelectorAll('[data-cancel]'), function (b) { b.onclick = function () { cancelFlow(b.closest('.card').querySelector('.cxwrap'), b.getAttribute('data-cancel'), b.getAttribute('data-by')); b.style.display = 'none'; }; });
         root.querySelector('#ikt-out').onclick = function () { ls(TOK, null); ls('iks_adm', null); login(); };
         [].forEach.call(root.querySelectorAll('[data-help]'), function (b) {
           b.onclick = function () {
@@ -272,7 +336,15 @@
         });
       }).catch(function () { root.innerHTML = '<p class="err">Could not load. Check your internet and refresh.</p>'; });
     }
-    cfg().then(orders);
+    /* ?k=<signed order key> from a WhatsApp message: log in to that order's number, then show it */
+    var FOCUS = '', K = (location.search.match(/[?&]k=([\w.]+)/) || [])[1];
+    if (K) {
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      root.innerHTML = '<h2>Your order</h2><p class="mut">Loading…</p>';
+      cfg().then(function () { return post('/api/site/link', { k: K }); }).then(function (j) {
+        if (j.ok) { ls(TOK, j.token); ls('iks_adm', null); FOCUS = j.order || ''; orders(); } else if (ls(TOK)) orders(); else login(j.error);
+      }).catch(function () { cfg().then(orders); });
+    } else cfg().then(orders);
   }
 
   function boot() { try { fab(); } catch (e) {} try { edd(); } catch (e) {} try { igStrip(); } catch (e) {} try { track(); } catch (e) {} }

@@ -12,12 +12,12 @@
     row('Item total', money(p.subtotal));
     if (p.bogo) row('Buy 1 Get 1 Free', '−' + money(p.bogo), 'is-save');
     if (p.upsell) row('Add-on offer', '−' + money(p.upsell), 'is-save');
-    if (p.prepaid) row('Prepaid 10% off', '−' + money(p.prepaid), 'is-save');
+    if (p.prepaid) row('Online payment discount', '−' + money(p.prepaid), 'is-save');
     if (p.ref) { var rk = (state.quote.ref && state.quote.ref.kind) || 'referral', rn = state.quote.ref && state.quote.ref.name ? ' (' + esc(state.quote.ref.name) + ')' : '';
       row(rk === 'creator' ? 'Creator code' + rn : rk === 'voucher' ? 'Creator voucher' : 'Referral' + rn, '−' + money(p.ref), 'is-save'); }
     if (p.credit) row('Store credit', '−' + money(p.credit), 'is-save');
     row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
-    if (p.cod) row('COD handling', money(p.cod));
+    if (p.cod) row('COD fee', money(p.cod));
     row('To pay', money(p.total), 'is-total');
     if (state.method === 'cod' && pcOn()) { row('Pay now', money(pcAdv())); row('Rest after delivery', money(p.total - pcAdv())); }
     var pq = state.quote.prepaid || {}, ri = state.refInfo;
@@ -302,7 +302,7 @@
       track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
     }
     var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
-    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, otp: otp || undefined }).then(function (r) {
+    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, pv: 2, otp: otp || undefined }).then(function (r) {
       if (!r.ok && r.otp_invalid) { state.busy = false; return otpError(r.error, r.expired); }
       otpClose();
       if (!r.ok && r.cod_off) { state.busy = false; hideOverlay(); tk('fail', { data: { error: 'cod_off' } }); return codGone(r.error); }

@@ -180,22 +180,22 @@
 
   /* ---------- speed: quote cache, local estimate, prefetch ----------
      The sheet paints instantly from the cart the page already has and a local price estimate using the API's rules
-     (Buy 1 Get 1 on the cheapest half of tattoo units, 10% prepaid off, no fees). The server quote replaces it a moment
+     (Buy 1 Get 1 on the cheapest half of tattoo units; pricing v2: ₹50 or 10% off online payment, whichever is more, ₹29 COD fee). The server quote replaces it a moment
      later, and the slider only unlocks once the server price is in. Quotes are prefetched on page load and after every
      cart change, so opening the sheet normally needs no wait at all. */
   function linesOf(c) { return c.items.map(function (i) { return { variant_id: i.variant_id, quantity: i.quantity }; }); }
   function sigOf(lines) { return lines.map(function (l) { return l.variant_id + 'x' + l.quantity + (l.upsell ? 'u' : ''); }).sort().join(','); }
   var QC = {};
-  try { QC = JSON.parse(sessionStorage.getItem('ikx_qc') || '{}') || {}; } catch (e) { QC = {}; }
+  try { QC = JSON.parse(sessionStorage.getItem('ikx_qc2') || '{}') || {}; } catch (e) { QC = {}; }
   function saveQC() {
-    try { var keep = {}; Object.keys(QC).filter(function (k) { return QC[k].q; }).slice(-8).forEach(function (k) { keep[k] = { q: QC[k].q, t: QC[k].t }; }); sessionStorage.setItem('ikx_qc', JSON.stringify(keep)); } catch (e) {}
+    try { var keep = {}; Object.keys(QC).filter(function (k) { return QC[k].q; }).slice(-8).forEach(function (k) { keep[k] = { q: QC[k].q, t: QC[k].t }; }); sessionStorage.setItem('ikx_qc2', JSON.stringify(keep)); } catch (e) {}
   }
   function cachedQuote(lines) { var h = QC[sigOf(lines) + (REF ? '|' + REF : '')]; return h && h.q && Date.now() - h.t < 600000 ? h.q : null; }
   function fetchQuote(lines) {
     var sig = sigOf(lines) + (REF ? '|' + REF : ''), hit = QC[sig];
     if (hit && hit.q && Date.now() - hit.t < 600000) return Promise.resolve(hit.q);
     if (hit && hit.p) return hit.p;
-    var p = api('/api/quote', { lines: lines, attribution: attrNow() }).then(function (q) {
+    var p = api('/api/quote', { lines: lines, attribution: attrNow(), pv: 2 }).then(function (q) {
       if (!q.ok) throw new Error('quote failed');
       QC[sig] = { q: q, t: Date.now() }; saveQC(); return q;
     }).catch(function (e) { delete QC[sig]; throw e; });
@@ -208,9 +208,9 @@
     c.items.forEach(function (i) { sub += i.original_price * i.quantity; if (i.product_type === TATTOO) for (var k = 0; k < i.quantity; k++) units.push(i.original_price); });
     units.sort(function (a, b) { return a - b; });
     var bogoAmt = units.slice(0, Math.floor(units.length / 2)).reduce(function (s, v) { return s + v; }, 0), after = sub - bogoAmt;
-    var pre = Math.round(after * 10 / 10000) * 100;
-    function m(p) { return { subtotal: sub, bogo: bogoAmt, prepaid: p, upsell: 0, shipping: 0, cod: 0, total: after - p, afterBogo: after }; }
-    return { ok: true, estimate: true, cod: m(0), prepaid: m(pre), lines: [], upsells: state.ups || [] };
+    var pre = Math.min(after, Math.max(Math.round(after * 10 / 10000) * 100, 5000));
+    function m(p, fee) { return { subtotal: sub, bogo: bogoAmt, prepaid: p, upsell: 0, shipping: 0, cod: fee, total: after - p + fee, afterBogo: after }; }
+    return { ok: true, estimate: true, cod: m(0, 2900), prepaid: m(pre, 0), lines: [], upsells: state.ups || [] };
   }
   function recount(c) {
     c.item_count = c.items.reduce(function (s, i) { return s + i.quantity; }, 0);
