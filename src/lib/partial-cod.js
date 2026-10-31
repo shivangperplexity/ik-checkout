@@ -10,6 +10,11 @@
 //             rto_pin        PIN codes where too many of our parcels came back (own Shiprocket history) or listed in `pins`
 //             history        this phone number had a parcel returned (RTO) or cancelled a COD order before
 //             high_value     COD orders at or above this many rupees (0 = off)
+//             night          orders placed 11 pm - 6 am IST (Nov 2026: 66% of those COD parcels came back)
+//             states         state codes, comma separated (e.g. RJ,MP), read from the PIN code
+//   advance_low  the smaller advance (default 49) when the only reasons are night / state; history, PIN, address and
+//              value reasons take `advance` (default 99)
+//   history_cancel  false = only a past RTO counts as history, not a past COD cancel
 //
 // How the order looks everywhere:
 //   Shopify    created with orderCreate as PARTIALLY_PAID: a ₹99 PayU sale transaction, the balance outstanding,
@@ -23,12 +28,23 @@ export const DEFAULTS = {
   mode: 'off', advance: 99, test_phones: '',
   vague_address: true, rto_pin: true, history: true, high_value: 0,
   pins: '', rto_rate: 35, rto_min: 2,
+  night: false, states: '', advance_low: 49, history_cancel: true,
 };
+
+/* PIN code -> state for the state rule (first two digits; India Post circles) */
+const PIN2 = { RJ: [30, 31, 32, 33, 34], MP: [45, 46, 47, 48], UP: [20, 21, 22, 23, 24, 25, 26, 27, 28], BR: [80, 81, 82, 83, 84, 85], GJ: [36, 37, 38, 39], MH: [40, 41, 42, 43, 44], DL: [11], HR: [12, 13], PB: [14, 15], WB: [70, 71, 72, 73, 74], OR: [75, 76, 77], JH: [81, 82, 83], CG: [49], AS: [78] };
+export function pinState(pin) {
+  const p = Number(String(pin || '').slice(0, 2));
+  for (const [st, list] of Object.entries(PIN2)) if (list.includes(p)) return st;
+  return '';
+}
+export const isNight = (t = Date.now()) => { const h = new Date(t + 19800000).getUTCHours(); return h >= 23 || h < 6; };
 
 export function cfg(env) {
   const s = { ...DEFAULTS, ...(env.SETTINGS?.partial || {}) };
   s.mode = ['off', 'test', 'risky', 'all'].includes(s.mode) ? s.mode : 'off';
   s.advance = Math.max(1, Math.min(2000, Math.round(Number(s.advance) || 99)));
+  s.advance_low = Math.max(1, Math.min(s.advance, Math.round(Number(s.advance_low) || 49)));
   return s;
 }
 
@@ -121,7 +137,7 @@ async function phoneHistory(env, phone) {
 const REASON_TEXT = {
   test: 'test number', all: 'partial COD is on for every order', vague_address: 'address has no house / flat / shop number',
   rto_pin: 'PIN code with many returns', past_rto: 'a parcel to this number was returned before', past_cancel: 'this number cancelled a COD order before',
-  high_value: 'high COD value',
+  high_value: 'high COD value', night: 'ordered late at night', state: 'many returns in this state',
 };
 export const reasonText = (k) => REASON_TEXT[String(k).split(':')[0]] || k;
 
@@ -134,8 +150,10 @@ export async function decide(env, buyer = {}, totalPaise = 0) {
   const c = cfg(env);
   const advance = c.advance * 100;
   const out = (reasons, hint = '') => {
-    const partial = reasons.length > 0 && totalPaise > advance;
-    return { partial, mode: c.mode, advance, balance: partial ? totalPaise - advance : 0, reasons: partial ? reasons : [], hint: partial ? hint : '' };
+    /* only night / state reasons: the smaller advance */
+    const adv = reasons.length && reasons.every((r) => r === 'night' || r.startsWith('state:')) ? c.advance_low * 100 : advance;
+    const partial = reasons.length > 0 && totalPaise > adv;
+    return { partial, mode: c.mode, advance: adv, balance: partial ? totalPaise - adv : 0, reasons: partial ? reasons : [], hint: partial ? hint : '' };
   };
   if (c.mode === 'off') return out([]);
   if (c.mode === 'all') return out(['all']);
@@ -155,7 +173,9 @@ export async function decide(env, buyer = {}, totalPaise = 0) {
     c.history && env.DB ? quick(phoneHistory(env, phone), '') : '',
   ]);
   if (wantPin) { const r = pinRisk(c, buyer.pincode, stats); if (r) reasons.push('rto_pin:' + r); }
-  if (hist) reasons.push(hist);
+  if (hist && (hist === 'past_rto' || c.history_cancel !== false)) reasons.push(hist);
+  if (c.night && isNight()) reasons.push('night');
+  { const st = pinState(buyer.pincode), list = String(c.states || '').toUpperCase().split(/[\s,;]+/).filter(Boolean); if (st && list.includes(st)) reasons.push('state:' + st); }
   if (Number(c.high_value) > 0 && totalPaise >= Number(c.high_value) * 100) reasons.push('high_value');
   /* Only the address can be fixed by the shopper; with any other reason the hint would not lift the advance. */
   return out(reasons, reasons.length === 1 && reasons[0].startsWith('vague_address') ? hint : '');

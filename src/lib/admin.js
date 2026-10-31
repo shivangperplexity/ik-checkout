@@ -621,6 +621,10 @@ const ACTIONS = {
     c.pins = String(b.pins || '').split(/[\s,;]+/).map((x) => x.replace(/\D/g, '')).filter((x) => x.length >= 1 && x.length <= 6).join(', ');
     c.rto_rate = Math.max(1, Math.min(100, Math.round(Number(b.rto_rate) || 35)));
     c.rto_min = Math.max(1, Math.min(50, Math.round(Number(b.rto_min) || 2)));
+    c.night = !!b.night;
+    c.states = String(b.states || '').toUpperCase().split(/[\s,;]+/).filter((x) => /^[A-Z]{2}$/.test(x)).join(', ');
+    c.advance_low = Math.max(1, Math.min(c.advance, Math.round(Number(b.advance_low) || 49)));
+    c.history_cancel = b.history_cancel !== false;
     await putSetting(env, 'partial', c);
     return { ok: true, partial: c };
   },

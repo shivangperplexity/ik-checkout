@@ -70,3 +70,16 @@ test('reconciliation: wrong COD amount on the booking, refund after cancel', () 
   assert.ok(cancelled.some((x) => x.kind === 'partial_refund_due'));
   assert.ok(diagnose(o, ship, { ...shop, tags: ['partial-cod', 'needs-payment-entry'] }).some((x) => x.kind === 'partial_payment_missing'));
 });
+
+test('partial v2: past RTO = ₹99, night / RJ-MP only = ₹49, a past cancel alone does not count when history_cancel is off', async () => {
+  const { decide, pinState } = await import('./partial-cod.js');
+  assert.equal(pinState('302001'), 'RJ'); assert.equal(pinState('452001'), 'MP'); assert.equal(pinState('400001'), 'MH');
+  const db = (rto, cancelled) => ({ prepare: (sql) => ({ bind: () => ({ first: async () => ({ rto, cancelled }), all: async () => ({ results: [] }) }) }) });
+  const base = { mode: 'risky', vague_address: false, rto_pin: false, history: true, history_cancel: false, states: 'RJ, MP', night: false };
+  const env = (rto, cancelled, extra = {}) => ({ DB: db(rto, cancelled), SETTINGS: { partial: { ...base, ...extra } } });
+  const buyer = (pin) => ({ phone: '9876543210', pincode: pin, address1: 'Flat 5, Sai Residency', address2: 'near temple' });
+  let d = await decide(env(1, 0), buyer('400001'), 50000); assert.equal(d.partial, true); assert.equal(d.advance, 9900);
+  d = await decide(env(0, 0), buyer('302001'), 50000); assert.equal(d.partial, true); assert.equal(d.advance, 4900);
+  d = await decide(env(0, 1), buyer('400001'), 50000); assert.equal(d.partial, false);
+  d = await decide(env(1, 0), buyer('302001'), 50000); assert.equal(d.advance, 9900);
+});
