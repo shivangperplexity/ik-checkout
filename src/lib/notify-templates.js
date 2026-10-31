@@ -35,4 +35,23 @@ export const SHIP_BOOKED_V1 = {
     { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Watch how to apply', url: 'https://youtu.be/{{1}}', example: ['https://youtu.be/0GMHG7WmaL8'] }] },
   ],
 };
-export const ALL = [COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1];
+/* OTP already proved the phone, so no "confirm order" again: just the address and phone to check. */
+export const COD_PLACED_V2 = {
+  name: 'cod_order_placed_v2', language: 'en', category: 'UTILITY', parameter_format: 'NAMED',
+  components: [
+    { type: 'BODY', text: 'Hi {{name}}, your Ink Kulture order {{order}} is placed ✅\n\nDesign: {{items}}\nTotal: ₹{{total}} (Cash on Delivery)\nExpected delivery: {{edd}}\n\nDelivering to: {{address}}\nPhone: {{phone}}\n\nPlease check the address and phone number. If anything is wrong, tap Edit address.',
+      example: named([['name', 'Riya'], ['order', '#1663'], ['items', 'Snake x 1'], ['total', '399'], ['edd', 'by Thu, 5 Nov'], ['address', 'Flat 5, Sai Residency, Sector 18, Ulwe, Navi Mumbai 410206'], ['phone', '98XXXXXX10']]) },
+    FOOT,
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Address is correct' }, { type: 'QUICK_REPLY', text: 'Edit address' }] },
+  ],
+};
+export const ADDRESS_FIX_V1 = {
+  name: 'address_fix_v1', language: 'en', category: 'UTILITY', parameter_format: 'NAMED',
+  components: [
+    { type: 'BODY', text: 'Hi {{name}}, your Ink Kulture order {{order}} is packed and ready to ship, but the delivery address on it is a link or map code instead of a written address, so the courier cannot deliver it.\n\nPlease tap Edit address and type your full address (house no, street, area, landmark). We will send it out as soon as it is updated.',
+      example: named([['name', 'Riya'], ['order', '#1663']]) },
+    FOOT,
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Edit address' }] },
+  ],
+};
+export const ALL = [COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1];

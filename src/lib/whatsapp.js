@@ -242,7 +242,7 @@ export async function metaSendTemplate(env, { name, phone, keys, values, image, 
   if (orderId && orderId !== '0') for (const { b, i } of qr) {
     const no = /\b(no|cancel)\b/i.test(b.text || '');
     /* COD confirmation buttons -> CONFIRM / CANCEL; the refused-delivery question (lib/ndr-ask.js) -> NDR_YES / NDR_NO */
-    const act = qrKind === 'ndr' ? (no ? 'NDR_NO' : 'NDR_YES') : (no ? 'CANCEL' : 'CONFIRM');
+    const act = qrKind === 'addr' ? (/edit|change|badl/i.test(b.text || '') ? 'ADDR_EDIT' : 'ADDR_OK') : qrKind === 'ndr' ? (no ? 'NDR_NO' : 'NDR_YES') : (no ? 'CANCEL' : 'CONFIRM');
     components.push({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: act + ':' + orderId }] });
   }
 
@@ -362,7 +362,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
       wamid = r.wamid;
     } else {
       const send = (name) => metaSendTemplate(env, { name, phone, keys: cfg.vars, values: cfg.vars.map((k) => v[k]), image: t.media ? image : '', video: isVideo, orderId: t.buttons ? orderId : '', lang: cfg.lang,
-        urlParam: t.urlParam ? v[t.urlParam] || '' : '', onText: (x) => { shown = x; }, qrKind: t.buttons === 'ndr' ? 'ndr' : 'cod' });
+        urlParam: t.urlParam ? v[t.urlParam] || '' : '', onText: (x) => { shown = x; }, qrKind: t.buttons === 'ndr' ? 'ndr' : t.buttons === 'addr' ? 'addr' : 'cod' });
       const list = candidates(templateName);
       for (let i = 0; i < list.length; i++) {
         templateName = list[i];

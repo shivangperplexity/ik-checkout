@@ -92,6 +92,7 @@ async function handlePincode(pin) {
   return json({ ok: true, city: po.District, state: po.State });
 }
 
+import { addressProblem } from './address-check.js';
 function validateBuyer(b) {
   const phone = cleanPhone(b.phone);
   const name = String(b.name || '').trim().replace(/\s+/g, ' ');
@@ -104,6 +105,7 @@ function validateBuyer(b) {
     : name.length < 2 ? 'Enter your name'
     : !/^\d{6}$/.test(pincode) ? 'Enter a valid 6-digit PIN code'
     : address1.length < 5 ? 'Enter your full address'
+    : addressProblem(address1, b.address2) ? addressProblem(address1, b.address2)
     : !city ? 'Enter your city'
     : !stateCode(state) ? 'Select your state'
     : email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? 'Email looks wrong'
@@ -289,7 +291,7 @@ async function afterCod(env, req, row, order) {
   const ua = req.headers.get('User-Agent');
   const results = await Promise.allSettled([
     purchaseEvent(env, row, order.name, ip, ua),
-    fireTrigger(env, row.otp ? 'cod_placed' : 'cod_confirm', { to: row.buyer.phone, vars: { name: row.buyer.firstName, order: order.name, total: rupees(row.total), edd: row.edd || '4-7 days' }, orderId: order.legacyResourceId, orderName: order.name }),
+    fireTrigger(env, row.otp ? 'cod_placed' : 'cod_confirm', { to: row.buyer.phone, vars: { name: row.buyer.firstName, order: order.name, total: rupees(row.total), edd: row.edd || '4-7 days', address: [row.buyer.address1, row.buyer.address2, row.buyer.city, row.buyer.state, row.buyer.pincode].filter(Boolean).join(', ').replace(/\s+/g, ' ').slice(0, 200), phone: '+91 ' + row.buyer.phone }, orderId: order.legacyResourceId, orderName: order.name }),
     markSessionOrdered(env, row.sid, order.name),
   ]);
   results.forEach((r, i) => r.status === 'rejected' && console.error(['capi', 'whatsapp', 'session'][i], r.reason));

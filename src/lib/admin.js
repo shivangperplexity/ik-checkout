@@ -1522,6 +1522,16 @@ const ACTIONS = {
     }
     return { ok: true, results: out };
   },
+  /** Address is a link: stop the pickup, ask the customer for the written address; it is booked again when they save it. */
+  async addr_fix(env, b) {
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))].slice(0, 20);
+    if (!ids.length) throw new Error('Select an order');
+    const { startFix } = await import('./addr-fix.js');
+    const fresh = await withSettingsFresh(env);
+    const results = [];
+    for (const id of ids) results.push(await startFix(fresh, id).catch((e) => ({ id, ok: false, note: String(e.message || e) })));
+    return { ok: true, results };
+  },
   async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
   async broadcast(env) { const B = await import('./broadcast.js'); return B.overview(env); },
   async broadcast_submit(env, b) { const B = await import('./broadcast.js'); return B.submit(env, b.video); },

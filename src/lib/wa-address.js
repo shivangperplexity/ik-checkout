@@ -20,6 +20,7 @@ import { logMsg, sendText, viaG4w } from './whatsapp.js';
 import { verifyAddr, linkShapeOk, addrLink } from './wa-token.js';
 import { STATE_CODES, stateCode } from './util.js';
 import { page, esc } from './wa-g4w.js';
+import { addressProblem } from './address-check.js';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const gidOf = (id) => `gid://shopify/Order/${id}`;
@@ -177,6 +178,7 @@ function readForm(raw) {
 function validate(v) {
   return v.name.length < 2 ? 'Enter your full name'
     : v.address1.length < 5 ? 'Enter your house / flat and street'
+    : addressProblem(v.address1, v.address2) ? addressProblem(v.address1, v.address2)
     : !/^\d{6}$/.test(v.pincode) ? 'Enter a valid 6-digit PIN code'
     : !v.city ? 'Enter your city'
     : !stateCode(v.state) ? 'Select your state'
@@ -222,6 +224,14 @@ export async function handleAddr(req, env0) {
   await env.DB.prepare('UPDATE orders SET city=?, state_code=?, pincode=? WHERE order_id=?').bind(v.city, stateCode(v.state), v.pincode, orderId).run().catch(() => {});
   await sendText(env, '91' + row.phone, `Address updated for order ${row.order_name}. We'll deliver to:\n\n${fmtAddress(saved)}`).catch(() => {});
   await logMsg(env, { direction: 'in', phone: row.phone, trigger: 'address', template: 'form', status: 'address-updated', orderName: row.order_name, preview: `Address changed (PIN ${v.pincode})` }).catch(() => {});
+  /* the pickup was stopped because the address was a link (admin addr_fix): book it again now */
+  try {
+    const sh = await env.DB.prepare("SELECT cancel_note FROM shipments WHERE order_id=? AND cancel_state='cancelled'").bind(orderId).first();
+    if (sh && /^Address fix/.test(String(sh.cancel_note || ''))) {
+      const { rebookAfterFix } = await import('./addr-fix.js');
+      await rebookAfterFix(env0, orderId);
+    }
+  } catch (e) { console.error('addr rebook', orderId, e.message); }
   /* a corrected address is a confirmed address: the pay-online offer follows */
   try { const { offerAfterAddress } = await import('./wa-convert.js'); await offerAfterAddress(env, orderId); } catch (e) { console.error('addr offer', e.message); }
   return page('Address updated', `Order ${name} will be delivered to:<br><br>${esc(fmtAddress(saved)).replace(/\n/g, '<br>')}`, `<a class="btn n" href="/api/wa/addr?o=${orderId}&s=${sig}">Change again</a>`);
