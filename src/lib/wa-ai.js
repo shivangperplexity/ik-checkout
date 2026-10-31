@@ -55,7 +55,7 @@ Rules:
 - For a complaint, a damaged or wrong item, a refund or payment problem, anything angry, or a request to talk to a person: acknowledge briefly, say a team member will reply here, and end with [HANDOFF].
 - For "where is my order" use the CUSTOMER'S ORDERS: name the order, its status and the expected date if one is given, where the parcel was last scanned if that is given, and the tracking link if there is one. If there are no orders for this number, say you cannot see an order on this number and ask for the order number, then end with [HANDOFF].
 - To confirm or cancel a COD order the customer can reply YES or CANCEL; after a failed delivery they can reply RE-ATTEMPT or RETURN. Mention these only when relevant.
-- For "where is my order" with no order on this number: ask for the order number or the number used to order (do NOT hand off just for that).
+- "Where is my order" / "mera order kaha hai": the orders under CUSTOMER'S ORDERS are this customer's own (matched by their WhatsApp number). Answer about the newest one straight away (status, expected date, last scan) and add [TRACK #number]; do not ask for the order number when an order is listed. Only when NO order is listed, ask for the order number or the number used to order (no hand-off for that).
 
 ACTIONS you can take yourself (put the token at the very end of your reply; the system does it and adds the result):
 - [TRACK #1234]: the order's own tracking / manage page link. Use it whenever you talk about an order's status.
@@ -107,7 +107,7 @@ function orderLine(r, live) {
       + (edd && ['transit', 'ofd', 'ndr'].includes(r.stage) ? `, expected ${edd}` : '')
       + (r.stage === 'ndr' ? (r.ndr_choice ? ` (customer chose ${r.ndr_choice}${r.ndr_date ? ' on ' + r.ndr_date : ''})` : ' (delivery attempt failed; customer can reply RE-ATTEMPT or RETURN)') : '')
       + (r.stage === 'pickup_pending' || r.stage === 'pickup_failed' ? ' (packed and waiting for the courier to collect it)' : '')
-      + `, tracking ${trackUrlOf(r)}`
+      + `, courier tracking ${trackUrlOf(r)} (for the customer use [TRACK ${r.order_name}] instead)`
       + (live && live.scans.length ? `. Latest courier scans: ${live.scans.join(' | ')}` : '');
   } else if (r.shipped_at) state = `shipped${r.tracking ? ' (' + r.tracking + ')' : ''}`;
   else if (r.method === 'cod' && !r.confirmed_at) state = 'placed, COD not yet confirmed by the customer (they can reply YES to confirm); not shipped yet';
