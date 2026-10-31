@@ -74,7 +74,7 @@ export async function createDraft(env, { lines, price, method, buyer, tags, attr
     phone: '+91' + buyer.phone,
   };
   const discount = price.bogo + price.prepaid + (price.upsell || 0) + (price.ref || 0) + (price.credit || 0);
-  const title = [price.bogo ? 'Buy 1 Get 1 Free' : '', price.upsell ? 'Add-on offer' : '', price.prepaid ? 'Prepaid 10% off' : '', price.ref ? 'Referral ₹' + price.ref / 100 : '', price.credit ? 'Store credit ₹' + price.credit / 100 : ''].filter(Boolean).join(' + ');
+  const title = [price.bogo ? 'Buy 1 Get 1 Free' : '', price.upsell ? 'Add-on offer' : '', price.prepaid ? 'Prepaid discount' : '', price.ref ? 'Referral ₹' + price.ref / 100 : '', price.credit ? 'Store credit ₹' + price.credit / 100 : ''].filter(Boolean).join(' + ');
   const input = {
     lineItems: lines.map((l) => ({ variantId: l.variantId, quantity: l.qty })),
     shippingAddress: addr,
@@ -83,7 +83,7 @@ export async function createDraft(env, { lines, price, method, buyer, tags, attr
     tags,
     customAttributes: attributes,
     shippingLine: {
-      title: price.cod ? 'Shipping + COD handling' : price.shipping ? 'Shipping' : 'Free shipping',
+      title: price.cod ? (price.shipping ? 'Shipping + COD fee' : 'COD fee') : price.shipping ? 'Shipping' : 'Free shipping',
       price: rupees(price.shipping + price.cod),
     },
   };

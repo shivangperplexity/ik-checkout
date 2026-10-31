@@ -33,7 +33,9 @@ export function priceCart(lines, method, cfg = {}) {
   const freeUnits = Math.floor(units.length / 2);
   const bogo = units.slice(0, freeUnits).reduce((s, v) => s + v, 0);
   const afterBogo = subtotal - bogo - upsell;
-  const prepaid = method === 'prepaid' ? Math.round((afterBogo * c.prepaidPct) / 10000) * 100 : 0;
+  /* prepaid: the % off, or a flat amount when that is more (Pricing v2: "₹50 off, or 10% if more") */
+  const pctOff = Math.round((afterBogo * c.prepaidPct) / 10000) * 100;
+  const prepaid = method === 'prepaid' ? Math.min(afterBogo, Math.max(pctOff, c.prepaidFlat || 0)) : 0;
   const shipping = afterBogo >= c.freeShippingAbove ? 0 : c.shippingFee;
   const cod = method === 'cod' ? c.codFee : 0;
   const total = afterBogo - prepaid + shipping + cod;

@@ -3,7 +3,7 @@ import { isCollab, COLLAB_TAG } from './collab.js';
 import { cameFromAd } from './attribution.js';
 import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
-import { priceCart, quoteBoth, rupees } from './pricing.js';
+import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
 import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
@@ -51,7 +51,8 @@ async function handleQuote(req, env) {
   const lines = await loadLines(env, raw);
   applyUpsells(env, raw, lines);
   /* Refer and earn: a friend's code (attribution.ref, from ?ref= on the store) takes ₹100 off the online-payment price */
-  const q = env.DB ? await quoteRef(env, quoteBoth(lines, {}), attrsIn(body)).catch(() => quoteBoth(lines, {})) : quoteBoth(lines, {});
+  const pc = pricingCfg(env, body);
+  const q = env.DB ? await quoteRef(env, quoteBoth(lines, pc), attrsIn(body)).catch(() => quoteBoth(lines, pc)) : quoteBoth(lines, pc);
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
@@ -157,7 +158,7 @@ async function handleOrder(req, env, ctx) {
     } catch (e) { console.error('dup check', e.message); }
   }
   applyUpsells(env, raw, lines);
-  const price = priceCart(lines, method, {});
+  const price = priceCart(lines, method, pricingCfg(env, b));
   /* Partial COD: the server decides again with the real total; a stale checkout gets told to switch. */
   let partial = null;
   if (method === 'cod') {
