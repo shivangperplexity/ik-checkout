@@ -39,11 +39,11 @@ export const editable = (o) => !!o && !o.cancelledAt && (!o.displayFulfillmentSt
 const NOT_PICKED = new Set(['', 'booked', 'new', 'pending', 'pickup_pending', 'pickup_failed', 'pickup_scheduled', 'manifested', 'ready']);
 export async function canEdit(env, o, orderId) {
   if (!o || o.cancelledAt) return { ok: false, why: 'cancelled' };
-  if (editable(o)) return { ok: true };
+  /* a live booking decides, whatever Shopify shows: an order booked a minute ago can still read UNFULFILLED there */
   const { liveShipment } = await import('./ship-cancel.js');
   const rec = await liveShipment(env, orderId).catch(() => null);
-  if (rec && !rec.picked_at && rec.cancel_state !== 'picked' && NOT_PICKED.has(String(rec.stage || '').toLowerCase())) return { ok: true, rec };
-  return { ok: false, why: 'shipped' };
+  if (rec) return rec.picked_at || rec.cancel_state === 'picked' || !NOT_PICKED.has(String(rec.stage || '').toLowerCase()) ? { ok: false, why: 'shipped' } : { ok: true, rec };
+  return editable(o) ? { ok: true } : { ok: false, why: 'shipped' };
 }
 
 async function sendInteractive(env, phone91, interactive) {
