@@ -80,7 +80,8 @@ export async function audience(env, { template = TEMPLATE, kind = 'abandoned' } 
   const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all()).results;
   const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
   const buyers = new Set((await q('SELECT phone FROM orders')).map((r) => p10(r.phone)));
-  const done = new Set((await q("SELECT phone FROM messages WHERE direction='out' AND trigger='broadcast_video' AND template LIKE 'ik_video_offer%' AND status NOT IN ('failed','skipped')")).map((r) => p10(r.phone)));
+  /* sent, or refused by Meta for that person (not on WhatsApp, marketing cap, experiment, opted out): never again */
+  const done = new Set((await q("SELECT phone FROM messages WHERE direction='out' AND trigger='broadcast_video' AND template LIKE 'ik_video_offer%' AND (status NOT IN ('failed','skipped') OR error LIKE '%13104%' OR error LIKE '%131026%' OR error LIKE '%130472%' OR error LIKE '%131050%')")).map((r) => p10(r.phone)));
   const out = new Map();
   if (kind === 'abandoned') {
     for (const r of await q('SELECT phone, name, updated_at FROM leads ORDER BY updated_at DESC')) {
