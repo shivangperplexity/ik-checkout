@@ -61,13 +61,13 @@ ACTIONS you can take yourself (put the token at the very end of your reply; the 
 - [TRACK #1234]: the order's own tracking / manage page link. Use it whenever you talk about an order's status.
 - [ADDRESS #1234]: a link where the customer changes the delivery address or phone. Only for orders whose line says "address can be changed".
 - [CANCEL #1234]: cancels a Cash on Delivery order at once. Only for orders whose line says "can be cancelled", and ONLY after the customer has clearly confirmed in this chat. The first time they ask, ask why in one line and offer the fitting alternative (change the address, a different delivery day, or keep it: it is already packed in their name), and ask them to confirm. If they confirm or insist, cancel: no more persuading.
-- [CANCEL_REQUEST #1234]: for a PAID (online) order that can be cancelled: raises the cancellation for the team, who refund it in 5-7 working days.
+- Orders paid online (prepaid, or COD with an advance paid online) can NOT be cancelled. Say so kindly and offer the address change instead; never promise a refund or cancellation for them, and do not hand off just for that.
 - Never use an action for an order that is not in CUSTOMER'S ORDERS. After the courier has picked a parcel up it cannot be cancelled: say so kindly (they may refuse it at the door, nothing to pay for COD).
 
 CURRENT POLICIES (Nov 2026; they win over the store knowledge):
 - Free delivery on every order. Online payment: Rs 50 off (or 10% if more). COD: Rs 29 fee; some COD orders pay a Rs 49 / 99 advance online.
 - Orders are booked within a few hours and picked up the next working day; delivery 3 to 6 days after pickup.
-- Cancel or change the address any time before the courier picks the parcel up (here, or with the "Track or cancel order" button in our WhatsApp message, or at https://www.inkkulture.in/pages/track). Not after pickup.
+- Cash on Delivery orders can be cancelled before the courier picks the parcel up (here, or with the "Track or cancel order" button in our WhatsApp message, or at https://www.inkkulture.in/pages/track). Orders paid online cannot be cancelled. The address can be changed for any order until pickup.
 - Every Cash on Delivery order that is delivered gives Rs 50 off the next order paid online (60 days), applied automatically at checkout on the same number.
 - Damaged or wrong item: replacement within 7 days of delivery; ask for a photo, then hand off ([HANDOFF]) so the team ships it.
 - Do not discuss anything unrelated to Ink Kulture.
@@ -113,7 +113,9 @@ function orderLine(r, live) {
   else if (r.method === 'cod' && !r.confirmed_at) state = 'placed, COD not yet confirmed by the customer (they can reply YES to confirm); not shipped yet';
   else state = 'confirmed, being packed, not shipped yet (dispatch within 1 to 2 working days)';
   const pre = r.status !== 'cancelled' && cancellable({ status: r.status, stage: r.awb ? r.stage : '', picked_at: r.picked_at, delivered_at: r.delivered_at });
-  const can = pre ? ` It ${r.method === 'cod' && !(Number(r.advance_paise) > 0) ? 'can be cancelled ([CANCEL ' + r.order_name + '])' : 'can be cancelled by the team ([CANCEL_REQUEST ' + r.order_name + '])'} and its address can be changed ([ADDRESS ${r.order_name}]), as the courier has not picked it up yet.` : '';
+  const cod = r.method === 'cod' && !(Number(r.advance_paise) > 0) && !r.converted_at;
+  const can = pre ? (cod ? ` It can be cancelled ([CANCEL ${r.order_name}]) and its address can be changed ([ADDRESS ${r.order_name}]), as the courier has not picked it up yet.`
+    : ` It was paid online, so it CANNOT be cancelled; its address can still be changed ([ADDRESS ${r.order_name}]) until the courier picks it up.`) : '';
   return `- Order ${r.order_name} placed ${day(r.created_at)}, ${r.method === 'cod' ? 'Cash on Delivery' : 'prepaid'}, Rs ${Math.round(Number(r.total_paise || 0) / 100)}${items ? ', items: ' + items : ''}. Status: ${state}.${can}`;
 }
 
@@ -277,7 +279,7 @@ export async function runActions(env, phone, acts) {
   let handoff = false;
   for (const a of acts.slice(0, 3)) {
     const k = a.kind + a.name; if (seen.has(k)) continue; seen.add(k);
-    const o = await env.DB.prepare(`SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.advance_paise, s.stage, s.picked_at, s.delivered_at, s.rto, s.awb
+    const o = await env.DB.prepare(`SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.advance_paise, o.converted_at, s.stage, s.picked_at, s.delivered_at, s.rto, s.awb
         FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id AND COALESCE(s.status,'')<>'cancelled' WHERE o.order_name=?`).bind(a.name).first();
     if (!o || String(o.phone) !== String(phone)) continue;
     const SC = await import('./self-cancel.js');
@@ -286,7 +288,7 @@ export async function runActions(env, phone, acts) {
     else if (a.kind === 'ADDRESS') {
       if (pre) { const { addrLink } = await import('./wa-token.js'); out.push(`Change the address for ${o.order_name} here (takes 30 seconds): ${await addrLink(env, o.order_id)}`); }
       else { out.push(`${o.order_name} is already with the courier, so the address can't be changed online. Send the full new address here and our team will pass it to the courier.`); handoff = true; }
-    } else if (a.kind === 'CANCEL' && o.method === 'cod' && !(Number(o.advance_paise) > 0)) {
+    } else if (a.kind === 'CANCEL' && SC.codOnly(o)) {
       if (!pre) { out.push(`${o.order_name} has already been picked up by the courier, so it can't be cancelled now.`); continue; }
       const { action } = await import('./admin.js');
       const res = (await action('cancel_orders')(env, { ids: [o.order_id] })).results?.[0] || {};
@@ -295,10 +297,7 @@ export async function runActions(env, phone, acts) {
         try { const { addTags } = await import('./shopify.js'); await addTags(env, `gid://shopify/Order/${o.order_id}`, ['cancelled-by-customer', 'cancel: whatsapp ai']); } catch { /* best effort */ }
       } else { out.push(`I couldn't cancel ${o.order_name} automatically, our team will do it shortly.`); handoff = true; }
     } else if (a.kind === 'CANCEL_REQUEST' || a.kind === 'CANCEL') {
-      if (!pre) { out.push(`${o.order_name} has already been picked up by the courier, so it can't be cancelled now.`); continue; }
-      const r = await SC.cancelRequest(env, phone, o.order_name, 'Other');
-      out.push(r.ok ? `Cancellation for ${o.order_name} is raised ✅ Our team will cancel it and refund your payment in 5-7 working days.` : `I couldn't raise the cancellation, our team will help shortly.`);
-      if (!r.ok) handoff = true;
+      out.push(`${o.order_name} was paid online, so it can't be cancelled. You can still change the delivery address until it ships.`);
     }
   }
   return { text: out.join('\n'), handoff };

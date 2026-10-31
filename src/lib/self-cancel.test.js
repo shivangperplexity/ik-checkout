@@ -16,3 +16,10 @@ test('track link key: signed, tamper fails', async () => {
   assert.equal(await readTrackKey(env, k.replace(/^1/, '2')), '');
   assert.equal(await readTrackKey(env, 'junk'), '');
 });
+test('only cash on delivery with nothing paid online can be cancelled by the customer', async () => {
+  const { codOnly } = await import('./self-cancel.js');
+  assert.equal(codOnly({ method: 'cod' }), true);
+  assert.equal(codOnly({ method: 'cod', advance_paise: 4900 }), false);
+  assert.equal(codOnly({ method: 'cod', converted_at: 1 }), false);
+  assert.equal(codOnly({ method: 'prepaid' }), false);
+});
