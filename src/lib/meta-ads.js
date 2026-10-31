@@ -19,7 +19,7 @@ export function adsCfg(env) {
   return {
     token: String(m.ads_token || env.META_ADS_TOKEN || '').trim(),
     account: 'act_' + String(m.ad_account || env.META_AD_ACCOUNT || AD_ACCOUNT).replace(/^act_/, ''),
-    version: String(m.ads_version || '').trim(), /* empty = the app's default Graph version */
+    version: String(m.ads_version || env.META_ADS_VERSION || 'v26.0').trim(), /* Meta answers #2635 with the version it wants; graph() follows it */
     maxDaily: Math.max(100, Number(m.ads_max_daily) || 5000), /* rupees: no ad set or campaign can be set above this per day */
     target: Math.max(1, Number(m.ads_target_cpa) || 80), /* rupees per purchase the scaling rules aim for */
   };
@@ -29,8 +29,10 @@ function base(c) { return c.version ? `${GRAPH}/${c.version}` : GRAPH; }
 const enc = (v) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
 /** One Graph call. Throws Error(message) with .code / .sub on a Meta error. */
-export async function graph(env, method, path, params = {}, token) {
+let upgraded = ''; /* the version Meta asked for in a #2635 answer, kept for this instance */
+export async function graph(env, method, path, params = {}, token, retry = true) {
   const c = adsCfg(env);
+  if (upgraded) c.version = upgraded;
   const tok = token || c.token;
   if (!tok) throw new Error('Meta Ads token not set: Settings → Meta → Ads API token');
   const p = String(path).replace(/^\/+/, '');
@@ -48,6 +50,10 @@ export async function graph(env, method, path, params = {}, token) {
   }
   const res = await fetch(u.toString(), init);
   const j = await res.json().catch(() => ({}));
+  if ((!res.ok || j.error) && j.error?.code === 2635 && retry) {
+    const v = /v(\d{2,3}\.\d)/.exec(j.error.message || '')?.[0];
+    if (v && v !== c.version) { upgraded = v; return graph(env, method, path, params, token, false); }
+  }
   if (!res.ok || j.error) {
     const e = new Error(j.error?.error_user_msg || j.error?.message || `HTTP ${res.status}`);
     e.code = j.error?.code; e.sub = j.error?.error_subcode; e.trace = j.error?.fbtrace_id;
