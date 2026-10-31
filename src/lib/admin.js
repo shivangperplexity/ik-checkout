@@ -752,6 +752,12 @@ const ACTIONS = {
       WHERE m.direction='in' AND m.trigger='address' AND m.ts > ? ORDER BY m.ts DESC LIMIT 300`).bind(Math.floor(Date.now() / 1000) - 30 * 86400).all()).results;
     return { ok: true, rows: rows.map((r) => ({ ...r, after_booking: !!(r.booked_at && Number(r.ts) > Number(r.booked_at)) })) };
   },
+  /** Read-only: every message to / from one phone in the last 7 days (no previews: they can hold addresses). */
+  async phone_log(env, b) {
+    const ph = String(b.phone || '').replace(/\D/g, '').slice(-10);
+    if (ph.length !== 10) throw new Error('phone');
+    return { ok: true, rows: (await env.DB.prepare("SELECT id, ts, direction, trigger, template, status, order_name, wamid, error FROM messages WHERE RIGHT(phone,10)=? AND ts>? ORDER BY id").bind(ph, Math.floor(Date.now() / 1000) - 7 * 86400).all()).results };
+  },
   async messages(env) {
     return { messages: (await env.DB.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 150').all()).results };
   },
