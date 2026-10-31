@@ -861,7 +861,7 @@ const ACTIONS = {
         }
         const p = await spPlan(fresh, order, row, { hint });
         const day = (iso) => (iso ? dayOut(new Date(iso + 'T06:00:00Z')) : '');
-        spOut = { connected: true, pick: p.pick ? p.pick.code : '', error: p.error || '', pickup: `${p.pickup.city} ${p.pickup.pincode}`, weight_g: p.pack.weight_g, prefer: spPrefer(fresh.SETTINGS.shipping),
+        spOut = { connected: true, pick: p.pick ? p.pick.code : '', note: p.alloc_note || '', error: p.error || '', pickup: `${p.pickup.city} ${p.pickup.pincode}`, weight_g: p.pack.weight_g, prefer: spPrefer(fresh.SETTINGS.shipping),
           checked: !!hint, edd: p.edd ? { min: p.edd.min, max: p.edd.max, based: p.edd.basedOn, from: day(p.range.from), to: day(p.range.to) } : null,
           options: p.rates.map((r) => ({ code: r.code, courier: r.courier, charge: r.charge, forward: r.forward, cod_fee: r.cod, rto: r.rto, ok: r.ok, via: r.via,
             arrives: r.date ? day(r.date) : p.range ? (p.range.from === p.range.to ? day(p.range.from) : day(p.range.from) + ' – ' + day(p.range.to)) : '' })) };
@@ -1482,6 +1482,7 @@ const ACTIONS = {
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
   /* barter collab orders from /collab (lib/barter.js) */
   async barter(env) { const B = await import('./barter.js'); return B.barterList(env); },
+  async courier_scorecard(env) { const A = await import('./allocate.js'); return A.scorecard(env); },
   async barter_retry(env, b) { const B = await import('./barter.js'); const r = await B.makeDraft(env, b.id); if (!r.ok) throw new Error(r.error); return r; },
   async barter_decide(env, b) { const B = await import('./barter.js'); return B.barterDecide(env, b.id, b.approve === true); },
   async merch_restore(env, b) { const M = await import('./merch.js'); await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '0') ON CONFLICT (k) DO UPDATE SET v='0'").run(); return M.restore(env, String(b.handle || 'frontpage')); },

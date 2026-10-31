@@ -217,8 +217,18 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
     const ok = r.serviceable === false ? false : r.serviceable === true || h?.ok ? true : null;
     return { ...r, family: familyOf(r.courier), ok, via: r.serviceable != null ? 'ShipPrime' : h?.ok ? 'Shiprocket check' : '', date: h?.date || '', from: range?.from || '', to: range?.to || '' };
   });
-  const pick = spPick(rates, spPrefer(s));
-  return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint };
+  let pick = spPick(rates, spPrefer(s)), alloc = null;
+  /* courier allocation by delivery record at this PIN area (lib/allocate.js) */
+  try {
+    const A = await import('./allocate.js');
+    if (A.smartOn(env) && rates.length > 1) {
+      const units = (order.items || []).reduce((n, i) => n + Math.max(1, Number(i.quantity) || 1), 0) || 1;
+      const margin = (base.codAmount || 0) - units * (Number(env.SETTINGS?.profit?.unit_cost) || 0);
+      alloc = A.smartPick(rates, await A.allocStats(env), { cod: base.cod, state: row?.state_code || '', pin: base.pin, loss: Math.max(100, Math.round(base.cod ? margin : 0)) });
+      if (alloc?.pick) pick = alloc.pick;
+    }
+  } catch (e) { console.error('smart alloc', e.message); }
+  return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint, alloc_note: alloc?.note || '', alloc_table: alloc?.table || null };
 }
 
 /**

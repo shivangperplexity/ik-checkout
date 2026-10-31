@@ -410,7 +410,10 @@ function bindAi(){var b=$('#rv_aib');if(b)b.onclick=function(){RVN.aiBusy=true;d
 var COUR={};
 function loadCour(scan){var m=$('#main');if(!COUR.data)m.innerHTML='<p class="mut">Loading every shipment…</p>';
  rpc('courier_report',scan?{scan:1,force:scan==='force'?1:0}:{}).then(function(j){COUR.data=j;drawCour();if(j.scanning&&tab==='couriers')setTimeout(function(){loadCour(1)},1500)}).catch(function(e){m.innerHTML='<p class="err">'+esc(e.message)+'</p>'})}
-function drawCour(){var j=COUR.data,m=$('#main');if(!j)return;
+function drawScore(){rpc('courier_scorecard').then(function(r){var el=$('#scorecard');if(!el)return;
+ el.innerHTML='<div class="card"><h3 style="margin:0 0 4px">Smart courier choice</h3><p class="small mut" style="margin:0 0 8px">Every booking picks the courier with the lowest expected cost per delivered parcel at that PIN area: price + chance of RTO (from your own COD parcels, by courier, state and PIN) + slow pickups. Based on '+r.cod_parcels+' finished COD parcels ('+(r.rto_pct==null?'–':r.rto_pct+'%')+' RTO).</p>'
+ +'<table class="tbl"><tr><th>Courier</th><th>COD parcels</th><th>RTO</th><th>Slow pickups (48h+)</th><th>By state</th></tr>'+r.couriers.map(function(c){return '<tr><td><b>'+esc(c.courier)+'</b></td><td>'+c.parcels+'</td><td>'+(c.rto_pct==null?'–':c.rto_pct+'%')+'</td><td>'+c.slow_pickup_pct+'% <span class="mut">of '+c.bookings+'</span></td><td class="small">'+c.states.map(function(x){return esc(x.state)+' '+x.rto_pct+'% ('+x.parcels+')'}).join(' · ')+'</td></tr>'}).join('')+'</table></div>'}).catch(function(){})}
+function drawCour(){var j=COUR.data,m=$('#main');if(!j)return;setTimeout(function(){if(!$('#scorecard')){var d=document.createElement('div');d.id='scorecard';d.style.marginBottom='12px';m.insertBefore(d,m.firstChild);drawScore()}},0);
  var pc=function(x){return x==null?'–':x+'%'},nz=function(x,u){return x==null?'–':x+(u||'')};
  var adj=function(x){if(x==null)return '–';var c=x<=0.8?'var(--ok)':x>=1.2?'var(--bad)':'inherit';return '<b style="color:'+c+'">'+x.toFixed(2)+'</b>'};
  var tbl=function(rows,first){return '<div class="tw"><table><tr><th>'+first+'</th><th>Parcels</th><th>Finished</th><th>Delivered</th><th>RTO</th><th>RTO %</th><th title="95% range: with few parcels the true rate could be anywhere in it">Likely range</th><th title="Observed RTOs ÷ RTOs expected for the states it delivered to. 1.00 = average courier on the same addresses; below 1 = fewer RTOs">State-adjusted</th><th>COD RTO %</th><th title="Booking to delivery, median">Days to deliver</th><th title="Booking to the courier\'s first scan, median">Hrs to pickup</th><th title="Freight both ways for RTOs ÷ delivered parcels (Shiprocket only)">Freight / delivered</th><th title="Average delivery attempts before an RTO (Shiprocket)">Attempts before RTO</th><th>Top states</th></tr>'
@@ -827,6 +830,7 @@ function shipPanel(id,o){
   if(r.sp&&r.sp.connected){
    var sh='<div style="border-top:2px solid #eee;margin-top:14px;padding-top:10px"><h4 style="margin:0 0 4px">ShipPrime</h4>';
    if(r.sp.error)sh+='<p class="small" style="color:var(--bad);margin:4px 0">'+esc(r.sp.error)+'</p>';
+   if(r.sp.note)sh+='<p class="small" style="margin:4px 0">🛡 '+esc(r.sp.note)+'</p>';
    if(r.sp.edd)sh+='<p class="small" style="margin:0 0 4px">📦 Arrives about <b>'+esc(r.sp.edd.from)+(r.sp.edd.to!==r.sp.edd.from?' – '+esc(r.sp.edd.to):'')+'</b> <span class="mut">('+r.sp.edd.min+(r.sp.edd.max!==r.sp.edd.min?'–'+r.sp.edd.max:'')+' days after pickup, ShipPrime history'+(r.sp.edd.based?' by '+esc(String(r.sp.edd.based).toLowerCase()):'')+(/network/i.test(r.sp.edd.based||'')?', low confidence':'')+')</span></p>';
    if(r.sp.options&&r.sp.options.length){
     sh+='<p class="small mut" style="margin:0 0 4px">Weight sent: '+esc(String(r.sp.weight_g||''))+' g · pickup '+esc(r.sp.pickup||'')+' · courier order '+esc(r.sp.prefer||'cheapest')+'. Tap a row to pick another courier.</p>';

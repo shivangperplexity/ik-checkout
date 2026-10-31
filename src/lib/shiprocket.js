@@ -317,20 +317,18 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
     } else why = `Shiprocket has no courier for ${pin}${r.message ? ' (' + r.message + ')' : ''}. Check the PIN code with the customer.`;
   }
   let pick = pickOption(options, { policy: c.policy, toleranceDays: c.toleranceDays }), riskNote = '', risk = null;
-  /* COD: weigh each courier's RTO record on this store's parcels (Settings > Shipping: cod_risk_pick, on by default) */
-  if (cod && options.length > 1 && s.cod_risk_pick !== false) {
+  /* courier allocation by delivery record at this PIN area (lib/allocate.js; Settings > Shipping: smart_alloc, on by
+     default). An RTO loses the margin a delivery would have earned on top of the freight back. */
+  if (options.length > 1 && s.cod_risk_pick !== false) {
     try {
-      const { pickByRisk, courierFamily } = await import('./rates.js');
-      const rows = (await env.DB.prepare("SELECT courier, stage, rto FROM shipments WHERE COALESCE(status,'')<>'cancelled' AND (stage IN ('delivered','rto') OR rto=TRUE)").all()).results;
-      const stats = {};
-      for (const x of rows) { const f = courierFamily(x.courier); if (!f) continue; const st = stats[f] = stats[f] || { delivered: 0, rto: 0 }; if (x.stage === 'rto' || x.rto === true || x.rto === 1) st.rto++; else st.delivered++; }
-      /* an RTO loses the margin a delivery would have earned (COD amount minus stock cost) on top of the freight back;
-         ad spend is the same either way, so it does not change which courier is better */
-      const units = (order.items || []).reduce((n, i) => n + Math.max(1, Number(i.quantity) || 1), 0) || 1;
-      const margin = codAmount - units * (Number(env.SETTINGS?.profit?.unit_cost) || 0);
-      risk = pickByRisk(options, stats, { toleranceDays: c.toleranceDays, loss: Math.max(100, Math.round(margin)) });
-      if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
-    } catch (e) { console.error('cod risk pick', e.message); }
+      const A = await import('./allocate.js');
+      if (A.smartOn(env)) {
+        const units = (order.items || []).reduce((n, i) => n + Math.max(1, Number(i.quantity) || 1), 0) || 1;
+        const margin = codAmount - units * (Number(env.SETTINGS?.profit?.unit_cost) || 0);
+        risk = A.smartPick(options, await A.allocStats(env), { cod, state: row?.state_code || '', pin, loss: Math.max(100, Math.round(cod ? margin : 0)), toleranceDays: c.toleranceDays });
+        if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
+      }
+    } catch (e) { console.error('smart alloc', e.message); }
   }
   /* COD: the preferred courier (Settings > Shipping carriers: cod_prefer; off by default since 27 Oct 2026, when Blue
      Dart's pickup delays made it a bad first choice; it had the lowest
