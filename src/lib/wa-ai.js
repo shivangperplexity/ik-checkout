@@ -231,7 +231,7 @@ export async function callModel(c, P, system, merged, o = {}) {
   return { r, j, out };
 }
 
-export async function aiAnswer(env, { phone, text, thread = [], note = '' }) {
+export async function aiAnswer(env, { phone, text, thread = [], note = '', dry = false }) {
   const c = aiCfg(env);
   const orders = phone ? await customerOrders(env, phone, text).catch(() => '') : '';
   const msgs = [...thread.filter((m) => m.content), { role: 'user', content: String(text).slice(0, 1500) }];
@@ -261,7 +261,8 @@ export async function aiAnswer(env, { phone, text, thread = [], note = '' }) {
   /* actions the model asked for: only on this phone's own orders */
   const acts = [...out.matchAll(/\[(TRACK|ADDRESS|CANCEL_REQUEST|CANCEL)\s+#?(\d{3,6})\]/g)].map((m) => ({ kind: m[1], name: '#' + m[2] }));
   out = out.replace(/\s*\[(TRACK|ADDRESS|CANCEL_REQUEST|CANCEL)\s+#?\d{3,6}\]\s*/g, ' ').trim();
-  if (acts.length && phone) {
+  if (acts.length && phone && dry) out += '\n\n(dry run, would do: ' + acts.map((x) => x.kind + ' ' + x.name).join(', ') + ')';
+  else if (acts.length && phone) {
     const r = await runActions(env, phone, acts).catch((e) => ({ text: '', handoff: true, err: e.message }));
     if (r.text) out += '\n\n' + r.text;
     if (r.handoff) handoff = true;

@@ -562,7 +562,8 @@ const ACTIONS = {
     const fresh = await withSettingsFresh(env);
     if (!aiCfg(fresh).key) throw new Error('No API key saved yet');
     const phone = digits(b.phone).slice(-10);
-    const a = await aiAnswer(fresh, { phone, text: String(b.text || 'How long does it last?') });
+    const thread = Array.isArray(b.thread) ? b.thread.filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content || '').slice(0, 600) })).slice(-8) : [];
+    const a = await aiAnswer(fresh, { phone, text: String(b.text || 'How long does it last?'), thread, dry: b.dry !== false });
     return { ok: true, reply: a.text, handoff: a.handoff, usage: a.usage, model: a.model, switched: a.switched, orders: phone ? await customerOrders(fresh, phone).catch(() => '') : '' };
   },
   async save_profit(env, b) {
