@@ -132,20 +132,26 @@ export async function submit(env, video, only = null) {
   return { ok: true, created, status: created[0]?.status || 'PENDING' };
 }
 
-export async function start(env) {
+/** now: the owner asked to send right away: allowed until 10 pm IST today, faster batches (40 per run). */
+export async function start(env, { now: rightAway = false } = {}) {
   const st = await state(env);
   if (!st.video) throw new Error('Submit the template with the video first');
-  await save(env, { ...st, status: 'sending', started_at: st.started_at || now() });
+  const d = new Date(Date.now() + 19800000); d.setUTCHours(22, 0, 0, 0);
+  const until = Math.floor((d.getTime() - 19800000) / 1000);
+  await save(env, { ...st, status: 'sending', started_at: st.started_at || now(), ...(rightAway ? { now_until: until } : {}) });
   return overview(env);
 }
 export async function pause(env) { const st = await state(env); await save(env, { ...st, status: 'paused' }); return overview(env); }
 
 /** Cron: send the next few. */
-export async function broadcastTick(env, { per = 15 } = {}) {
+export async function broadcastTick(env, { per: per0 = 15 } = {}) {
+  let per = per0;
   const st = await state(env);
   if (st.status !== 'sending') return { idle: st.status };
   const h = new Date(Date.now() + 19800000).getUTCHours();
-  if (h < 10 || h >= 20) return { waiting: 'daytime only' };
+  const rush = Number(st.now_until || 0) > now();
+  if ((h < 10 || h >= 20) && !rush) return { waiting: 'daytime only' };
+  if (rush) per = Math.max(per, 40);
   const { fireTrigger } = await import('./whatsapp.js');
   const vs = await variantStatus(env);
   if (!vs.use) return { waiting: 'no variant approved yet' };

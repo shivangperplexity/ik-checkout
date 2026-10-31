@@ -1566,7 +1566,9 @@ const ACTIONS = {
   async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
   async broadcast(env) { const B = await import('./broadcast.js'); return B.overview(env); },
   async broadcast_submit(env, b) { const B = await import('./broadcast.js'); return B.submit(env, b.video || (await B.state(env)).video, Array.isArray(b.only) ? b.only : null); },
-  async broadcast_start(env) { const B = await import('./broadcast.js'); return B.start(env); },
+  async broadcast_start(env, b = {}) { const B = await import('./broadcast.js'); return B.start(env, { now: !!b.now }); },
+  /** one batch right away (the cron sends the rest every 5 min) */
+  async broadcast_tick(env) { const B = await import('./broadcast.js'); const { withSettings } = await import('./settings.js'); return { ok: true, ...(await B.broadcastTick(await withSettings(await withSettingsFresh(env)))) }; },
   async broadcast_pause(env) { const B = await import('./broadcast.js'); return B.pause(env); },
   async courier_scorecard(env) { const A = await import('./allocate.js'); return A.scorecard(env); },
   async barter_retry(env, b) { const B = await import('./barter.js'); const r = await B.makeDraft(env, b.id); if (!r.ok) throw new Error(r.error); return r; },
