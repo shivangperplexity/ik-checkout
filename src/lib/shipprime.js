@@ -228,7 +228,7 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
       let srList = null;
       try { const SR = await import('./shiprocket.js'); if (SR.srConnected(env)) srList = (await SR.srRates(env, { pin: base.pin, cod: base.cod, amount: base.codAmount || 499, pack: base.pack }, { all: true })).list; } catch (e) { srList = null; }
       if (srList) rates = rates.map((r) => ({ ...r, perf: r.perf || A.perfFor(r.code, srList) }));
-      alloc = A.smartPick(rates, await A.allocStats(env), { cod: base.cod, state: row?.state_code || '', pin: base.pin, loss: Math.max(100, Math.round(base.cod ? margin : 0)) });
+      alloc = A.smartPick(rates, await A.allocStats(env), { cod: base.cod, state: row?.state_code || '', pin: base.pin, loss: Math.max(100, Math.round(base.cod ? margin : 0)), maxExtra: s.alloc_max_extra ?? 10, prefer: s.alloc_prefer ?? 'Delhivery' });
       if (alloc?.pick) pick = alloc.pick;
     }
   } catch (e) { console.error('smart alloc', e.message); }

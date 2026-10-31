@@ -327,7 +327,7 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
       if (A.smartOn(env)) {
         const units = (order.items || []).reduce((n, i) => n + Math.max(1, Number(i.quantity) || 1), 0) || 1;
         const margin = codAmount - units * (Number(env.SETTINGS?.profit?.unit_cost) || 0);
-        risk = A.smartPick(options, await A.allocStats(env), { cod, state: row?.state_code || '', pin, loss: Math.max(100, Math.round(cod ? margin : 0)), toleranceDays: c.toleranceDays });
+        risk = A.smartPick(options, await A.allocStats(env), { cod, state: row?.state_code || '', pin, loss: Math.max(100, Math.round(cod ? margin : 0)), toleranceDays: c.toleranceDays, maxExtra: s.alloc_max_extra ?? 10, prefer: s.alloc_prefer ?? 'Delhivery' });
         if (risk?.pick) { pick = risk.pick; riskNote = risk.note; }
       }
     } catch (e) { console.error('smart alloc', e.message); }

@@ -75,12 +75,16 @@ export function slowPickup(S, family, k = 6, prior = null) {
  * Pure: the courier to book. options: [{ courier, charge, rto?, eddDate?, ok? }]. ctx: { cod, state, pin, loss, toleranceDays }.
  * Returns { pick, note, table } or null (fewer than 2 priced options, or too little history).
  */
-export function smartPick(options, S, { cod = true, state = '', pin = '', loss = 150, toleranceDays = 2 } = {}) {
+export function smartPick(options, S, { cod = true, state = '', pin = '', loss = 150, toleranceDays = 2, maxExtra = 10, prefer = 'Delhivery' } = {}) {
   const priced = (options || []).filter((o) => o.charge != null && o.ok !== false && o.serviceable !== false && familyOf(o.courier));
   if (priced.length < 2 || !S || S.all.n < 20) return null;
   const dated = priced.filter((o) => o.eddDate);
   const fastest = dated.length ? Math.min(...dated.map((o) => +o.eddDate)) : null;
-  const pool = fastest === null ? priced : priced.filter((o) => !o.eddDate || +o.eddDate <= fastest + toleranceDays * DAY);
+  let pool = fastest === null ? priced : priced.filter((o) => !o.eddDate || +o.eddDate <= fastest + toleranceDays * DAY);
+  /* flat-rate band: only couriers within maxExtra rupees of the cheapest (Settings > Shipping: alloc_max_extra, default
+     ₹10; empty = no limit). Keeps a ₹114 Blue Dart out when the flat-rate couriers cost ₹74. */
+  if (maxExtra != null && maxExtra !== '' && Number.isFinite(Number(maxExtra))) { const lo = Math.min(...pool.map((o) => Number(o.charge))); const band = pool.filter((o) => Number(o.charge) <= lo + Number(maxExtra)); if (band.length) pool = band; }
+  const liked = String(prefer || '').split(/[|,]/).map((x) => familyOf(x.trim())).filter(Boolean);
   /* Shiprocket's network scores for this PIN (0-5, all its sellers' parcels): a courier's RTO and pickup record here
      before this store has its own; they count less as the store's own parcels in the area add up */
   const avg = (key) => { const v = pool.map((o) => Number(o.perf?.[key])).filter((x) => x > 0); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -96,6 +100,11 @@ export function smartPick(options, S, { cod = true, state = '', pin = '', loss =
       const mult = Math.max(0.6, Math.min(1.6, 1 + 0.3 * (mRto - Number(pf.rto)) + (mDel != null && Number(pf.delivery) > 0 ? 0.15 * (mDel - Number(pf.delivery)) : 0)));
       base = base * (1 + (10 / (10 + own)) * (mult - 1));
     }
+    /* a courier with no record here at all is a guess: a little worse than average until it earns its own record */
+    if (cod && !(S.fam[f]?.n >= 5) && !(Number(pf.rto) > 0)) base += 0.05;
+    /* your preferred courier (Settings > Shipping: alloc_prefer, default Delhivery) wins near-ties; air is faster */
+    if (liked.includes(f)) base *= 0.9;
+    if (/\bair\b|_AIR/i.test(o.code || o.courier)) base *= 0.97;
     const p = Math.min(0.95, base + (cod ? 0.2 : 0.05) * slow);
     const back = o.rto != null ? Number(o.rto) : Number(o.charge);
     return { o, f, p, slow, cost: Number(o.charge) + p * (back + loss) };
