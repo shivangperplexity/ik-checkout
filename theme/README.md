@@ -67,3 +67,7 @@ line 2 "Landmark" (required, min 3 letters); links (http, www, maps.app, goo.gl)
 order message, lib/self-cancel.js) logs in to that order's number and highlights it; "Cancel order" until the courier picks
 it up (COD: reason + WhatsApp code; paid online, or the code can't be sent: a cancellation request for the team, Home >
 Cancellation requests); FAQs from `/api/site/config` (`faqs`) at the bottom.
+Build 053 also: PIN code first in the delivery form with "Get it by <date> · Free delivery · Cash on delivery available"
+under it (part 2 paintShip, `.ikx-pinedd`); city + state in one row after the address. OTP box: "Code not coming? Place
+order, confirm on WhatsApp" after 25 s (part 4). A failed online payment shows "Pay by UPI QR / UPI ID" and "Cash on
+delivery instead" buttons under the error (part 4 showErr).

@@ -200,6 +200,12 @@
   function showErr(msg) {
     var e = root && $('.ikx-err', root); if (!e) return;
     e.textContent = msg || ''; e.hidden = !msg;
+    /* Build 053: a payment that didn't go through gets one-tap ways to finish the order */
+    if (msg && /payment|didn\u2019t go through|not completed|payment window/i.test(msg) && state.method !== 'cod') {
+      e.innerHTML = esc(msg) + '<span style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+        (state.method !== 'upiid' ? '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-method="upiid" data-ikx-go style="margin:0;flex:1;min-width:140px">Pay by UPI QR / UPI ID</button>' : '') +
+        (codOn() ? '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-method="cod" data-ikx-go style="margin:0;flex:1;min-width:140px">Cash on delivery instead</button>' : '') + '</span>';
+    }
   }
 
   /* Scroll to the delivery form and focus the first missing field. */
@@ -224,6 +230,7 @@
     if (t.closest('[data-ikx-code-go]')) { e.preventDefault(); var cv = ($('[data-ikx-code-in]', root) || {}).value || ''; if (document.activeElement) document.activeElement.blur(); if (cv.trim()) setCode(cv); return; }
     if (t.closest('[data-ikx-code-x]')) { e.preventDefault(); setCode(''); return; }
     if (t.closest('[data-otp-re]')) { e.preventDefault(); otpSend(true); return; }
+    if (t.closest('[data-otp-skip]')) { e.preventDefault(); if (!OTP || state.busy) return; var sd = OTP.d; state.otpSkip = true; otpClose(); tk('otp_skip'); placeOrder(sd, false, ''); return; }
     if (t.closest('[data-otp-paste]')) { e.preventDefault(); otpPaste(); return; }
     if (t.closest('[data-otp-edit]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); var pf = form() && form().elements.phone; goCheckout(false); if (pf) setTimeout(function () { pf.focus(); pf.select && pf.select(); }, 350); return; }
     if (t.closest('[data-ikx-skip]')) { e.preventDefault(); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
@@ -352,6 +359,7 @@
         '<div data-otp-more style="display:none"><p class="ikx-m" style="margin:4px 0 14px;font-size:12.5px;line-height:1.45">In WhatsApp tap <b>Copy code</b>, come back and tap the code above your keyboard (or Paste). Your order is placed as soon as the 4 digits are in.</p>' +
         '<div style="display:flex;gap:10px"><button type="button" class="ikx-btn ikx-btn--ghost" data-otp-paste style="flex:1;margin:0">Paste code</button>' +
         '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-re style="flex:1;margin:0" disabled>Resend in 30s</button></div></div>' +
+        '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-skip style="display:none;width:100%;margin:12px 0 0">Code not coming? Place order, confirm on WhatsApp</button>' +
         '<button type="button" class="ikx-link" data-otp-edit style="display:block;margin:12px auto 0">Change mobile number</button>' +
       '</div>');
     $('.ikx-sheet', root).appendChild(o);
@@ -414,6 +422,9 @@
     if (st) st.innerHTML = otpSentText();
     if (more) more.style.display = '';
     otpTimer(resendIn);
+    /* Build 053: some shoppers get the code but never come back to type it; after 25 s let them place the order anyway
+       (it then gets the WhatsApp confirmation like before) */
+    setTimeout(function () { var sk = root && $('[data-otp-skip]', root); if (OTP && sk) sk.style.display = 'block'; }, 25000);
     var inp = $('[data-otp-in]', root); if (inp && !inp.disabled) { try { inp.focus({ preventScroll: true }); } catch (e) {} }
   }
   function otpUndelivered(again) {

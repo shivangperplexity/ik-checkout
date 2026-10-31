@@ -191,12 +191,16 @@
            Email is optional, at the end. */
         '<div class="ikx-sec"><h3 class="ikx-h3">Delivery</h3>' +
           '<label class="ikx-in ikx-in--float is-filled" data-f="country"><select name="country" autocomplete="shipping country"><option value="IN" selected>India</option></select><span>Country/Region</span><i class="ikx-ic ikx-in__chev">' + ICON.down + '</i></label>' +
+          /* Build 053: PIN first, so the delivery date and COD show before we ask for the number (half the shoppers
+             left at the phone field) */
+          field('pincode', 'PIN code (see your delivery date)', 'inputmode="numeric" autocomplete="shipping postal-code" maxlength="6" required') +
+          '<p class="ikx-m ikx-pinedd" hidden style="margin:-4px 2px 10px;font-size:13.5px;line-height:1.4"></p>' +
           '<div class="ikx-row2">' + field('first_name', 'First name', 'autocomplete="shipping given-name" required') + field('last_name', 'Last name', 'autocomplete="shipping family-name" required') + '</div>' +
           '<label class="ikx-in ikx-in--float" data-f="phone"><span class="ikx-cc">+91</span><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder=" " required><span>Mobile number (WhatsApp)</span><em class="ikx-ferr" hidden></em></label>' +
           '<label class="ikx-check"><input type="checkbox" name="news" checked><span>Send me order updates and offers on WhatsApp</span></label>' +
           field('address1', 'House / flat no., street, area', 'autocomplete="shipping address-line1" required') +
           field('address2', 'Landmark (near school, temple, shop…)', 'autocomplete="shipping address-line2" required') +
-          '<div class="ikx-row3">' + field('city', 'City', 'autocomplete="shipping address-level2" required') + field('state', 'State', 'autocomplete="shipping address-level1" required', 'select') + field('pincode', 'PIN code', 'inputmode="numeric" autocomplete="shipping postal-code" maxlength="6" required') + '</div>' +
+          '<div class="ikx-row2">' + field('city', 'City', 'autocomplete="shipping address-level2" required') + field('state', 'State', 'autocomplete="shipping address-level1" required', 'select') + '</div>' +
           '<label class="ikx-check"><input type="checkbox" name="remember" ' + (REMEMBER ? 'checked' : '') + '><span>Save this information for next time</span></label>' +
           field('email', 'Email (optional, for your order receipt)', 'type="email" inputmode="email" autocomplete="email"') +
         '</div>' +
@@ -281,6 +285,16 @@
   function paintShip() {
     var box = $('.ikx-ship', root); if (!box) return;
     var d = formData(), hasAddr = /^\d{6}$/.test(d.pincode) && d.city && d.state;
+    /* the date right under the PIN, as soon as the 6 digits are in */
+    var pe = $('.ikx-pinedd', root);
+    if (pe) {
+      if (/^\d{6}$/.test(d.pincode)) {
+        fetchShipping(); pe.hidden = false;
+        pe.innerHTML = SHIP.pin === d.pincode && SHIP.no ? '<span style="color:#b42318">Sorry, we can\u2019t deliver to ' + esc(d.pincode) + ' yet.</span>'
+          : SHIP.pin !== d.pincode || SHIP.busy ? '<i class="ikx-spin ikx-spin--pin"></i> Checking delivery date…'
+          : '🚚 Get it by <b>' + esc(SHIP.edd || 'in 3-6 days') + '</b> · Free delivery' + (codOn() ? ' · Cash on delivery available' : '');
+      } else pe.hidden = true;
+    }
     if (!hasAddr) { box.innerHTML = '<div class="ikx-shipnote">Enter your shipping address to view available shipping methods.</div>'; return; }
     fetchShipping();
     var p = state.quote && state.quote[qk(state.method)], price = p ? (p.shipping ? money(p.shipping) : 'FREE') : 'FREE';
