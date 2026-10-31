@@ -240,8 +240,8 @@ function loadHome(quiet){rpc('home').then(function(h){if(tab!=='home')return;
  var fillRev=function(){if(AS.rev){var a=$('#home_rev');if(a)a.innerHTML='Real revenue <b>'+inr(AS.rev.real_revenue)+'</b> · RTO loss <b style="color:var(--bad)">'+inr(AS.rev.rto.total)+'</b>'}};
  if(!AS.revAt||Date.now()-AS.revAt>10*60*1000){AS.revAt=Date.now();rpc('revenue',{range:'all'}).then(function(r){AS.rev=r;fillRev()}).catch(function(){AS.revAt=0})}
  setTimeout(fillRev,0);
- if(quiet&&$('#home_tiles')){$('#home_top').innerHTML=top;$('#home_tiles').innerHTML=tiles;return}
- $('#main').innerHTML='<div id="home_top">'+top+'</div><div id="home_tiles">'+tiles+'</div>'
+ if(quiet&&$('#home_tiles')){$('#home_top').innerHTML=top;$('#home_tiles').innerHTML=tiles;loadCx();return}
+ $('#main').innerHTML='<div id="home_top">'+top+'</div><div id="home_tiles">'+tiles+'</div><div id="home_cx"></div>'
   +'<div class="card asst"><div class="row" style="justify-content:space-between"><b>Assistant</b><span class="row"><span class="small mut">Prepares the list, you tap Confirm. Never packs.</span>'+'<button class="btn ghost sm" id="as_clear" title="Start a new conversation (the assistant forgets this one)">New chat</button>'+'</span></div>'
   +'<div class="asmsgs" id="as_msgs"></div>'
   +'<div class="chips" style="margin:8px 0 6px">'+['Ship prepaid orders','Ship address confirmed orders','Handle NDR','How did we do this week?','Suggest checkout improvements'].map(function(x){return '<button class="chip" data-ask="'+esc(x)+'">'+esc(x)+'</button>'}).join('')+'</div>'
@@ -249,9 +249,14 @@ function loadHome(quiet){rpc('home').then(function(h){if(tab!=='home')return;
  asDraw();
  $('#as_f').onsubmit=function(e){e.preventDefault();var v=$('#as_in').value.trim();if(v){$('#as_in').value='';asAsk(v)}};
  var cl=$('#as_clear');if(cl)cl.onclick=function(){if(!confirm('Start a new chat? The assistant forgets this conversation.'))return;rpc('assistant_clear').then(function(){AS.msgs=[];AS.props={};asDraw()}).catch(function(e){toast(e.message)})};asLoad();
- $('#main').onclick=homeClick;
+ $('#main').onclick=homeClick;loadCx();
  }).catch(fail)}
+/* Cancellation requests from the track page (customer could not get the WhatsApp code, or paid online) */
+function loadCx(){rpc('cancel_requests').then(function(r){var el=$('#home_cx');if(!el)return;var rows=r.rows||[];
+ el.innerHTML=rows.length?'<div class="card" style="border-color:var(--bad)"><b>Cancellation requests ('+rows.length+')</b><div class="small mut" style="margin:2px 0 8px">From the track page. Paid online: refund it in PayU after cancelling.</div>'+rows.map(function(x){return '<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:8px 0"><span><b>'+esc(x.order)+'</b> · '+esc(x.reason)+' · '+esc(x.phone)+(x.paid?' · <b>paid online</b>':'')+' · <span class="mut">'+esc(x.stage)+'</span></span><span class="row">'+(x.can?'<button class="btn sm" data-cxdo="'+x.id+':cancel">Cancel order</button>':'<span class="small" style="color:var(--bad)">Already with courier</span>')+'<button class="btn ghost sm" data-cxdo="'+x.id+':dismiss">Dismiss</button></span></div>'}).join('')+'</div>':''}).catch(function(){})}
+
 function homeClick(e){var a=e.target.closest('[data-ask]');if(a){e.preventDefault();asAsk(a.dataset.ask);return}
+ var cx=e.target.closest('[data-cxdo]');if(cx){var pr=cx.dataset.cxdo.split(':');if(pr[1]==='cancel'&&!confirm('Cancel this order?'))return;cx.disabled=true;rpc('cancel_request_close',{id:pr[0],how:pr[1]}).then(function(){toast(pr[1]==='cancel'?'Order cancelled':'Dismissed');loadCx()}).catch(function(er){cx.disabled=false;toast(er.message)});return}
  var g=e.target.closest('[data-go]');if(g){e.preventDefault();go(g.dataset.go);return}
  var c=e.target.closest('[data-pconf]');if(c){asRun(c.dataset.pconf);return}
  var x=e.target.closest('[data-pcancel]');if(x){var p=AS.props[x.dataset.pcancel];if(p){p.state='cancelled';asDraw()}return}
