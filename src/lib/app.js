@@ -516,6 +516,7 @@ export async function handle(req, env0, ctx) {
     }
     /* ShipPrime status webhook (Bearer secret from Settings, Shipping carriers): lib/shipprime.js */
     if (path === '/api/shipprime/webhook' && req.method === 'POST') { const { handleSpWebhook } = await import('./shipprime.js'); return await handleSpWebhook(req, env); }
+    if (path === '/api/agent/run' && req.method === 'GET') { const { handleAgent } = await import('./agent.js'); return await handleAgent(req, env); }
     if (path === '/api/admin/leads') return await handleAdminLeads(req, env);
     if (path === '/api/admin/login' && req.method === 'POST') return await handleLogin(req, env);
     if (path === '/api/admin/rpc' && req.method === 'POST') return await handleRpc(req, env);

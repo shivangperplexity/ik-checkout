@@ -355,6 +355,25 @@ export async function fulfilBooked(env, id) {
   return err;
 }
 
+/** People for a Meta customer list: phone with 91, first/last name, city, state code, PIN. Opted-out numbers are left out. */
+async function audienceRows(env, kind) {
+  const q = async (sql, ...v) => (await env.DB.prepare(sql).bind(...v).all()).results;
+  const t = now(), p10 = (x) => String(x || '').replace(/\D/g, '').slice(-10);
+  const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
+  const rows = new Map();
+  const add = (r) => { const ph = p10(r.phone); if (!/^[6-9]\d{9}$/.test(ph) || rows.has(ph) || opt.has(ph)) return; const [fn, ...ln] = String(r.name || r.first_name || '').trim().split(/\s+/); rows.set(ph, { phone: '91' + ph, fn: fn || '', ln: r.last_name || ln.join(' ') || '', ct: r.city || '', st: r.state_code || '', zip: r.pincode || '' }); };
+  if (kind === 'nonbuyers') {
+    const buyers = new Set((await q("SELECT phone FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled'")).map((r) => p10(r.phone)));
+    for (const r of await q('SELECT phone, name, pincode FROM leads WHERE updated_at>?', t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
+    for (const r of await q("SELECT DISTINCT phone FROM messages WHERE direction='in' AND ts>?", t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
+  } else if (kind === 'buyers') {
+    for (const r of await q("SELECT phone, first_name, last_name, city, state_code, pincode FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled' ORDER BY created_at DESC")) add(r);
+  } else {
+    for (const r of await q("SELECT o.phone, o.first_name, o.last_name, o.city, o.state_code, o.pincode FROM orders o JOIN shipments s ON s.order_id=o.order_id WHERE s.stage='delivered' ORDER BY o.created_at DESC")) add(r);
+  }
+  return [...rows.values()];
+}
+
 const ACTIONS = {
   async live(env) { return liveData(env); },
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
@@ -589,6 +608,7 @@ const ACTIONS = {
       resendDue(fresh, { anyTries: true }),
     ]);
     return { ok: true, pixel: c.pixelId, env_pixel: env.META_PIXEL_ID || '', test_code: c.testCode, env_test_ignored: !!env.META_TEST_EVENT_CODE, browser: c.browser, token: !!c.token,
+      ads_token: fresh.SETTINGS?.meta?.ads_token ? '••••' + String(fresh.SETTINGS.meta.ads_token).slice(-4) : (env.META_ADS_TOKEN ? 'env' : ''), ads_max_daily: fresh.SETTINGS?.meta?.ads_max_daily || 5000, ads_target_cpa: fresh.SETTINGS?.meta?.ads_target_cpa || 80,
       info, env_info: envInfo, resend_due: due.length, ...stats };
   },
   async save_meta(env, b) {
@@ -601,8 +621,11 @@ const ACTIONS = {
     }
     if (b.test_code !== undefined) m.test_code = String(b.test_code || '').trim().slice(0, 40);
     if (b.browser !== undefined) m.browser = !!b.browser;
+    if (b.ads_token !== undefined && !String(b.ads_token).startsWith('••')) m.ads_token = String(b.ads_token).replace(/^Bearer\s+/i, '').trim().slice(0, 1000);
+    if (b.ads_max_daily !== undefined) m.ads_max_daily = Math.max(100, Math.min(100000, Math.round(+b.ads_max_daily || 5000)));
+    if (b.ads_target_cpa !== undefined) m.ads_target_cpa = Math.max(1, Math.min(10000, Math.round(+b.ads_target_cpa || 80)));
     await putSetting(env, 'meta', m);
-    return { ok: true, meta: m };
+    return { ok: true, meta: { ...m, ads_token: m.ads_token ? '••••' + m.ads_token.slice(-4) : '' } };
   },
   /** Send purchases from the last 7 days that never reached the current pixel (rejected, or sent to another pixel). */
   async meta_resend(env) {
@@ -1656,23 +1679,35 @@ const ACTIONS = {
    */
   async audience_csv(env, b) {
     const kind = ['nonbuyers', 'buyers', 'delivered'].includes(b.kind) ? b.kind : 'nonbuyers';
-    const q = async (sql, ...v) => (await env.DB.prepare(sql).bind(...v).all()).results;
-    const t = now(), p10 = (x) => String(x || '').replace(/\D/g, '').slice(-10);
-    const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
-    const rows = new Map();
-    const add = (r) => { const ph = p10(r.phone); if (!/^[6-9]\d{9}$/.test(ph) || rows.has(ph) || opt.has(ph)) return; const [fn, ...ln] = String(r.name || r.first_name || '').trim().split(/\s+/); rows.set(ph, { phone: '91' + ph, fn: fn || '', ln: r.last_name || ln.join(' ') || '', ct: r.city || '', st: r.state_code || '', zip: r.pincode || '' }); };
-    if (kind === 'nonbuyers') {
-      const buyers = new Set((await q("SELECT phone FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled'")).map((r) => p10(r.phone)));
-      for (const r of await q('SELECT phone, name, pincode FROM leads WHERE updated_at>?', t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
-      for (const r of await q("SELECT DISTINCT phone FROM messages WHERE direction='in' AND ts>?", t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
-    } else if (kind === 'buyers') {
-      for (const r of await q("SELECT phone, first_name, last_name, city, state_code, pincode FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled' ORDER BY created_at DESC")) add(r);
-    } else {
-      for (const r of await q("SELECT o.phone, o.first_name, o.last_name, o.city, o.state_code, o.pincode FROM orders o JOIN shipments s ON s.order_id=o.order_id WHERE s.stage='delivered' ORDER BY o.created_at DESC")) add(r);
-    }
+    const rows = await audienceRows(env, kind);
     const esc = (v) => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
-    const csv = ['phone,fn,ln,ct,st,zip,country', ...[...rows.values()].map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
-    return { ok: true, rows: rows.size, csv };
+    const csv = ['phone,fn,ln,ct,st,zip,country', ...rows.map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
+    return { ok: true, rows: rows.length, csv };
+  },
+  /* ---------- Meta Marketing API (lib/meta-ads.js) ---------- */
+  async ads_probe(env) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.probe(await withSettingsFresh(env))) }; },
+  async ads_overview(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.overview(await withSettingsFresh(env), { preset: String(b.preset || 'last_7d'), all: !!b.all })) }; },
+  async ads_status(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.setStatus(await withSettingsFresh(env), b.id, b.status)) }; },
+  async ads_budget(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.setBudget(await withSettingsFresh(env), b.id, b.daily)) }; },
+  async ads_copy_adset(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.copyAdset(await withSettingsFresh(env), { adset_id: b.adset_id, name: b.name, daily_rupees: b.daily })) }; },
+  async ads_identities(env) { const A = await import('./meta-ads.js'); return { ok: true, rows: await A.identities(await withSettingsFresh(env)) }; },
+  async ads_ig_media(env, b) { const A = await import('./meta-ads.js'); return { ok: true, rows: await A.igMedia(await withSettingsFresh(env), { limit: +b.limit || 30 }) }; },
+  async ads_ig_ad(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.igAd(await withSettingsFresh(env), b)) }; },
+  async ads_suggest(env) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.suggestions(await withSettingsFresh(env))) }; },
+  /** Customer list straight to Meta (hashed), no CSV download. kind: nonbuyers | buyers | delivered */
+  async ads_audience_sync(env, b) {
+    const kind = ['nonbuyers', 'buyers', 'delivered'].includes(b.kind) ? b.kind : null;
+    if (!kind) throw new Error('kind: nonbuyers | buyers | delivered');
+    const A = await import('./meta-ads.js');
+    const names = { nonbuyers: 'IK - checkout/chat, no purchase (90d)', buyers: 'IK - all buyers', delivered: 'IK - delivered customers' };
+    return { ok: true, ...(await A.uploadAudience(await withSettingsFresh(env), names[kind], await audienceRows(env, kind))) };
+  },
+  /** Any Marketing API read, or a POST (create / update). No DELETE: removals stay with the owner. */
+  async ads_api(env, b) {
+    const A = await import('./meta-ads.js');
+    const m = String(b.method || 'GET').toUpperCase();
+    if (!['GET', 'POST'].includes(m)) throw new Error('GET or POST only');
+    return { ok: true, data: await A.graph(await withSettingsFresh(env), m, String(b.path || ''), b.params && typeof b.params === 'object' ? b.params : {}) };
   },
   async ig_reels(env) { const I = await import('./ig-dm.js'); return { ok: true, rows: await I.reelsReport(await withSettingsFresh(env)) }; },
   async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
@@ -2035,6 +2070,13 @@ const ACTIONS = {
 
 /** For tests: one dashboard action by name. */
 export const action = (name) => ACTIONS[name];
+
+/** For the signed agent endpoint (lib/agent.js): the same actions as the dashboard, minus the password change. */
+export async function runAction(env, action, b = {}) {
+  const fn = ACTIONS[action];
+  if (!fn || action === 'change_password') throw new Error('unknown action');
+  return fn(env, b);
+}
 
 export async function handleRpc(req, env) {
   const who = await checkToken(env, req);
