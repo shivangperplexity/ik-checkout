@@ -64,7 +64,8 @@ export async function variantStatus(env) {
   const { metaTemplate } = await import('./whatsapp.js');
   const out = [];
   for (const v of VARIANTS) { const t = await metaTemplate(env, v.name).catch(() => null); out.push({ name: v.name, status: t ? t.status : 'NOT SUBMITTED' }); }
-  return { list: out, use: out.find((x) => x.status === 'APPROVED')?.name || null };
+  const ok = out.filter((x) => x.status === 'APPROVED').map((x) => x.name);
+  return { list: out, use: ok[0] || null, approved: ok };
 }
 
 export async function state(env) {
@@ -149,13 +150,17 @@ export async function broadcastTick(env, { per = 15 } = {}) {
   const vs = await variantStatus(env);
   if (!vs.use) return { waiting: 'no variant approved yet' };
   /* send through the approved variant (the trigger's template name is swapped for this run only) */
+  /* several approved: split the audience between them by phone (A/B test, each link has its own utm_campaign) */
   const tpls = env.SETTINGS?.templates || {};
-  const envUse = { ...env, SETTINGS: { ...(env.SETTINGS || {}), templates: { ...tpls, broadcast_video: { ...(tpls.broadcast_video || {}), name: vs.use, variants: [] } } } };
+  const envFor = (phone) => {
+    const name = vs.approved[Number(String(phone).slice(-4)) % vs.approved.length] || vs.use;
+    return { ...env, SETTINGS: { ...(env.SETTINGS || {}), templates: { ...tpls, broadcast_video: { ...(tpls.broadcast_video || {}), name, variants: [] } } } };
+  };
   const list = await audience(env, { kind: st.audience || 'abandoned' });
   if (!list.length) { await save(env, { ...st, status: 'done', finished_at: now() }); return { done: true }; }
   let sent = 0, failed = 0, skipped = 0;
   for (const p of list.slice(0, per)) {
-    const r = await fireTrigger(envUse, 'broadcast_video', { to: p.phone, vars: { name: p.name, video: st.video }, force: true }).catch((e) => ({ ok: false, error: e.message }));
+    const r = await fireTrigger(envFor(p.phone), 'broadcast_video', { to: p.phone, vars: { name: p.name, video: st.video }, force: true }).catch((e) => ({ ok: false, error: e.message }));
     if (r.deferred) break;
     if (r.ok) sent++; else if (r.skipped) skipped++; else failed++;
   }
