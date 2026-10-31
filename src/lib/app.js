@@ -327,7 +327,11 @@ async function completePaid(env, ctx, req, row) {
     ctx.waitUntil(purchaseEvent(env, row, order.name, (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null, req.headers.get('User-Agent')).catch((e) => console.error('capi', e)));
     ctx.waitUntil(Promise.all([
       markSessionOrdered(env, row.sid, order.name),
-      fireTrigger(env, 'prepaid_paid', { to: row.phone, vars: { name: row.first_name, order: order.name, total: rupees(row.total_paise) }, orderName: order.name }),
+      (async () => {
+        let edd = '';
+        try { const { deliveryEstimate } = await import('./edd.js'); const e = await deliveryEstimate(env, { pin: row.pincode, cod: false }); edd = e.edd ? 'by ' + e.edd : ''; } catch { /* default then */ }
+        return fireTrigger(env, 'prepaid_paid', { to: row.phone, vars: { name: row.first_name, order: order.name, total: rupees(row.total_paise), edd: edd || '4-7 days' }, orderId: order.legacyResourceId, orderName: order.name });
+      })(),
       afterOrderRisk(env, row, order),
     ]).catch((e) => console.error('post-paid', e)));
     return { ok: true, order_name: order.name, status_url: order.statusPageUrl };

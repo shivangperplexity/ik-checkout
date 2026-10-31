@@ -155,7 +155,7 @@ export async function shipUpdates(env) {
       }
       let ndrLinkV = '';
       if (todo.includes('failed') || todo.includes('failed-refused')) { try { const { ndrLink } = await import('./wa-ndr.js'); ndrLinkV = await ndrLink(env, r.order_id); } catch { /* plain tracking link then */ } }
-      const vars = { name: r.first_name || 'there', order: r.order_name, courier: String(courier || tr.courier_name || 'our courier').replace(/\s+(Surface|Air)$/i, ''), edd: fmtEdd(tr.edd), location: c.city || 'a courier hub', track: ndrLinkV || url || r.status_url || '' };
+      const vars = { name: r.first_name || 'there', order: r.order_name, courier: String(courier || tr.courier_name || 'our courier').replace(/\s+(Surface|Air)$/i, ''), edd: fmtEdd(tr.edd), location: c.city || 'a courier hub', track: ndrLinkV || (await (await import('./self-cancel.js')).trackLink(env, r.order_id)) || url || r.status_url || '' };
       /* automatic NDR rules (lib/ndr-rules.js) decide whether the customer is asked; off = refused ones are not */
       const failReason = c.stage === 'failed' ? (/[a-z]{4,}/i.test(c.reason || '') ? c.reason : `${c.reason || ''} ${(ndr || {})[awb] || ''}`).trim() : '';
       if (failReason) await env.DB.prepare('UPDATE shipments SET ndr_reason=? WHERE awb=?').bind(failReason.slice(0, 300), String(awb)).run().catch(() => {});

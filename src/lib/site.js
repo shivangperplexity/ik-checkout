@@ -11,6 +11,7 @@
  */
 import { json, cleanPhone } from './util.js';
 import { makeToken, readToken } from './creators.js';
+import { cancellable, CANCEL_REASONS, FAQS } from './self-cancel.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 export const IG_URL = 'https://www.instagram.com/inkkulture.in/';
@@ -45,7 +46,7 @@ async function liveTrack(env, o) {
 
 export async function customerOrders(env, phone) {
   const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.method, o.total_paise, o.confirmed_at, o.created_at, o.contents_json, o.pincode, o.city,
-      s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.rto, s.provider
+      s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.rto, s.provider, s.picked_at
     FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'
     WHERE o.phone=? AND o.order_id IS NOT NULL AND o.status NOT IN ('pending_payment','failed','completing') ORDER BY o.created_at DESC LIMIT 10`).bind(phone).all()).results;
   const { trackUrlOf } = await import('./shipprime.js');
@@ -68,6 +69,8 @@ export async function customerOrders(env, phone) {
       name: o.order_name, date: Number(o.created_at), total: Math.round(Number(o.total_paise) / 100), pay: o.method === 'cod' ? 'Cash on delivery' : 'Paid online',
       status: st.text, key: st.key, step: st.step, edd: edd && !['delivered', 'returned', 'cancelled'].includes(st.key) ? edd : '',
       awb: o.awb || '', track_url: o.awb ? trackUrlOf(o) : '', scans: live?.scans || [], items,
+      can_cancel: cancellable({ ...o, stage: live?.stage || o.stage }),
+      cancel_by: o.method === 'cod' ? 'code' : 'request',
     };
   });
 }
@@ -136,7 +139,7 @@ export async function siteConfig(env) {
   const { waNumber } = await import('./creators.js');
   const video = A.applyVideo(env);
   const steps = A.APPLY_TEXT.split('\n').filter((l) => /^\d\./.test(l)).map((l) => l.replace(/^\d\.\s*/, ''));
-  return { ok: true, wa: waNumber(env), instagram: IG_URL, apply: { video, ytid: A.ytId(video), steps, note: 'Semi-permanent: lasts 1-2 weeks depending on your skin type, may last fewer days on sensitive skin.' }, topics: TOPICS, steps: STEPS };
+  return { ok: true, wa: waNumber(env), instagram: IG_URL, apply: { video, ytid: A.ytId(video), steps, note: 'Semi-permanent: lasts 1-2 weeks depending on your skin type, may last fewer days on sensitive skin.' }, topics: TOPICS, steps: STEPS, cancel_reasons: CANCEL_REASONS, faqs: FAQS };
 }
 
 /** A representative PIN for a city name (India Post directory), cached in edd_cache for 30 days. '' when unknown. */
@@ -216,12 +219,37 @@ export async function handleSite(req, env) {
       const { ipPlace } = await import('./edd.js');
       return json(await siteChat(env, b, ipPlace(req).city));
     }
+    /* the link in every WhatsApp order message: logs in to that order's number without a code */
+    if (path === '/api/site/link' && req.method === 'POST') {
+      if (!(await limit('slink:' + ip, 40))) return json({ ok: false, error: 'Too many tries, please try again later' }, 429);
+      const { readTrackKey } = await import('./self-cancel.js');
+      const id = await readTrackKey(env, b.k);
+      const row = id ? await env.DB.prepare('SELECT phone, order_name FROM orders WHERE order_id=?').bind(id).first() : null;
+      if (!row?.phone) return json({ ok: false, error: 'This link has expired. Log in with your WhatsApp number.' });
+      return json({ ok: true, order: row.order_name, token: await makeToken(env, row.phone, 30 * 86400, 'site') });
+    }
     /* below: logged in */
     const phone = await readToken(env, String(req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, ''), 'site');
     if (!phone) return json({ ok: false, auth: true, error: 'Please log in again' }, 401);
     if (path === '/api/site/orders') {
       const [orders, tickets] = await Promise.all([customerOrders(env, phone), ticketsOf(env, phone)]);
       return json({ ok: true, phone: phone.slice(0, 2) + 'xxxxxx' + phone.slice(-2), orders, tickets });
+    }
+    if (path === '/api/site/cancel/code' && req.method === 'POST') {
+      if (!(await limit('scc:' + phone, 6))) return json({ ok: false, fallback: true, error: 'Too many codes asked. Raise a cancellation request instead.' }, 429);
+      const { cancelCode } = await import('./self-cancel.js');
+      return json(await cancelCode(env, phone, b.order));
+    }
+    if (path === '/api/site/cancel/state') { const { otpDelivery } = await import('./cod-otp.js'); return json(await otpDelivery(env, phone)); }
+    if (path === '/api/site/cancel' && req.method === 'POST') {
+      if (!(await limit('scx:' + phone, 12))) return json({ ok: false, error: 'Too many tries, please try again later' }, 429);
+      const { cancelWithCode } = await import('./self-cancel.js');
+      return json(await cancelWithCode(env, phone, b.order, b.code, b.reason));
+    }
+    if (path === '/api/site/cancel/request' && req.method === 'POST') {
+      if (!(await limit('scr:' + phone, 4))) return json({ ok: false, error: 'Too many requests, please try again later' }, 429);
+      const { cancelRequest } = await import('./self-cancel.js');
+      return json(await cancelRequest(env, phone, b.order, b.reason));
     }
     if (path === '/api/site/ticket' && req.method === 'POST') {
       if (!(await limit('tk:' + phone, 6))) return json({ ok: false, error: 'Too many requests, please try again later' }, 429);

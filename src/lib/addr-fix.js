@@ -37,6 +37,6 @@ export async function rebookAfterFix(env, orderId, provider = 'shipprime') {
   const A = await import('./apply-guide.js');
   const e2 = await withSettings(env);
   const courier = String(r.shipment?.courier || '').replace(/\s+(Premium|Surface|Air)$/i, '') || 'our courier';
-  await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup: nextPickup(), edd: r.shipment?.edd || '4-7 days after pickup', track: r.shipment?.track_url || spTrackUrl(awb), ytid: A.ytId(A.applyVideo(e2)) }, orderName: o.order_name, force: true });
+  await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup: nextPickup(), edd: r.shipment?.edd || '4-7 days after pickup', track: await (await import('./self-cancel.js')).trackLink(env, id), ytid: A.ytId(A.applyVideo(e2)) }, orderName: o.order_name, force: true });
   return r;
 }

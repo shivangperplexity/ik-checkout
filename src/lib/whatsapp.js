@@ -343,6 +343,8 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     }
     if (wantItems && !v.items) v.items = 'your Ink Kulture order';
     if (cfg.vars.includes('edd') && !v.edd) v.edd = '4-7 days';
+    /* the order's own track page link (button {{1}}): signed order key */
+    if (t.urlParam === 'trackkey' && !v.trackkey && orderId && orderId !== '0') { const { trackKey } = await import('./self-cancel.js'); v.trackkey = await trackKey(env, orderId); }
     if (t.media === true && !image) image = env.WA_HEADER_IMAGE || '';
     if (isVideo && !image) { await logMsg(env, { ...base(), status: 'skipped', error: 'no how-to-apply video set' }); return { skipped: 'novideo' }; }
 

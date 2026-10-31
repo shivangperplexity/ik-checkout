@@ -54,4 +54,19 @@ export const ADDRESS_FIX_V1 = {
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Edit address' }] },
   ],
 };
-export const ALL = [COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1];
+/* Nov 2026: every order message carries a "Track or cancel order" button to the inkkulture.in track page
+   (lib/self-cancel.js trackLink: the button's {{1}} is the signed order key) */
+const TRACK_BTN = { type: 'URL', text: 'Track or cancel order', url: 'https://www.inkkulture.in/pages/track?k={{1}}', example: ['https://www.inkkulture.in/pages/track?k=18983563919595.a1b2c3d4e5f6'] };
+const withTrack = (t, name) => ({ ...t, name, components: t.components.map((c) => (c.type === 'BUTTONS' ? { ...c, buttons: [...c.buttons, TRACK_BTN] } : c)).concat(t.components.some((c) => c.type === 'BUTTONS') ? [] : [{ type: 'BUTTONS', buttons: [TRACK_BTN] }]) });
+export const COD_CONFIRM_V4 = withTrack(COD_CONFIRM_V3, 'cod_order_confirm_v4');
+export const COD_PLACED_V3 = withTrack(COD_PLACED_V2, 'cod_order_placed_v3');
+export const ORDER_PAID_V2 = {
+  name: 'order_paid_v2', language: 'en', category: 'UTILITY', parameter_format: 'NAMED',
+  components: [
+    { type: 'BODY', text: 'Hi {{name}}, payment received ✅ Your Ink Kulture order {{order}} is confirmed.\n\nDesign: {{items}}\nPaid: ₹{{total}}\nExpected delivery: {{edd}}\n\nWe will send the tracking link as soon as it ships. You can track or cancel the order (before it ships) from the button below.',
+      example: named([['name', 'Riya'], ['order', '#1663'], ['items', 'Snake x 1'], ['total', '349'], ['edd', 'by Thu, 5 Nov']]) },
+    FOOT,
+    { type: 'BUTTONS', buttons: [TRACK_BTN] },
+  ],
+};
+export const ALL = [COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1, COD_CONFIRM_V4, COD_PLACED_V3, ORDER_PAID_V2];

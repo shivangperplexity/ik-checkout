@@ -1547,7 +1547,7 @@ const ACTIONS = {
       const dup = await env.DB.prepare("SELECT 1 FROM messages WHERE trigger='ship_booked' AND order_name=? AND status NOT IN ('failed','skipped') LIMIT 1").bind(o.order_name).first();
       if (dup && !b.again) { out.push({ id, name: o.order_name, ok: false, note: 'already sent' }); continue; }
       const courier = String(sh.courier || '').replace(/\s+(Premium|Surface|Air)$/i, '') || 'our courier';
-      const r = await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup, edd: String(it.edd || '4-7 days after pickup').slice(0, 60), track: spTrackUrl(sh.awb), ytid }, orderName: o.order_name, force: true });
+      const r = await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup, edd: String(it.edd || '4-7 days after pickup').slice(0, 60), track: await (await import('./self-cancel.js')).trackLink(env, id), ytid }, orderName: o.order_name, force: true });
       out.push({ id, name: o.order_name, ok: !!r.ok, note: r.ok ? 'sent' : r.error || r.skipped || '' });
       if (r.deferred) break;
     }
@@ -1641,6 +1641,8 @@ const ACTIONS = {
     }));
     return { ok: true, at: now(), sr_open: list.length, sr_escalate, sr_failed, sp };
   },
+  async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
+  async cancel_request_close(env, b) { const C = await import('./self-cancel.js'); return C.closeRequest(env, b.id, b.how === 'cancel' ? 'cancel' : 'dismiss'); },
   async ndr_run(env, b) {
     const { autoNdr } = await import('./ndr-rules.js');
     const { withSettings } = await import('./settings.js');
