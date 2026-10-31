@@ -253,7 +253,7 @@ export async function autoCancelStale(env0) {
   if (!hours || !env0.DB) return { autoCancelled: 0, skipped: 'off' };
   const env = await withSettings(env0);
   const { results } = await env.DB.prepare(
-    "SELECT * FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND converted_at IS NULL AND COALESCE(advance_paise,0)=0 AND order_id IS NOT NULL AND created_at<? AND created_at>=? ORDER BY created_at LIMIT 25",
+    "SELECT * FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND converted_at IS NULL AND COALESCE(advance_paise,0)=0 AND order_id IS NOT NULL AND created_at<? AND created_at>=? AND NOT EXISTS (SELECT 1 FROM shipments s WHERE s.order_id=orders.order_id AND s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled') ORDER BY created_at LIMIT 25",
   ).bind(now() - hours * 3600, Number(env0.COD_AUTOCANCEL_SINCE || 0)).all();   /* COD_AUTOCANCEL_SINCE: only orders placed after it was switched on */
   let n = 0;
   for (const row of results) {
@@ -261,7 +261,7 @@ export async function autoCancelStale(env0) {
       const r = await applyAction(env, row, 'CANCEL', { auto: true, tag: 'cod-cancelled-no-response', note: `Auto-cancelled: no WhatsApp confirmation within ${hours}h` });
       if (r === 'cancelled') n++;
       await env.DB.prepare('DELETE FROM wa_pending WHERE order_id=?').bind(String(row.order_id)).run();
-      await logMsg(env, { direction: 'out', phone: row.phone, trigger: 'auto_cancel', template: r, status: r, orderName: row.order_name });
+      if (r !== 'already-shipped') await logMsg(env, { direction: 'out', phone: row.phone, trigger: 'auto_cancel', template: r, status: r, orderName: row.order_name });
     } catch (e) {
       console.error('autoCancel', row.order_id, e.message);
       await logMsg(env, { direction: 'out', phone: row.phone, trigger: 'auto_cancel', status: 'failed', orderName: row.order_name, error: String(e.message || e) }).catch(() => {});
