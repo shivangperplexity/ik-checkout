@@ -165,7 +165,7 @@ function form(orderId, sig, row, v, err = '') {
   @media(prefers-color-scheme:dark){form.addr input,form.addr select{border-color:#4a4642}form.addr select option{background:#1d1b19}}
 </style>
 ${err ? `<p class="err">${esc(err)}</p>` : ''}
-<form class="addr" method="POST" action="/api/wa/addr?o=${orderId}&s=${sig}">
+<form class="addr" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Saving…'" method="POST" action="/api/wa/addr?o=${orderId}&s=${sig}">
   ${f('name', 'Full name', v.name, 'autocomplete="name" required minlength="2" maxlength="80"')}
   ${f('address1', 'House / flat, building, street', v.address1, 'autocomplete="address-line1" required minlength="5" maxlength="120"')}
   ${f('address2', 'Area, landmark (optional)', v.address2, 'autocomplete="address-line2" maxlength="120"')}
@@ -220,6 +220,12 @@ export async function handleAddr(req, env0) {
 
   const v = readForm(await req.text());
   const err = validate(v);
+  /* one save at a time per order: repeated taps on Save (the page is slow while the parcel is rebooked) made
+     three bookings and seven messages for one order (#1951) */
+  if (!err) {
+    const { claim } = await import('./once.js');
+    if (!(await claim(env, `addr:${orderId}`, 90))) return page('Saving your address', `Your new address for order ${name} is being saved. You will get a WhatsApp message in a minute. No need to tap again.`);
+  }
   if (err) return page('Delivery address', `Check or update where order ${name} should be delivered.`, form(orderId, sig, row, v, err));
   /* booked but not picked up: cancel the booking first (it un-fulfils the Shopify order), then change, then book again */
   let redo = '';

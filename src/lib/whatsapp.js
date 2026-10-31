@@ -16,6 +16,8 @@ export const waConnected = (env) => viaG4w(env) || !!(env.WA_PHONE_ID && env.WA_
  * Never throws. Returns { ok, id, via, error }: ok means the provider accepted it (delivery receipts come later, by id).
  */
 export async function sendText(env, phone91, text) {
+  { const { claim, h } = await import('./once.js');
+    if (!(await claim(env, `x:${String(phone91).slice(-10)}:${h(text)}`, 180))) return { ok: false, skipped: 'duplicate', error: 'same text already sent in the last 3 minutes' }; }
   /* A reply to an inbound message goes back the way it came (processInbound sets REPLY_ROUTE): Meta only opens
      the 24h window between the customer and the number they wrote to, so replying from another number fails
      with 131047 "Re-engagement message". */
@@ -285,6 +287,7 @@ export function pickVariant(cfg, phone, day = new Date().toISOString().slice(0, 
 }
 
 /** Fire a configured trigger. vars = {name, order, ...}; to = 10-digit phone (or admin phone for admin_* triggers). Never throws. */
+const ONCE_EXEMPT = new Set(['cod_otp', 'admin_new_order', 'admin_high_risk']);
 export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName, force = false }) {
   const { TRIGGERS, triggerConfig } = await import('./settings.js');
   const t = TRIGGERS[key];
@@ -303,16 +306,24 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
   /* Worth trying the next template: not approved yet, an image version with no picture to send, or a button we can't fill. */
   const RETRY = /not found or not approved|image header but no image|dynamic link button/;
   let shown = '';   /* the template text as sent (Cloud API), else the variables */
+  let onceKey = '';
   const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: shown || cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });
 
   try {
     if (!phone) { await logMsg(env, { ...base(), status: 'skipped', error: 'no phone number' }); return { skipped: 'nophone' }; }
     if (!waConnected(env)) { await logMsg(env, { ...base(), status: 'skipped', error: 'WhatsApp not connected' }); return { skipped: 'nowa' }; }
+    /* Never the same template to the same person for the same order twice within 10 minutes, whoever asks
+       (a double-tapped button, parallel requests, a retry loop). OTP codes are exempt: "resend code" is real. */
+    if (!ONCE_EXEMPT.has(key)) {
+      const { claim } = await import('./once.js');
+      onceKey = `t:${phone}:${key}:${orderName || v.order || ''}`;
+      if (!(await claim(env, onceKey, 600))) { await logMsg(env, { ...base(), status: 'skipped', error: 'same message already sent in the last 10 minutes' }); return { skipped: 'duplicate' }; }
+    }
     if (t.marketing && (await optedOut(env, phone))) { await logMsg(env, { ...base(), status: 'skipped', error: 'customer replied STOP' }); return { skipped: 'optout' }; }
     /* Meta throttled the number ("Rate limit hit"): wait it out instead of hammering (lib/wa-gate.js). The caller's retry sends it later. */
     const { gate } = await import('./wa-gate.js');
     const g = env.DB ? await gate(env, key).catch(() => ({ go: true })) : { go: true };
-    if (!g.go) return { ok: false, deferred: true, error: 'paused after a WhatsApp rate limit, sent later' };
+    if (!g.go) { if (onceKey) { const { release } = await import('./once.js'); await release(env, onceKey); } return { ok: false, deferred: true, error: 'paused after a WhatsApp rate limit, sent later' }; }
     /* never a burst: at least 0.7 s between template sends */
     const gap = 700 - (Date.now() - lastTemplateAt);
     if (gap > 0) await new Promise((ok) => setTimeout(ok, gap));
@@ -376,6 +387,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     return { ok: true, template: templateName };
   } catch (e) {
     await logMsg(env, { ...base(), status: 'failed', error: String(e.message || e) }).catch(() => {});
+    if (onceKey) { const { release } = await import('./once.js'); await release(env, onceKey); }
     try { const G = await import('./wa-gate.js'); if (env.DB && G.RATE_LIMIT.test(String(e.message || e))) await G.pushback(env); } catch { /* best effort */ }
     return { ok: false, error: String(e.message || e) };
   }

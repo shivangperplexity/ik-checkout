@@ -888,6 +888,13 @@ const ACTIONS = {
   },
   /** Book it: Shiprocket order -> AWB (cheapest courier) -> pickup -> label, then Shopify fulfilment + WhatsApp. */
   async ship_book(env, b) {
+    /* one booking at a time per order: parallel calls each made their own AWB (#1951 got three) */
+    const { claim, release } = await import('./once.js');
+    const lock = `book:${String(b.id)}`;
+    if (!(await claim(env, lock, 120))) throw new Error('This order is already being booked, wait a minute and refresh');
+    try { return await ACTIONS.ship_book_now(env, b); } finally { await release(env, lock); }
+  },
+  async ship_book_now(env, b) {
     const { fresh, row, order } = await shipCtx(env, b.id);
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
     /* carrier: what the button said; bulk booking (no provider) uses Settings > Shipping carriers > default carrier */
@@ -898,6 +905,17 @@ const ACTIONS = {
     /* the AWB exists with the carrier either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
     return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil, note: r.note || '' };
+  },
+  /** Cancel an extra ShipPrime AWB that is not this order's live booking (made by a duplicate booking). */
+  async sp_cancel_orphan(env, b) {
+    const id = String(b.id || ''), awb = String(b.awb || '').trim();
+    if (!id || !/^\w{6,40}$/.test(awb)) throw new Error('order id and AWB');
+    const live = await env.DB.prepare("SELECT awb, order_name, courier FROM shipments WHERE order_id=? AND COALESCE(status,'')<>'cancelled'").bind(id).first();
+    if (live?.awb === awb) throw new Error('That is the live booking of this order, not an extra one');
+    const { spCancel } = await import('./shipprime.js');
+    await spCancel(await withSettingsFresh(env), { awb, provider: 'shipprime' });
+    await env.DB.prepare('INSERT INTO ship_old_awbs (awb, order_id, order_name, courier, cancelled_at) VALUES (?,?,?,?,?) ON CONFLICT (awb) DO NOTHING').bind(awb, id, live?.order_name || '', live?.courier || '', now()).run().catch(() => {});
+    return { ok: true, cancelled: awb, live: live?.awb || '' };
   },
   async sr_docs(env, b) {
     const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
