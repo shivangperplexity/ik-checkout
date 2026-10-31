@@ -125,6 +125,7 @@ export const FAQS = [
   ['Can I change my delivery address or phone number?', 'Yes, before it ships: use the "Edit address" button in our WhatsApp message, or raise a request below. After it ships we can only pass small changes in the same city to the courier.'],
   ['How do I pay for a Cash on Delivery order?', 'Pay the courier in cash or by UPI when the parcel arrives. Keeping the exact amount ready helps.'],
   ['The courier says I was not available, but nobody came.', 'Raise a request below with "Where is my order". We push the courier for another attempt every night, and it is not counted against you.'],
+  ['Do I get anything on my next order?', 'Yes. Every Cash on Delivery order that reaches you gives ₹50 off your next order paid online (valid 60 days). It is applied automatically at checkout when you enter the same WhatsApp number.'],
   ['How long does the tattoo last?', 'It is semi-permanent: about 1-2 weeks depending on your skin, sometimes fewer days on very sensitive or oily skin. Then it fades on its own.'],
   ['How do I apply it?', 'Watch the 1-minute video above and follow the 4 steps. Most patchy results come from skipping the skin wipe or not pressing for the full 30 seconds.'],
   ['My design is wrong, damaged or did not come out well.', 'We replace it within 7 days of delivery. Raise a request below with a photo and we will sort it out on WhatsApp.'],

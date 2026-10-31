@@ -210,6 +210,19 @@ export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
     out.void++;
   }
 
+  /* Nov 2026: every delivered Cash on Delivery order earns ₹50 off the next online payment (60 days, used automatically at
+     checkout like referral credit), so COD buyers come back prepaid. Settings > checkout delivery_credit (rupees, 0 = off). */
+  const dc = Math.round((Number(env.SETTINGS?.checkout?.delivery_credit ?? 50) || 0) * 100);
+  if (dc > 0) {
+    const dl = (await env.DB.prepare(`SELECT o.order_id, o.phone FROM orders o JOIN shipments s ON s.order_id=o.order_id
+        WHERE s.stage='delivered' AND s.delivered_at>? AND o.method='cod' AND COALESCE(o.status,'')<>'cancelled'
+        AND NOT EXISTS (SELECT 1 FROM credits c WHERE c.ref_idem='dlv:' || o.order_id) LIMIT 50`).bind(t - 3 * 86400).all().catch(() => ({ results: [] }))).results;
+    for (const d of dl) {
+      await env.DB.prepare('INSERT INTO credits (phone, amount_paise, left_paise, reason, ref_idem, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
+        .bind(d.phone, dc, dc, 'COD order delivered', 'dlv:' + d.order_id, t, t + CREDIT_DAYS * 86400).run().catch(() => {});
+      out.delivery_credit = (out.delivery_credit || 0) + 1;
+    }
+  }
   /* invites: 9 am - 9 pm IST only */
   const m = Math.floor(((t + 19800) % 86400) / 60);
   /* only once Meta has approved the invite template (until then every send would just fail and be retried) */
