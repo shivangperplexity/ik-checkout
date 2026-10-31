@@ -69,4 +69,21 @@ export const ORDER_PAID_V2 = {
     { type: 'BUTTONS', buttons: [TRACK_BTN] },
   ],
 };
-export const ALL = [COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1, COD_CONFIRM_V4, COD_PLACED_V3, ORDER_PAID_V2];
+/* Team alerts (lib/pack-alert.js): parcels booked but not packed before the courier comes, and what got packed. */
+export const PACK_PENDING_V1 = {
+  name: 'ik_pack_pending_v1', language: 'en', category: 'UTILITY', parameter_format: 'NAMED',
+  components: [
+    { type: 'BODY', text: 'Packing update: {{when}}\n\n{{count}} booked orders are not packed yet: {{orders}}\n\nCourier pickup today: {{pickup}}. Please pack them, stick the labels and keep them ready for pickup.',
+      example: named([['when', 'Pickup starts at 12:30'], ['count', '4'], ['orders', '#1951, #1952, #1955, #1960'], ['pickup', '12:30 pm – 6 pm']]) },
+    FOOT,
+  ],
+};
+export const PACK_DONE_V1 = {
+  name: 'ik_pack_done_v1', language: 'en', category: 'UTILITY', parameter_format: 'NAMED',
+  components: [
+    { type: 'BODY', text: 'Packed ✅ {{orders}}\n\nPacked today: {{today}}\nStill to pack: {{left}}',
+      example: named([['orders', '#1951, #1952'], ['today', '6'], ['left', '2 (#1955, #1960)']]) },
+    FOOT,
+  ],
+};
+export const ALL = [PACK_PENDING_V1, PACK_DONE_V1, COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1, COD_CONFIRM_V4, COD_PLACED_V3, ORDER_PAID_V2];

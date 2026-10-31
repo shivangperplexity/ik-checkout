@@ -1684,6 +1684,29 @@ const ACTIONS = {
     const csv = ['phone,fn,ln,ct,st,zip,country', ...rows.map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
     return { ok: true, rows: rows.length, csv };
   },
+  /* ---------- packing alerts to the team (lib/pack-alert.js) ---------- */
+  async pack_alert_status(env) {
+    const P = await import('./pack-alert.js'); const f = await withSettingsFresh(env); const c = P.packCfg(f);
+    const rows = await P.toPack(f);
+    return { ok: true, cfg: c, pickup: P.pickupText(c), slots: P.SLOTS, to_pack: rows.length, orders: P.orderList(rows, 60) };
+  },
+  async pack_alert_save(env, b) {
+    const s = await getSettings(env, true); const sh = { ...s.shipping };
+    const P = await import('./pack-alert.js');
+    const cur = { ...P.PACK_DEFAULTS, ...(sh.pack_alert || {}) };
+    if (b.on !== undefined) cur.on = !!b.on;
+    if (b.to !== undefined) cur.to = String(Array.isArray(b.to) ? b.to.join(',') : b.to).split(/[,;\n]+/).map((x) => x.replace(/\D/g, '').slice(-10)).filter((x) => /^[6-9]\d{9}$/.test(x)).slice(0, 5);
+    if (b.packed_to !== undefined) cur.packed_to = String(Array.isArray(b.packed_to) ? b.packed_to.join(',') : b.packed_to).split(/[,;\n]+/).map((x) => x.replace(/\D/g, '').slice(-10)).filter((x) => /^[6-9]\d{9}$/.test(x)).slice(0, 5);
+    if (b.pickup !== undefined) { if (!/^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(String(b.pickup))) throw new Error('pickup like 12:30-18:00'); cur.pickup = String(b.pickup); }
+    sh.pack_alert = cur; await putSetting(env, 'shipping', sh);
+    return { ok: true, cfg: P.packCfg({ SETTINGS: { shipping: sh } }) };
+  },
+  /** Send the "to pack" reminder now (9 am - 8 pm), whatever the time slot. */
+  async pack_alert_now(env) {
+    const h = new Date(Date.now() + 19800000).getUTCHours();
+    if (h < 9 || h >= 20) throw new Error('Team alerts go out 9 am - 8 pm only');
+    const P = await import('./pack-alert.js'); return { ok: true, ...(await P.packAlerts(await withSettingsFresh(env), { force: true })) };
+  },
   /* ---------- Meta Marketing API (lib/meta-ads.js) ---------- */
   async ads_probe(env) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.probe(await withSettingsFresh(env))) }; },
   async ads_overview(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.overview(await withSettingsFresh(env), { preset: String(b.preset || 'last_7d'), all: !!b.all })) }; },
@@ -2129,6 +2152,7 @@ export async function runAutomations(env) {
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
+  try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
   try { const { trackBlast } = await import('./track-blast.js'); const r = await trackBlast(env); if (r.sent !== undefined && !r.finished) out.trackBlast = r; } catch (e) { console.error('track blast', e); }
