@@ -44,7 +44,7 @@ export async function sendPurchase(env, o) {
   const body = {
     data: [
       {
-        event_name: 'Purchase',
+        event_name: o.eventName || 'Purchase',
         event_time: o.eventTime || Math.floor(Date.now() / 1000),
         event_id: o.eventId,
         /* Meta requires the shopper's browser (user agent) for website events; an old order without one goes as 'other' */
@@ -88,6 +88,33 @@ export async function recordCapi(env, eventId, res) {
   if (!env.DB || !eventId) return;
   await env.DB.prepare('UPDATE orders SET capi_at=?, capi_ok=?, capi_pixel=?, capi_test=?, capi_error=?, capi_tries=COALESCE(capi_tries,0)+1 WHERE event_id=?')
     .bind(Math.floor(Date.now() / 1000), !!res.ok, res.pixel || null, !!res.test, res.ok ? null : (res.error || 'failed'), eventId).run().catch((e) => console.error('capi record', e.message));
+}
+
+/**
+ * ConfirmedPurchase (Nov 2026): the purchases that are real commitments, for Meta to optimise on instead of every COD
+ * placement (unconfirmed COD came back 77% of the time): paid online, an advance paid, COD verified with the WhatsApp
+ * code at checkout, or COD confirmed with YES on WhatsApp. One server event per order (event_id cp_<order id>), dated
+ * when the order was placed so it is attributed to the same ad click. Sent by the cron within minutes.
+ * In Events Manager create a custom conversion on this event and optimise the sales campaigns for it.
+ */
+export async function confirmedSweep(env, { max = 25 } = {}) {
+  if (!env.DB) return { skipped: 'no db' };
+  const c = metaCfg(env);
+  if (!c.pixelId || !c.token) return { skipped: 'no pixel' };
+  const t = Math.floor(Date.now() / 1000);
+  const rows = (await env.DB.prepare(`SELECT * FROM orders WHERE cp_at IS NULL AND order_name IS NOT NULL AND created_at > ? AND status IN ('placed','paid')
+      AND ((method='prepaid' AND status='paid') OR COALESCE(advance_paise,0)>0 OR converted_at IS NOT NULL OR otp_at IS NOT NULL OR confirmed_at IS NOT NULL)
+      ORDER BY created_at LIMIT ?`).bind(t - WEEK, max).all()).results;
+  const out = { sent: 0, failed: 0 };
+  for (const r of rows) {
+    const claim = await env.DB.prepare('UPDATE orders SET cp_at=? WHERE idem=? AND cp_at IS NULL RETURNING idem').bind(t, r.idem).first();
+    if (!claim) continue;
+    const p = purchasePayload(r, r.order_name);
+    const res = await sendPurchase(env, { ...p, eventName: 'ConfirmedPurchase', eventId: 'cp_' + (r.order_id || r.idem), eventTime: Number(r.created_at) });
+    if (res.ok) out.sent++;
+    else { out.failed++; await env.DB.prepare('UPDATE orders SET cp_at=NULL WHERE idem=? AND created_at>?').bind(r.idem, t - 6 * 86400).run().catch(() => {}); if (out.failed === 1) console.error('confirmed purchase', r.order_name, res.error); }
+  }
+  return out;
 }
 
 export function purchasePayload(row, orderName, ip, ua) {

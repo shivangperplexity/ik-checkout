@@ -1649,6 +1649,31 @@ const ACTIONS = {
   async track_link(env, b) { const C = await import('./self-cancel.js'); return { ok: true, url: await C.trackLink(env, String(b.id || '')) }; },
   async insights(env, b) { const I = await import('./insights.js'); return I.insights(env, { days: Math.min(180, Math.max(14, Number(b?.days) || 90)) }); },
   async auto_book_preview(env) { const B = await import('./auto-book.js'); const l = await B.readyOrders(await withSettingsFresh(env)); return { ok: true, cfg: B.bookCfg(await withSettingsFresh(env)), ready: l.map((r) => ({ name: r.order_name, method: r.method, state: r.state_code, at: Number(r.created_at) })) }; },
+  /**
+   * Customer lists for Meta custom audiences (CSV in Meta's column names; Meta hashes on upload).
+   *   nonbuyers  started the checkout (leads) or wrote on WhatsApp in the last 90 days and never ordered; minus STOP
+   *   buyers     everyone who ordered (not cancelled)    delivered  parcels delivered (best lookalike seed)
+   */
+  async audience_csv(env, b) {
+    const kind = ['nonbuyers', 'buyers', 'delivered'].includes(b.kind) ? b.kind : 'nonbuyers';
+    const q = async (sql, ...v) => (await env.DB.prepare(sql).bind(...v).all()).results;
+    const t = now(), p10 = (x) => String(x || '').replace(/\D/g, '').slice(-10);
+    const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
+    const rows = new Map();
+    const add = (r) => { const ph = p10(r.phone); if (!/^[6-9]\d{9}$/.test(ph) || rows.has(ph) || opt.has(ph)) return; const [fn, ...ln] = String(r.name || r.first_name || '').trim().split(/\s+/); rows.set(ph, { phone: '91' + ph, fn: fn || '', ln: r.last_name || ln.join(' ') || '', ct: r.city || '', st: r.state_code || '', zip: r.pincode || '' }); };
+    if (kind === 'nonbuyers') {
+      const buyers = new Set((await q("SELECT phone FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled'")).map((r) => p10(r.phone)));
+      for (const r of await q('SELECT phone, name, pincode FROM leads WHERE updated_at>?', t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
+      for (const r of await q("SELECT DISTINCT phone FROM messages WHERE direction='in' AND ts>?", t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
+    } else if (kind === 'buyers') {
+      for (const r of await q("SELECT phone, first_name, last_name, city, state_code, pincode FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled' ORDER BY created_at DESC")) add(r);
+    } else {
+      for (const r of await q("SELECT o.phone, o.first_name, o.last_name, o.city, o.state_code, o.pincode FROM orders o JOIN shipments s ON s.order_id=o.order_id WHERE s.stage='delivered' ORDER BY o.created_at DESC")) add(r);
+    }
+    const esc = (v) => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+    const csv = ['phone,fn,ln,ct,st,zip,country', ...[...rows.values()].map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
+    return { ok: true, rows: rows.size, csv };
+  },
   async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
   async cancel_request_close(env, b) { const C = await import('./self-cancel.js'); return C.closeRequest(env, b.id, b.how === 'cancel' ? 'cancel' : 'dismiss'); },
   async ndr_run(env, b) {
@@ -2060,6 +2085,7 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
+  try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
   try { const { trackBlast } = await import('./track-blast.js'); const r = await trackBlast(env); if (r.sent !== undefined && !r.finished) out.trackBlast = r; } catch (e) { console.error('track blast', e); }
