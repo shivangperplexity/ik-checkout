@@ -362,7 +362,8 @@
      a pair is the free one), one tap adds it; the IK cart pill updates through ikx:added. */
   function pairs() {
     if (TEMPLATE !== 'product' || !PRODUCT || !/tattoo/i.test(PRODUCT.type || '')) return;
-    var form = document.querySelector('main form[action*="/cart/add"]') || document.querySelector('form[action*="/cart/add"]'); if (!form) return;
+    /* right under the Add to cart row (custom IK product page), else after the theme's cart form */
+    var form = document.querySelector('.ikl-buy__row') || document.querySelector('main form[action*="/cart/add"]') || document.querySelector('form[action*="/cart/add"]'); if (!form) return;
     fetch('/recommendations/products.json?product_id=' + PRODUCT.id + '&limit=10&intent=related').then(function (r) { return r.json(); }).then(function (j) {
       var list = (j.products || []).filter(function (p) { return p.available && /tattoo/i.test(p.type || '') && p.id !== PRODUCT.id && p.variants && p.variants[0]; });
       var under = list.filter(function (p) { return p.price <= PRODUCT.price; });
