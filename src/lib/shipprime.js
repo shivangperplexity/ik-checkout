@@ -224,6 +224,10 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
     if (A.smartOn(env) && rates.length > 1) {
       const units = (order.items || []).reduce((n, i) => n + Math.max(1, Number(i.quantity) || 1), 0) || 1;
       const margin = (base.codAmount || 0) - units * (Number(env.SETTINGS?.profit?.unit_cost) || 0);
+      /* Shiprocket's per-PIN network scores for the same courier networks (one look-up, best effort) */
+      let srList = null;
+      try { const SR = await import('./shiprocket.js'); if (SR.srConnected(env)) srList = (await SR.srRates(env, { pin: base.pin, cod: base.cod, amount: base.codAmount || 499, pack: base.pack }, { all: true })).list; } catch (e) { srList = null; }
+      if (srList) rates = rates.map((r) => ({ ...r, perf: r.perf || A.perfFor(r.code, srList) }));
       alloc = A.smartPick(rates, await A.allocStats(env), { cod: base.cod, state: row?.state_code || '', pin: base.pin, loss: Math.max(100, Math.round(base.cod ? margin : 0)) });
       if (alloc?.pick) pick = alloc.pick;
     }

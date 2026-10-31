@@ -124,6 +124,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS barter_orders (id BIGSERIAL PRIMARY KEY, phone TEXT, name TEXT, email TEXT, instagram TEXT, items_json TEXT, address_json TEXT, edd TEXT, post_date TEXT,
     status TEXT DEFAULT 'pending', draft_id TEXT, draft_name TEXT, order_id TEXT, order_name TEXT, note TEXT, created_at BIGINT, decided_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS barter_orders_phone ON barter_orders (phone, status)`,
+  /* Shiprocket's per-PIN courier scores (0-5) seen at booking time (lib/allocate.js) */
+  `CREATE TABLE IF NOT EXISTS courier_perf (pin TEXT, courier TEXT, rto REAL, delivery REAL, pickup REAL, rating REAL, at BIGINT, PRIMARY KEY (pin, courier))`,
   /* delivery date + serviceability per PIN (lib/edd.js) */
   `CREATE TABLE IF NOT EXISTS edd_cache (k TEXT PRIMARY KEY, body TEXT, at BIGINT)`,
   /* Instagram comment -> DM (lib/ig-dm.js) */

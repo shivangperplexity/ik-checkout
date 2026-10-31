@@ -43,3 +43,18 @@ test('allocate: picks by expected cost per parcel, not by price alone', () => {
   assert.equal(smartPick([{ courier: 'Delhivery', charge: 70, ok: false }, { courier: 'Xpressbees', charge: 60 }, { courier: 'DTDC', charge: 90 }], S, { cod: true, state: 'UP' }).pick.courier !== 'Delhivery', true);
   assert.equal(smartPick(opts, buildStats([], T), { cod: true }), null, 'no history: keep the old rule');
 });
+
+test('allocate: Shiprocket network scores steer a PIN with little own data, and slow-pickup scores count', async () => {
+  const { perfFor, perfOf } = await import('./allocate.js');
+  const S = buildStats(rows(), T);
+  /* Rajasthan: no own parcels there; network says Delhivery delivers far better at this PIN */
+  const opts = [{ courier: 'Xpressbees Surface', charge: 60, perf: { rto: 3.0, delivery: 3.0, pickup: 4.6 } }, { courier: 'Delhivery Surface', charge: 64, perf: { rto: 5, delivery: 5, pickup: 4.6 } }];
+  assert.equal(smartPick(opts, S, { cod: true, state: 'RJ', pin: '302001', loss: 250 }).pick.courier, 'Delhivery Surface');
+  /* pickup score 1/5 (Blue Dart Surface at 201001 in Oct 2026) keeps a cheap courier out */
+  const bd = [{ courier: 'Blue Dart Surface', charge: 55, perf: { rto: 5, delivery: 5, pickup: 1 } }, { courier: 'Delhivery Surface', charge: 64, perf: { rto: 5, delivery: 4.5, pickup: 4.6 } }];
+  assert.equal(smartPick(bd, S, { cod: true, state: 'RJ', pin: '302001', loss: 250 }).pick.courier, 'Delhivery Surface');
+  assert.deepEqual(perfOf({ rto_performance: 4.9, delivery_performance: 3.1, pickup_performance: 1.7, rating: 3.5 }), { rto: 4.9, delivery: 3.1, pickup: 1.7, rating: 3.5 });
+  const sr = [{ courier: 'Blue Dart Surface', perf: { rto: 5, pickup: 1 } }, { courier: 'Blue Dart Air', perf: { rto: 5, pickup: 3.9 } }];
+  assert.equal(perfFor('BLUEDART_AIR', sr).pickup, 3.9);
+  assert.equal(perfFor('BLUEDART', sr).pickup, 1);
+});

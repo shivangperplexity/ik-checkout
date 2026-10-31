@@ -14,6 +14,7 @@
 // Only the fields documented there are used; replies are read defensively and errors are passed on verbatim.
 
 import { cfg, courierBlocked } from './shipping.js';
+import { perfOf, savePerf } from './allocate.js';
 import { codDue } from './partial-cod.js';
 import { packCfg, packOrder } from './packing.js';
 import { summarize, PRE } from './sr-scan.js';
@@ -128,10 +129,11 @@ export async function srRates(env, { pin, cod, amount, pack }, { all = false } =
     return {
       id: String(x.courier_company_id ?? ''), courier: name,
       charge: money(x.rate ?? (Number(x.freight_charge || 0) + Number(x.cod_charges || 0))), freight: money(x.freight_charge), cod: money(x.cod_charges),
-      edd: x.etd || x.estimated_delivery_days || '', rating: Number(x.rating) || null,
+      edd: x.etd || x.estimated_delivery_days || '', rating: Number(x.rating) || null, perf: perfOf(x),
       never, excluded: never ? 'on your never-use list' : x.blocked ? 'blocked in your Shiprocket account' : only && !only.test(name) ? 'not in your "only use these couriers" list' : '',
     };
   });
+  if (env.DB) savePerf(env, pin, rows);
   return all ? { list: rows, message: '' } : rows.filter((r) => !r.excluded);
 }
 

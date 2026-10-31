@@ -65,8 +65,8 @@ export function rtoChance(S, family, state, pin, k = 8) {
   return /^\d{3}$/.test(p3) ? step(S.famPin[family + '|' + p3], ps) : ps;
 }
 /** Pure: share of bookings not picked up within 48 h, shrunk towards the store average. */
-export function slowPickup(S, family, k = 6) {
-  const g = S.pickAll.n >= 10 ? S.pickAll.slow / S.pickAll.n : 0.15;
+export function slowPickup(S, family, k = 6, prior = null) {
+  const g = prior != null ? prior : S.pickAll.n >= 10 ? S.pickAll.slow / S.pickAll.n : 0.15;
   const x = S.pickup[family];
   return x ? (x.slow + k * g) / (x.n + k) : g;
 }
@@ -81,9 +81,21 @@ export function smartPick(options, S, { cod = true, state = '', pin = '', loss =
   const dated = priced.filter((o) => o.eddDate);
   const fastest = dated.length ? Math.min(...dated.map((o) => +o.eddDate)) : null;
   const pool = fastest === null ? priced : priced.filter((o) => !o.eddDate || +o.eddDate <= fastest + toleranceDays * DAY);
+  /* Shiprocket's network scores for this PIN (0-5, all its sellers' parcels): a courier's RTO and pickup record here
+     before this store has its own; they count less as the store's own parcels in the area add up */
+  const avg = (key) => { const v = pool.map((o) => Number(o.perf?.[key])).filter((x) => x > 0); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const mRto = avg('rto'), mDel = avg('delivery');
+  const p3 = String(pin || '').slice(0, 3);
   const est = (o) => {
-    const f = familyOf(o.courier), slow = slowPickup(S, f);
-    const base = cod ? rtoChance(S, f, state, pin) : 0.03;
+    const f = familyOf(o.courier), pf = o.perf || {};
+    const netSlow = Number(pf.pickup) > 0 ? Math.max(0, Math.min(0.7, ((4.5 - Number(pf.pickup)) / 3.5) * 0.7)) : null;
+    const slow = slowPickup(S, f, 6, netSlow);
+    let base = cod ? rtoChance(S, f, state, pin) : 0.03;
+    if (cod && mRto != null && Number(pf.rto) > 0) {
+      const own = (S.famPin[f + '|' + p3]?.n || 0) + (S.famState[f + '|' + state]?.n || 0) / 3;
+      const mult = Math.max(0.6, Math.min(1.6, 1 + 0.3 * (mRto - Number(pf.rto)) + (mDel != null && Number(pf.delivery) > 0 ? 0.15 * (mDel - Number(pf.delivery)) : 0)));
+      base = base * (1 + (10 / (10 + own)) * (mult - 1));
+    }
     const p = Math.min(0.95, base + (cod ? 0.2 : 0.05) * slow);
     const back = o.rto != null ? Number(o.rto) : Number(o.charge);
     return { o, f, p, slow, cost: Number(o.charge) + p * (back + loss) };
@@ -93,7 +105,28 @@ export function smartPick(options, S, { cod = true, state = '', pin = '', loss =
   const pct = (x) => Math.round(x * 100);
   const note = best.o === cheapest.o ? `${best.o.courier}: cheapest and ~${pct(best.p)}% RTO expected here`
     : `${best.o.courier} (₹${best.o.charge}, ~${pct(best.p)}% RTO${best.slow > 0.3 ? ', slow pickups' : ''}) over ${cheapest.o.courier} (₹${cheapest.o.charge}, ~${pct(cheapest.p)}% RTO${cheapest.slow > 0.3 ? `, ${pct(cheapest.slow)}% slow pickups` : ''}) on your parcels${state ? ' in ' + state : ''}`;
-  return { pick: best.o, note, table: rows.map((x) => ({ courier: x.o.courier, charge: x.o.charge, rto_pct: pct(x.p), slow_pickup_pct: pct(x.slow), expected: Math.round(x.cost) })) };
+  return { pick: best.o, note, table: rows.map((x) => ({ courier: x.o.courier, charge: x.o.charge, rto_pct: pct(x.p), slow_pickup_pct: pct(x.slow), network: x.o.perf || null, expected: Math.round(x.cost) })) };
+}
+
+/** Shiprocket network scores per courier for one PIN, from its serviceability answer: { courierName: perf } */
+export function perfOf(x) {
+  const n = (v) => { const k = Number(v); return Number.isFinite(k) && k > 0 ? k : null; };
+  const p = { rto: n(x.rto_performance), delivery: n(x.delivery_performance), pickup: n(x.pickup_performance), rating: n(x.rating) };
+  return p.rto || p.delivery || p.pickup ? p : null;
+}
+/** Pure: the network scores for a ShipPrime courier code, from Shiprocket's list for the same PIN (same mode first). */
+export function perfFor(code, srList) {
+  const f = familyOf(code), air = /AIR/i.test(code);
+  const same = (srList || []).filter((o) => o.perf && familyOf(o.courier) === f);
+  return (same.find((o) => /air/i.test(o.courier) === air) || same[0] || {}).perf || null;
+}
+/** Keep the scores (courier_perf) so the scorecard can show the network view; best effort. */
+export async function savePerf(env, pin, list) {
+  try {
+    const t = now();
+    for (const o of (list || []).filter((x) => x.perf)) await env.DB.prepare('INSERT INTO courier_perf (pin, courier, rto, delivery, pickup, rating, at) VALUES (?,?,?,?,?,?,?) ON CONFLICT (pin, courier) DO UPDATE SET rto=EXCLUDED.rto, delivery=EXCLUDED.delivery, pickup=EXCLUDED.pickup, rating=EXCLUDED.rating, at=EXCLUDED.at')
+      .bind(String(pin), o.courier, o.perf.rto, o.perf.delivery, o.perf.pickup, o.perf.rating, t).run();
+  } catch (e) { /* table may not exist yet */ }
 }
 
 /* ---------------- data ---------------- */
@@ -113,10 +146,17 @@ export const smartOn = (env) => env.SETTINGS?.shipping?.smart_alloc !== false;
 /** Dashboard: the courier scorecard (COD RTO + slow pickups per courier, and the worst state per courier). */
 export async function scorecard(env) {
   const S = await allocStats(env);
-  const fams = Object.keys({ ...S.fam, ...S.pickup });
+  const net = {};
+  try {
+    for (const r of (await env.DB.prepare('SELECT courier, rto, delivery, pickup FROM courier_perf WHERE at > ?').bind(now() - 60 * 86400).all()).results) {
+      const f = familyOf(r.courier); if (!f) continue; const x = (net[f] = net[f] || { pins: 0, rto: 0, delivery: 0, pickup: 0 });
+      x.pins++; x.rto += Number(r.rto) || 0; x.delivery += Number(r.delivery) || 0; x.pickup += Number(r.pickup) || 0;
+    }
+  } catch (e) { /* no table yet */ }
+  const fams = Object.keys({ ...S.fam, ...S.pickup, ...net });
   return { ok: true, cod_parcels: S.all.n, rto_pct: S.all.n ? Math.round((S.all.r / S.all.n) * 100) : null,
     couriers: fams.map((f) => ({ courier: f, parcels: S.fam[f]?.n || 0, rto_pct: S.fam[f]?.n ? Math.round((S.fam[f].r / S.fam[f].n) * 100) : null,
-      expected_rto_pct: Math.round(rtoChance(S, f, '', '') * 100), bookings: S.pickup[f]?.n || 0, slow_pickup_pct: Math.round(slowPickup(S, f) * 100),
+      expected_rto_pct: Math.round(rtoChance(S, f, '', '') * 100), network: net[f] ? { pins: net[f].pins, rto: +(net[f].rto / net[f].pins).toFixed(1), delivery: +(net[f].delivery / net[f].pins).toFixed(1), pickup: +(net[f].pickup / net[f].pins).toFixed(1) } : null, bookings: S.pickup[f]?.n || 0, slow_pickup_pct: Math.round(slowPickup(S, f) * 100),
       states: Object.entries(S.famState).filter(([k]) => k.startsWith(f + '|')).map(([k, v]) => ({ state: k.split('|')[1], parcels: v.n, rto_pct: Math.round((v.r / v.n) * 100) })).sort((a, b) => b.parcels - a.parcels).slice(0, 8) }))
       .sort((a, b) => b.parcels - a.parcels) };
 }
