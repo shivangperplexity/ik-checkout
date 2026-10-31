@@ -257,8 +257,8 @@
     /* Cancel: COD -> WhatsApp code; paid online, or the code can't be sent -> a request our team handles */
     function cancelFlow(w, order, by) {
       var reasons = (CFG && CFG.cancel_reasons) || ['Changed my mind', 'Other'];
-      w.innerHTML = '<div class="cx"><b>Cancel order ' + esc(order) + '?</b>' +
-        '<label class="small"><b>Why are you cancelling?</b><select class="cx-r"><option value="" disabled selected>Choose a reason</option>' + reasons.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select></label>' +
+      w.innerHTML = '<div class="cx"><b style="display:block">Cancel order ' + esc(order) + '?</b>' +
+        '<label class="small" style="display:block;margin-top:8px"><b>Why are you cancelling?</b><select class="cx-r"><option value="" disabled selected>Choose a reason</option>' + reasons.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select></label>' +
         '<p class="small mut cx-save" style="margin:8px 0 0"></p>' +
         '<div class="cx-a"><button class="btn full red cx-go">' + (by === 'request' ? 'Request cancellation' : 'Send cancel code on WhatsApp') + '</button></div>' +
         '<div class="cx-c" style="display:none"><label class="small"><b>4-digit code from WhatsApp</b><input class="otp cx-code" inputmode="numeric" maxlength="4" autocomplete="one-time-code"></label><button class="btn full red cx-ok">Cancel my order</button><button class="lnk cx-req" style="display:none">Code not coming? Send a cancellation request instead</button></div>' +
