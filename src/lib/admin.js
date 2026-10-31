@@ -1510,7 +1510,7 @@ const ACTIONS = {
     for (const it of items) {
       const id = String(it.id || '');
       const o = await env.DB.prepare('SELECT order_name, phone, first_name, status FROM orders WHERE order_id=?').bind(id).first();
-      const sh = await env.DB.prepare('SELECT awb, courier, provider FROM shipments WHERE order_id=?').bind(id).first();
+      const sh = await env.DB.prepare("SELECT awb, courier, provider FROM shipments WHERE order_id=? AND COALESCE(status,'')<>'cancelled'").bind(id).first();
       if (!o || !sh?.awb) { out.push({ id, name: o?.order_name, ok: false, note: !o ? 'order not found' : 'not booked' }); continue; }
       if (o.status === 'cancelled') { out.push({ id, name: o.order_name, ok: false, note: 'cancelled' }); continue; }
       const dup = await env.DB.prepare("SELECT 1 FROM messages WHERE trigger='ship_booked' AND order_name=? AND status NOT IN ('failed','skipped') LIMIT 1").bind(o.order_name).first();
