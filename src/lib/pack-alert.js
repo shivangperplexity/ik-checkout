@@ -83,6 +83,8 @@ export async function packAlerts(env, { force } = {}) {
         const r = await fireTrigger(env, 'pack_pending', { to, vars, orderName: `pack-${day}-${slot.id}`, force: true }).catch((e) => ({ error: e.message }));
         out.pending.sent.push({ to: to.slice(-4), ok: !!r?.ok, error: r?.error || r?.skipped || '' });
       }
+      /* nothing went out (template in review, WhatsApp paused): free the slot so the next run inside its 30 minutes tries again */
+      if (!force && !out.pending.sent.some((x) => x.ok)) { const { release } = await import('./once.js'); await release(env, `pack:${day}:${slot.id}`); }
     }
   }
 
