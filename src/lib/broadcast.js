@@ -27,6 +27,45 @@ export const BODY = [
   '',
   'Apna design chuno aur aaj hi order karo 👇',
 ].join('\n');
+/* Same offer, worded differently: Meta reviews each on its own, the first approved one is used, and a person gets
+   only one of them (the "already sent" check covers every variant). */
+export const VARIANTS = [
+  { name: TEMPLATE, body: BODY, campaign: 'video_offer_1' },
+  { name: 'ik_video_offer_v2', campaign: 'video_offer_2', body: [
+    'Hey {{1}}! ✨',
+    '',
+    'Tattoo ka shauk hai par needle se darr lagta hai? 😅',
+    'Ink Kulture ke semi-permanent tattoos try karo:',
+    '',
+    '✅ Bina needle, bina dard, ghar pe khud lagao',
+    '✅ 1-2 hafte tak asli tattoo jaisa dikhta hai',
+    '✅ Buy 1 Get 1 FREE',
+    '✅ Online payment pe extra 10% OFF',
+    '',
+    'Video dekho aur apna design chuno 👇',
+  ].join('\n') },
+  { name: 'ik_video_offer_v3', campaign: 'video_offer_3', body: [
+    'Hi {{1}},',
+    '',
+    'Upar video dekho, yahi hai Ink Kulture ka semi-permanent tattoo.',
+    '',
+    '• Needle nahi, dard nahi',
+    '• Lagbhag 2 hafte chalta hai, phir apne aap fade ho jaata hai',
+    '• Har design pe Buy 1 Get 1 FREE',
+    '• Prepaid order pe 10% extra discount',
+    '',
+    'Pasand aaye toh aaj hi order karo 👇',
+  ].join('\n') },
+];
+const shopUrl = (campaign) => SHOP_URL.replace('video_offer_1', campaign);
+
+/** Meta status of every variant, and the first approved one (null when none is yet). */
+export async function variantStatus(env) {
+  const { metaTemplate } = await import('./whatsapp.js');
+  const out = [];
+  for (const v of VARIANTS) { const t = await metaTemplate(env, v.name).catch(() => null); out.push({ name: v.name, status: t ? t.status : 'NOT SUBMITTED' }); }
+  return { list: out, use: out.find((x) => x.status === 'APPROVED')?.name || null };
+}
 
 export async function state(env) {
   const r = await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind(KEY).first().catch(() => null);
@@ -40,7 +79,7 @@ export async function audience(env, { template = TEMPLATE, kind = 'abandoned' } 
   const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all()).results;
   const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
   const buyers = new Set((await q('SELECT phone FROM orders')).map((r) => p10(r.phone)));
-  const done = new Set((await q("SELECT phone FROM messages WHERE direction='out' AND trigger='broadcast_video' AND template=? AND status NOT IN ('failed','skipped')", template)).map((r) => p10(r.phone)));
+  const done = new Set((await q("SELECT phone FROM messages WHERE direction='out' AND trigger='broadcast_video' AND template LIKE 'ik_video_offer%' AND status NOT IN ('failed','skipped')")).map((r) => p10(r.phone)));
   const out = new Map();
   if (kind === 'abandoned') {
     for (const r of await q('SELECT phone, name, updated_at FROM leads ORDER BY updated_at DESC')) {
@@ -56,13 +95,14 @@ export async function audience(env, { template = TEMPLATE, kind = 'abandoned' } 
 export async function overview(env) {
   const st = await state(env);
   const left = await audience(env, { template: st.template || TEMPLATE, kind: st.audience || 'abandoned' });
-  let tpl = null;
-  try { const { metaTemplate } = await import('./whatsapp.js'); tpl = await metaTemplate(env, st.template || TEMPLATE); } catch (e) { tpl = null; }
-  return { ok: true, ...st, body: BODY, shop_url: SHOP_URL, left: left.length, cost_left: Math.round(left.length * COST_PER_MSG), template_status: tpl ? tpl.status : 'NOT SUBMITTED', sample: left.slice(0, 3).map((x) => x.name) };
+  let vs = { list: [], use: null };
+  try { vs = await variantStatus(env); } catch (e) { /* shown as not submitted */ }
+  const template_status = vs.use ? 'APPROVED' : (vs.list.find((x) => x.status !== 'NOT SUBMITTED')?.status || 'NOT SUBMITTED');
+  return { ok: true, ...st, template: vs.use || vs.list.map((x) => x.name + ' ' + x.status).join(', ') || st.template, variants: vs.list, body: BODY, shop_url: SHOP_URL, left: left.length, cost_left: Math.round(left.length * COST_PER_MSG), template_status, sample: left.slice(0, 3).map((x) => x.name) };
 }
 
 /** Submit the template to Meta with the video as its sample (the video must be a public https .mp4, under 16 MB). */
-export async function submit(env, video) {
+export async function submit(env, video, only = null) {
   const url = String(video || '').trim();
   if (!/^https:\/\/\S+\.mp4(\?\S*)?$/i.test(url)) throw new Error('Give the public link of the .mp4 video');
   const head = await fetch(url, { method: 'HEAD' }).catch(() => null);
@@ -73,15 +113,22 @@ export async function submit(env, video) {
   const { appId } = await accessibleAccounts(env);
   if (!appId || !env.WA_WABA_ID) throw new Error('WhatsApp account or app not found (Settings > WhatsApp)');
   const st = await state(env);
-  const tpl = { name: st.template || TEMPLATE, language: 'en', category: 'MARKETING', sample_url: url, components: [
-    { type: 'HEADER', format: 'VIDEO' },
-    { type: 'BODY', text: BODY, example: { body_text: [['Riya']] } },
-    { type: 'FOOTER', text: 'Reply STOP to stop offers' },
-    { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Shop now', url: SHOP_URL }] },
-  ] };
-  const r = await createTemplate(env, { waba: env.WA_WABA_ID, appId, tpl });
-  await save(env, { ...st, video: url, submitted_at: now(), status: st.status === 'sending' ? 'sending' : 'draft', meta_status: r.status || '' });
-  return { ok: true, status: r.status || 'PENDING' };
+  const { templateDetails } = await import('./wa-migrate.js');
+  const have = new Map((await templateDetails(env, env.WA_WABA_ID, VARIANTS.map((v) => v.name)).catch(() => [])).map((t) => [t.name, t.status]));
+  const created = [];
+  for (const v of VARIANTS) {
+    if (only ? !only.includes(v.name) : have.has(v.name) && have.get(v.name) !== 'REJECTED') continue;
+    const tpl = { name: v.name, language: 'en', category: 'MARKETING', sample_url: url, components: [
+      { type: 'HEADER', format: 'VIDEO' },
+      { type: 'BODY', text: v.body, example: { body_text: [['Riya']] } },
+      { type: 'FOOTER', text: 'Reply STOP to stop offers' },
+      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Shop now', url: shopUrl(v.campaign) }] },
+    ] };
+    try { const r = await createTemplate(env, { waba: env.WA_WABA_ID, appId, tpl }); created.push({ name: v.name, status: r.status || 'PENDING' }); }
+    catch (e) { created.push({ name: v.name, status: 'FAILED', error: String(e.message || e).slice(0, 200) }); }
+  }
+  await save(env, { ...st, video: url, submitted_at: now(), status: st.status === 'sending' ? 'sending' : 'draft' });
+  return { ok: true, created, status: created[0]?.status || 'PENDING' };
 }
 
 export async function start(env) {
@@ -98,14 +145,17 @@ export async function broadcastTick(env, { per = 15 } = {}) {
   if (st.status !== 'sending') return { idle: st.status };
   const h = new Date(Date.now() + 19800000).getUTCHours();
   if (h < 10 || h >= 20) return { waiting: 'daytime only' };
-  const { metaTemplate, fireTrigger } = await import('./whatsapp.js');
-  const tpl = await metaTemplate(env, st.template || TEMPLATE).catch(() => null);
-  if (!tpl || tpl.status !== 'APPROVED') return { waiting: 'template ' + (tpl?.status || 'not found') };
-  const list = await audience(env, { template: st.template || TEMPLATE, kind: st.audience || 'abandoned' });
+  const { fireTrigger } = await import('./whatsapp.js');
+  const vs = await variantStatus(env);
+  if (!vs.use) return { waiting: 'no variant approved yet' };
+  /* send through the approved variant (the trigger's template name is swapped for this run only) */
+  const tpls = env.SETTINGS?.templates || {};
+  const envUse = { ...env, SETTINGS: { ...(env.SETTINGS || {}), templates: { ...tpls, broadcast_video: { ...(tpls.broadcast_video || {}), name: vs.use, variants: [] } } } };
+  const list = await audience(env, { kind: st.audience || 'abandoned' });
   if (!list.length) { await save(env, { ...st, status: 'done', finished_at: now() }); return { done: true }; }
   let sent = 0, failed = 0, skipped = 0;
   for (const p of list.slice(0, per)) {
-    const r = await fireTrigger(env, 'broadcast_video', { to: p.phone, vars: { name: p.name, video: st.video }, force: true }).catch((e) => ({ ok: false, error: e.message }));
+    const r = await fireTrigger(envUse, 'broadcast_video', { to: p.phone, vars: { name: p.name, video: st.video }, force: true }).catch((e) => ({ ok: false, error: e.message }));
     if (r.deferred) break;
     if (r.ok) sent++; else if (r.skipped) skipped++; else failed++;
   }
