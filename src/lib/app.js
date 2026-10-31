@@ -556,6 +556,11 @@ export async function runCron(env0, via = 'vercel') {
   /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
+  /* TEMP diag: Shiprocket serviceability fields */
+  try { const f = await env.DB.prepare("SELECT v FROM settings WHERE k='sr_fields_diag'").first(); if (!f) { await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('sr_fields_diag', '1') ON CONFLICT (k) DO NOTHING").run();
+    const { sr } = await import('./shiprocket.js'); const { cfg } = await import('./shipping.js'); const c = cfg(env);
+    for (const pin of ['201001', '302001', '400001']) { const j = await sr(env, 'GET', 'courier/serviceability/?' + new URLSearchParams({ pickup_postcode: c.origin, delivery_postcode: pin, weight: '0.05', cod: '1', declared_value: '399' }));
+      const l = j.data?.available_courier_companies || []; console.log('DIAG srf ' + pin + ' keys=' + Object.keys(l[0] || {}).join(',') + ' :: ' + JSON.stringify(l.map((x) => [x.courier_name, x.rating, x.delivery_performance, x.rto_performance, x.pickup_performance, x.tracking_performance, x.weight_cases, x.rate]))); } } } catch (e) { console.log('DIAG srf err ' + e.message); }
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {
