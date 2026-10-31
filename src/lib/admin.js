@@ -1647,6 +1647,7 @@ const ACTIONS = {
   },
   async track_link(env, b) { const C = await import('./self-cancel.js'); return { ok: true, url: await C.trackLink(env, String(b.id || '')) }; },
   async insights(env, b) { const I = await import('./insights.js'); return I.insights(env, { days: Math.min(180, Math.max(14, Number(b?.days) || 90)) }); },
+  async auto_book_preview(env) { const B = await import('./auto-book.js'); const l = await B.readyOrders(await withSettingsFresh(env)); return { ok: true, cfg: B.bookCfg(await withSettingsFresh(env)), ready: l.map((r) => ({ name: r.order_name, method: r.method, state: r.state_code, at: Number(r.created_at) })) }; },
   async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
   async cancel_request_close(env, b) { const C = await import('./self-cancel.js'); return C.closeRequest(env, b.id, b.how === 'cancel' ? 'cancel' : 'dismiss'); },
   async ndr_run(env, b) {
@@ -2058,6 +2059,7 @@ export async function runAutomations(env) {
   try { out.shipRefresh = await refreshDue(env); } catch (e) { console.error('ship-refresh', e); }
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
+  try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
   try { const { trackBlast } = await import('./track-blast.js'); const r = await trackBlast(env); if (r.sent !== undefined && !r.finished) out.trackBlast = r; } catch (e) { console.error('track blast', e); }
   try { const { merchCron } = await import('./merch.js'); const r = await merchCron(env); if (r.collections) out.merch = r.collections.map((c) => [c.handle, c.moves]); } catch (e) { console.error('merch', e); }

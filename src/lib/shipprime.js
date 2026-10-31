@@ -232,6 +232,16 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
       if (alloc?.pick) pick = alloc.pick;
     }
   } catch (e) { console.error('smart alloc', e.message); }
+  /* Test, 1-15 Nov 2026: COD parcels to the states that send most back go Blue Dart (24% RTO in our data against
+     55-59% for Xpressbees / Delhivery; about ₹40 more per parcel). Settings shipping.bluedart_test { states, until } */
+  try {
+    const bt = { states: 'RJ, MP, UP', until: Date.UTC(2026, 10, 16) / 1000, ...(s.bluedart_test || {}) };
+    const st = String(row?.state_code || '').toUpperCase();
+    if (base.cod && now() < Number(bt.until) && st && String(bt.states).toUpperCase().split(/[\s,;]+/).includes(st)) {
+      const bd = rates.find((r) => r.code === 'BLUEDART' && r.ok !== false && Number(r.charge) > 0);
+      if (bd) { pick = bd.code; alloc = { ...(alloc || {}), note: `Blue Dart test for COD to ${st} (₹${bd.charge})` }; }
+    }
+  } catch (e) { console.error('bluedart test', e.message); }
   return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint, alloc_note: alloc?.note || '', alloc_table: alloc?.table || null };
 }
 
