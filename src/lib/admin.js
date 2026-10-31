@@ -1670,6 +1670,13 @@ const ACTIONS = {
     await putSetting(env, 'wa', w);
     return { ok: true };
   },
+  /** Switch one WhatsApp message on / off without touching the others' saved settings. */
+  async trigger_toggle(env, b) {
+    if (!TRIGGERS[b.key]) throw new Error('Unknown message');
+    const prev = (await getSettings(env, true)).templates || {};
+    await putSetting(env, 'templates', { ...prev, [b.key]: { ...(prev[b.key] || {}), enabled: !!b.on } });
+    return { ok: true, key: b.key, on: !!b.on };
+  },
   async save_triggers(env, b) {
     const t = {};
     const prev = (await getSettings(env, true)).templates || {};
