@@ -133,9 +133,11 @@ async function handleOrder(req, env, ctx) {
   let buyer;
   try { buyer = validateBuyer(b.buyer || {}); } catch (e) { return json({ ok: false, error: e.message }, 400); }
   /* neither ShipPrime nor Shiprocket delivers to this PIN: don't take the order (a failed courier lookup never blocks) */
+  let eddText = '';
   try {
     const { deliveryEstimate } = await import('./edd.js');
     const e = await deliveryEstimate(env, { pin: buyer.pincode, cod: b.method === 'cod' });
+    eddText = e.edd ? 'by ' + e.edd : '';
     if (e.ok && e.serviceable === false) return json({ ok: false, error: `Sorry, we can't deliver to PIN code ${buyer.pincode} yet. Please use another address.`, unserviceable: true }, 400);
   } catch (e) { console.error('serviceability', e.message); }
 
@@ -211,7 +213,7 @@ async function handleOrder(req, env, ctx) {
   const row = {
     sid: String(a.sid || '').slice(0, 40), idem, txnid, eventId, draftId: draft.id, method, total: draft.total, buyer, a, contents,
     ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim().slice(0, 64) || null, ua: String(req.headers.get('User-Agent') || '').slice(0, 400) || null,
-    otp: otpOk, sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
+    otp: otpOk, edd: eddText || '4-7 days', sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
   };
 
   if (partial) {
@@ -287,7 +289,7 @@ async function afterCod(env, req, row, order) {
   const ua = req.headers.get('User-Agent');
   const results = await Promise.allSettled([
     purchaseEvent(env, row, order.name, ip, ua),
-    row.otp ? Promise.resolve({ skipped: 'otp verified' }) : fireTrigger(env, 'cod_confirm', { to: row.buyer.phone, vars: { name: row.buyer.firstName, order: order.name, total: rupees(row.total) }, orderId: order.legacyResourceId, orderName: order.name }),
+    fireTrigger(env, row.otp ? 'cod_placed' : 'cod_confirm', { to: row.buyer.phone, vars: { name: row.buyer.firstName, order: order.name, total: rupees(row.total), edd: row.edd || '4-7 days' }, orderId: order.legacyResourceId, orderName: order.name }),
     markSessionOrdered(env, row.sid, order.name),
   ]);
   results.forEach((r, i) => r.status === 'rejected' && console.error(['capi', 'whatsapp', 'session'][i], r.reason));

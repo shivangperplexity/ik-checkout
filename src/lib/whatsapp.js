@@ -331,6 +331,7 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
       if (!image && m.image) image = m.image;
     }
     if (wantItems && !v.items) v.items = 'your Ink Kulture order';
+    if (cfg.vars.includes('edd') && !v.edd) v.edd = '4-7 days';
     if (t.media === true && !image) image = env.WA_HEADER_IMAGE || '';
     if (isVideo && !image) { await logMsg(env, { ...base(), status: 'skipped', error: 'no how-to-apply video set' }); return { skipped: 'novideo' }; }
 

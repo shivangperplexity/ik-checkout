@@ -1482,6 +1482,46 @@ const ACTIONS = {
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
   /* barter collab orders from /collab (lib/barter.js) */
   async barter(env) { const B = await import('./barter.js'); return B.barterList(env); },
+  /** Submit the order-update templates with a delivery estimate (lib/notify-templates.js). */
+  async notify_templates_submit(env, b = {}) {
+    const N = await import('./notify-templates.js');
+    const { templateDetails } = await import('./wa-migrate.js');
+    const have = new Map((await templateDetails(env, env.WA_WABA_ID, N.ALL.map((t) => t.name)).catch(() => [])).map((t) => [t.name, t.status]));
+    const todo = N.ALL.filter((t) => !have.has(t.name) || (b.force && have.get(t.name) === 'REJECTED'));
+    const created = todo.length ? (await ACTIONS.wa_create_templates(env, { templates: todo })).created : [];
+    const { clearMetaCache } = await import('./whatsapp.js'); clearMetaCache();
+    return { ok: true, created, status: Object.fromEntries(N.ALL.map((t) => [t.name, created.find((c) => c.name === t.name)?.status || have.get(t.name) || 'NOT SUBMITTED'])) };
+  },
+  /** Booked parcels: courier, pickup day, expected delivery, ShipPrime tracking link and the how-to-apply steps.
+      items: [{ id, edd }]; pickup: 'Mon, 2 Nov'. Once per order, 9 am - 8 pm IST only. */
+  async notify_booked(env, b) {
+    const h = new Date(Date.now() + 19800000).getUTCHours();
+    if (h < 9 || h >= 20) throw new Error('Customer messages go out 9 am - 8 pm only');
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 60);
+    const pickup = String(b.pickup || '').slice(0, 40);
+    if (!items.length || !pickup) throw new Error('Give items and the pickup day');
+    const { withSettings } = await import('./settings.js');
+    const { fireTrigger } = await import('./whatsapp.js');
+    const { spTrackUrl } = await import('./shipprime.js');
+    const A = await import('./apply-guide.js');
+    const e2 = await withSettings(await withSettingsFresh(env));
+    const ytid = A.ytId(A.applyVideo(e2));
+    const out = [];
+    for (const it of items) {
+      const id = String(it.id || '');
+      const o = await env.DB.prepare('SELECT order_name, phone, first_name, status FROM orders WHERE order_id=?').bind(id).first();
+      const sh = await env.DB.prepare('SELECT awb, courier, provider FROM shipments WHERE order_id=?').bind(id).first();
+      if (!o || !sh?.awb) { out.push({ id, name: o?.order_name, ok: false, note: !o ? 'order not found' : 'not booked' }); continue; }
+      if (o.status === 'cancelled') { out.push({ id, name: o.order_name, ok: false, note: 'cancelled' }); continue; }
+      const dup = await env.DB.prepare("SELECT 1 FROM messages WHERE trigger='ship_booked' AND order_name=? AND status NOT IN ('failed','skipped') LIMIT 1").bind(o.order_name).first();
+      if (dup && !b.again) { out.push({ id, name: o.order_name, ok: false, note: 'already sent' }); continue; }
+      const courier = String(sh.courier || '').replace(/\s+(Premium|Surface|Air)$/i, '') || 'our courier';
+      const r = await fireTrigger(e2, 'ship_booked', { to: o.phone, vars: { name: o.first_name || 'there', order: o.order_name, courier, pickup, edd: String(it.edd || '4-7 days after pickup').slice(0, 60), track: spTrackUrl(sh.awb), ytid }, orderName: o.order_name, force: true });
+      out.push({ id, name: o.order_name, ok: !!r.ok, note: r.ok ? 'sent' : r.error || r.skipped || '' });
+      if (r.deferred) break;
+    }
+    return { ok: true, results: out };
+  },
   async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
   async broadcast(env) { const B = await import('./broadcast.js'); return B.overview(env); },
   async broadcast_submit(env, b) { const B = await import('./broadcast.js'); return B.submit(env, b.video); },

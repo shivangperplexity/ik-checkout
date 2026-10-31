@@ -16,7 +16,8 @@ import { cameFromAd } from './attribution.js';
 // media:'video' = a video header: the how-to-apply video (lib/apply-guide.js).
 // marketing:true = MARKETING category; never sent to a number that replied STOP.
 export const TRIGGERS = {
-  cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm_v2', fallback: 'cod_order_confirm', on: true },
+  cod_confirm: { label: 'COD order confirmation', to: 'Customer', when: 'Right after a COD order is placed', vars: ['name', 'order', 'items', 'total', 'confirm', 'edd'], buttons: true, media: true, env: 'WA_TEMPLATE', def: 'cod_order_confirm_v3', fallback: 'cod_order_confirm_v2', replaces: ['cod_order_confirm', 'cod_order_confirm_v2'], on: true },
+  cod_placed: { label: 'COD order placed (OTP verified)', to: 'Customer', when: 'Right after a COD order whose phone was verified by OTP (no confirm buttons needed): items, total, expected delivery', vars: ['name', 'order', 'items', 'total', 'edd'], def: 'cod_order_placed_v1', on: true },
   cod_reminder: { label: 'COD reminder (not confirmed)', to: 'Customer', when: 'COD order still unconfirmed after 20h (checked every cron run)', vars: ['name', 'order', 'total'], buttons: true, def: 'cod_order_reminder', on: false },
   /* Pay-online offer (lib/wa-convert.js, Settings > Pay-online offer). cod_prepaid_offer uses named variables and a
      "Pay online" URL button to https://www.inkkulture.in/pages/pay?k={{1}} (paykey). The older cod_to_prepaid
@@ -34,6 +35,7 @@ export const TRIGGERS = {
        offer -> img -> text while one is in review, or when a cart has no picture. */
     variants: ['checkout_reminder_offer', 'checkout_reminder_commitment_offer', 'checkout_reminder_ghosted_offer', 'checkout_reminder_softlaunch_offer', 'checkout_reminder_talkstage_offer', 'checkout_reminder_redflag_offer', 'checkout_reminder_maincharacter_offer', 'checkout_reminder_horoscope_offer', 'checkout_reminder_bluetick_offer', 'checkout_reminder_khanakhaya_offer', 'checkout_reminder_lostfound_offer', 'checkout_reminder_cliffhanger_offer'] },
   /* Shipment updates from Shiprocket tracking (lib/wa-ship.js, checked on the cron). */
+  ship_booked: { label: 'Parcel booked + how to apply', to: 'Customer', when: 'Sent from Ship > Notify booked: courier, pickup day, expected delivery, tracking link, how-to-apply steps + video button', vars: ['name', 'order', 'courier', 'pickup', 'edd', 'track'], urlParam: 'ytid', def: 'ship_booked_apply_v1', on: false },
   ship_picked: { label: 'Shipment picked up', to: 'Customer', when: 'Courier picks the parcel up', vars: ['name', 'order', 'courier', 'edd', 'track'], def: 'ship_picked_up', on: true },
   ship_transit: { label: 'Shipment in transit', to: 'Customer', when: 'Moving through the courier network (6h+ after pickup)', vars: ['name', 'order', 'location', 'edd', 'track'], def: 'ship_in_transit', on: true },
   ship_ofd: { label: 'Out for delivery', to: 'Customer', when: 'Courier marks it out for delivery (once a day)', vars: ['name', 'order', 'track'], def: 'ship_out_for_delivery', on: true },
@@ -134,7 +136,7 @@ export function triggerConfig(env, key) {
   return {
     enabled: c.enabled !== undefined ? !!c.enabled : (key === 'cod_confirm' ? !!(envName || c.name || true) : t.on),
     /* a saved older template this trigger has a newer version of moves to the new one (the old stays the fallback) */
-    name: (c.name && !(t.replaces || []).includes(c.name) ? c.name : '') || envName || t.def,
+    name: (c.name && !(t.replaces || []).includes(c.name) ? c.name : '') || (envName && !(t.replaces || []).includes(envName) ? envName : '') || t.def,
     lang: c.lang || env.WA_LANG || 'en',
     /* A saved list from before a template gained variables (e.g. cod_confirm without items/confirm) would
        send the wrong set, so a saved list is only used when it still covers every variable the template has. */
