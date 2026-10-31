@@ -81,7 +81,7 @@ export const PACK_PENDING_V1 = {
 export const PACK_DONE_V1 = {
   name: 'ik_pack_done_v1', language: 'en', category: 'UTILITY', parameter_format: 'NAMED',
   components: [
-    { type: 'BODY', text: 'Packed ✅ {{orders}}\n\nPacked today: {{today}}\nStill to pack: {{left}}',
+    { type: 'BODY', text: 'Packed ✅ {{orders}}\n\nPacked today: {{today}}\nStill to pack: {{left}}\n\nThank you, team.',
       example: named([['orders', '#1951, #1952'], ['today', '6'], ['left', '2 (#1955, #1960)']]) },
     FOOT,
   ],
