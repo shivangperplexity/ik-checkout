@@ -917,6 +917,29 @@ const ACTIONS = {
     await env.DB.prepare('INSERT INTO ship_old_awbs (awb, order_id, order_name, courier, cancelled_at) VALUES (?,?,?,?,?) ON CONFLICT (awb) DO NOTHING').bind(awb, id, live?.order_name || '', live?.courier || '', now()).run().catch(() => {});
     return { ok: true, cancelled: awb, live: live?.awb || '' };
   },
+  /** TEMP read-only probe: which NDR list routes answer to the ShipPrime API token (status + top-level keys only). */
+  async sp_ndr_probe(env) {
+    const { spToken } = await import('./shipprime.js');
+    const token = spToken(await withSettingsFresh(env));
+    const tries = [
+      ['POST', 'https://api.shipprime.live/v1/self-ship/ndr/orders?page=1&page_size=5', {}],
+      ['POST', 'https://api.shipprime.live/v1/ndr/orders?page=1&page_size=5', {}],
+      ['GET', 'https://api.shipprime.live/v1/forward/ndr?page=1', null],
+      ['GET', 'https://api.shipprime.live/v1/ndr?page=1', null],
+      ['POST', 'https://dropshipindia.live/dropship/self-ship/ndr/orders?page=1&page_size=5', {}],
+      ['GET', 'https://dropshipindia.live/dropship/self-ship/ndr/orders/count', null],
+    ];
+    const out = [];
+    for (const [m, u, body] of tries) {
+      try {
+        const r = await fetch(u, { method: m, headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
+        const j = await r.json().catch(() => null);
+        const d = j?.data ?? j;
+        out.push({ m, u: u.replace(/\?.*/, ''), status: r.status, keys: j ? Object.keys(j).slice(0, 10) : [], dataKeys: d && typeof d === 'object' ? Object.keys(Array.isArray(d) ? (d[0] || {}) : d).slice(0, 25) : [], n: Array.isArray(d) ? d.length : Array.isArray(d?.orders) ? d.orders.length : null, msg: String(j?.message || j?.error || '').slice(0, 120) });
+      } catch (e) { out.push({ m, u: u.replace(/\?.*/, ''), error: String(e.message).slice(0, 100) }); }
+    }
+    return { ok: true, out };
+  },
   async sr_docs(env, b) {
     const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
     if (!rec?.sr_shipment_id && rec?.provider !== 'shipprime') throw new Error('This order was not booked from the dashboard');
