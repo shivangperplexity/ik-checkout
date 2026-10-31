@@ -556,37 +556,6 @@ export async function runCron(env0, via = 'vercel') {
   /* who ran it last and when: the dashboard's "tick" skips while a recent run exists, Settings shows it */
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run().catch(() => {});
   await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('cron_via', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify(via)).run().catch(() => {});
-  /* TEMP diag: RTO drivers */
-  try {
-    const f = await env.DB.prepare("SELECT v FROM settings WHERE k='rto_diag_at'").first();
-    if (!f || Number(f.v) < now() - 3000) {
-      await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('rto_diag_at', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(String(now())).run();
-      const rows = (await env.DB.prepare(`SELECT s.stage, s.provider, s.courier, COALESCE(s.ndr_attempt,0) AS ndr, COALESCE(s.attempts,0) AS att, s.ndr_reason, s.picked_at, s.delivered_at, s.created_at AS booked_at,
-          o.method, o.total_paise, o.advance_paise, o.state_code, o.pincode, o.source_url, o.otp_at, o.converted_at, o.created_at, o.phone, o.confirmed_at
-        FROM shipments s JOIN orders o ON o.order_id=s.order_id WHERE s.stage IN ('delivered','rto') AND o.created_at > ?`).bind(now() - 75 * 86400).all()).results;
-      const agg = {}; const add = (dim, key, rto) => { const k = dim + ':' + key; agg[k] = agg[k] || [0, 0]; agg[k][0]++; if (rto) agg[k][1]++; };
-      const firstDel = {}; [...rows].sort((a, b) => a.created_at - b.created_at).forEach((r) => { if (r.stage === 'delivered' && !firstDel[r.phone]) firstDel[r.phone] = Number(r.created_at); });
-      for (const r of rows) {
-        const rto = r.stage === 'rto'; const u = String(r.source_url || '');
-        const src = /fbclid|utm_source=(facebook|fb|ig|meta)|utm_medium=(paid|cpc)/i.test(u) ? (/utm_medium=(paid|cpc)|fbclid=IwZXh0bgNhZW0BMABhZGlk|utm_source=(facebook|fb)/i.test(u) ? 'ad' : 'social') : /utm_source=creator|ref=|utm_medium=dm|utm_source=instagram/i.test(u) ? 'creator/ig' : u ? 'organic' : 'unknown';
-        add('all', 'all', rto);
-        add('method', Number(r.advance_paise) > 0 ? 'partial' : r.converted_at ? 'converted' : r.method, rto);
-        add('src', src, rto);
-        add('state', r.state_code || '?', rto);
-        if (r.method === 'cod') add('otp', r.otp_at ? 'yes' : 'no', rto);
-        add('ndr', r.ndr > 0 || r.att > 1 ? 'had_ndr' : 'no_ndr', rto);
-        add('repeat', firstDel[r.phone] && firstDel[r.phone] < Number(r.created_at) ? 'repeat' : 'new', rto);
-        const v = Number(r.total_paise) / 100; add('value', v < 400 ? '<400' : v < 600 ? '400-599' : v < 900 ? '600-899' : '900+', rto);
-        add('prov', (r.provider || 'shiprocket') + '/' + String(r.courier || '').split(' ')[0], rto);
-        const lag = r.picked_at && r.created_at ? (Number(r.picked_at) - Number(r.created_at)) / 86400 : null; add('pickupLag', lag == null ? '?' : lag < 1 ? '<1d' : lag < 2 ? '1-2d' : lag < 4 ? '2-4d' : '4d+', rto);
-        const h = new Date(Number(r.created_at) * 1000 + 19800000).getUTCHours(); add('hour', h < 6 ? '00-06' : h < 12 ? '06-12' : h < 18 ? '12-18' : '18-24', rto);
-        if (rto) add('rtoReason', String(r.ndr_reason || 'none').slice(0, 40), true);
-        const pinT = /^(11|40|41|56|60|50|70|38|41|12)/.test(String(r.pincode || '')) ? 'metro-ish' : 'other'; add('pin', pinT, rto);
-      }
-      const out = Object.entries(agg).filter(([k, [n]]) => n >= 8 || k.startsWith('rtoReason') || k.startsWith('all')).map(([k, [n, x]]) => k + '=' + n + '/' + Math.round(x / n * 100) + '%');
-      console.log('DIAG rto ' + out.join(' | '));
-    }
-  } catch (e) { console.log('DIAG rto err ' + e.message); }
   const cutoff = now() - 24 * 3600;
   const { results } = await env.DB.prepare("SELECT order_id FROM orders WHERE method='cod' AND status='placed' AND confirmed_at IS NULL AND flagged_at IS NULL AND created_at<?").bind(cutoff).all();
   for (const r of results) {
