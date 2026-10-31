@@ -226,7 +226,7 @@ export async function igSave(env, b) {
 export async function reelsReport(env, { limit = 40 } = {}) {
   const c = await igCfg(env);
   if (!c.token) throw new Error('Instagram is not connected');
-  const j = await ig(env, c, 'GET', `/me/media?fields=id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count&limit=${Math.min(50, limit)}`);
+  const j = await ig(env, c, 'GET', `me/media?fields=id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count&limit=${Math.min(50, limit)}`);
   const media = j.data || [];
   const dm = Object.fromEntries((await env.DB.prepare("SELECT media_id, COUNT(*) AS n, SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent FROM ig_dm GROUP BY media_id").all()).results.map((r) => [String(r.media_id), r]));
   return media.map((m) => ({ id: m.id, type: m.media_product_type || m.media_type, date: String(m.timestamp || '').slice(0, 10), likes: m.like_count || 0, comments: m.comments_count || 0,
