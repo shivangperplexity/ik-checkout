@@ -221,7 +221,8 @@ export async function callModel(c, P, system, merged, o = {}) {
       out = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     } else {
       r = await fetch(P.url, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.key, ...(c.provider === 'openrouter' ? { 'HTTP-Referer': 'https://www.inkkulture.in', 'X-Title': 'Ink Kulture WhatsApp' } : {}) },
-        body: JSON.stringify({ model: c.model, max_tokens: o.max_tokens || 600, temperature: 0.3, messages: [{ role: 'system', content: system }, ...merged] }) });
+        /* reasoning models (gpt-oss, qwen3...) spend tokens thinking before they answer: think briefly, leave room for the reply */
+        body: JSON.stringify({ model: c.model, max_tokens: o.max_tokens || 1500, temperature: 0.3, ...(/gpt-oss/i.test(c.model) ? { reasoning_effort: 'low' } : {}), messages: [{ role: 'system', content: system }, ...merged] }) });
       j = await r.json().catch(() => ({}));
       out = j.choices?.[0]?.message?.content || '';
       if (j.usage) j.usage = { input_tokens: j.usage.prompt_tokens, output_tokens: j.usage.completion_tokens };
