@@ -287,7 +287,7 @@ export function referralTemplates() {
 export async function referralStats(env) {
   const t = now();
   const one = async (sql, ...a) => (await env.DB.prepare(sql).bind(...a).first()) || {};
-  const [codes, invited, refs, credited, voided, credit, used] = await Promise.all([
+  const [codes, invited, refs, credited, voided, credit, used, dlv] = await Promise.all([
     one('SELECT COUNT(*) AS n FROM ref_codes'),
     one('SELECT COUNT(*) AS n FROM ref_codes WHERE invited_at IS NOT NULL'),
     one("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM referrals WHERE status IN ('placed','credited','capped','revoked')"),
@@ -295,6 +295,8 @@ export async function referralStats(env) {
     one("SELECT COUNT(*) AS n FROM referrals WHERE status='revoked' OR (status='void' AND COALESCE(note,'')<>'payment not completed')"),
     one('SELECT COALESCE(SUM(amount_paise),0) AS given, COALESCE(SUM(CASE WHEN expires_at>? THEN left_paise ELSE 0 END),0) AS open FROM credits', t),
     one("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM credit_uses WHERE status='used'"),
+    /* the ₹50 "COD order delivered" credit (delivery_credit) shares the credits table with referral credit */
+    one("SELECT COUNT(*) AS n, COALESCE(SUM(amount_paise),0) AS given FROM credits WHERE ref_idem LIKE 'dlv:%'"),
   ]);
   const top = (await env.DB.prepare(`SELECT rc.code, rc.name, rc.phone, COUNT(r.idem) AS orders, SUM(CASE WHEN r.status='credited' THEN 1 ELSE 0 END) AS delivered
       FROM ref_codes rc JOIN referrals r ON r.code=rc.code AND r.status IN ('placed','credited','capped','void','revoked') GROUP BY rc.code, rc.name, rc.phone ORDER BY orders DESC LIMIT 15`).all()).results;
@@ -302,6 +304,7 @@ export async function referralStats(env) {
   return { ok: true, codes: Number(codes.n) || 0, invited: Number(invited.n) || 0, orders: Number(refs.n) || 0, discount: (Number(refs.amt) || 0) / 100,
     delivered: Number(credited.n) || 0, returned: Number(voided.n) || 0, credit_given: (Number(credit.given) || 0) / 100, credit_open: (Number(credit.open) || 0) / 100,
     credit_used: (Number(used.amt) || 0) / 100, credit_used_orders: Number(used.n) || 0,
+    delivery_credit: (Number(dlv.given) || 0) / 100, delivery_credit_n: Number(dlv.n) || 0,
     top: top.map((x) => ({ code: x.code, name: x.name, phone: String(x.phone).replace(/^(\d{2})\d{5}/, '$1•••••'), orders: Number(x.orders), delivered: Number(x.delivered) })),
     recent: recent.map((r) => ({ ...r, amount: Number(r.amount) / 100 })) };
 }
