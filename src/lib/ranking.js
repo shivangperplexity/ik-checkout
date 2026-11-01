@@ -4,8 +4,10 @@
 // (small ones sell the most units). This keeps the best-selling order but:
 //   - sold-out designs go to the end;
 //   - in the first 24 places a few bigger designs are mixed in, so every size is seen early:
+//       full sleeve (tag size-h, 15.5 x 46.5 cm, ₹1,099-1,199) at places 2, 8, 14, 20 (Nov 2026: bigger orders;
+//         place 2 is the first row on a phone, next to the best seller),
 //       medium (forearm / band, tags size-b..e, 6x10cm, 10x4cm) at places 4, 10, 16, 22,
-//       large (tag size-large) at places 6, 12, 18, 24 — the best-selling ones of each size;
+//       large (other size-large) at places 6, 12, 18, 24 — the best-selling ones of each size;
 //   - everything after place 24 stays in best-selling order.
 // The collections are switched to "Manual" sort so Shopify keeps this order; the cron re-ranks them daily so new
 // sales, new products and stock changes are picked up.
@@ -16,19 +18,21 @@ const MEDIUM = ['size-b', 'size-c', 'size-d', 'size-e', '6x10cm', '10x4cm'];
 
 export function sizeOf(tags = []) {
   const t = tags.map((x) => String(x).toLowerCase());
+  if (t.includes('size-h')) return 'sleeve';
   if (t.includes('size-large') || t.some((x) => /^size-[fghi]$/.test(x))) return 'large';
   if (t.some((x) => MEDIUM.includes(x))) return 'medium';
   return 'small';
 }
 
 /** list: [{ id, available, size }] in best-selling order → ids in the new order. Pure. */
-export function rankOrder(list, { top = 24, mediumAt = [3, 9, 15, 21], largeAt = [5, 11, 17, 23] } = {}) {
+export function rankOrder(list, { top = 24, sleeveAt = [1, 7, 13, 19], mediumAt = [3, 9, 15, 21], largeAt = [5, 11, 17, 23] } = {}) {
   const avail = list.filter((p) => p.available), sold = list.filter((p) => !p.available);
   const used = new Set(), out = [];
   const next = (pred) => { const p = avail.find((x) => !used.has(x.id) && pred(x)); if (p) used.add(p.id); return p; };
   for (let i = 0; i < Math.min(top, avail.length); i++) {
-    const want = mediumAt.includes(i) ? 'medium' : largeAt.includes(i) ? 'large' : null;
-    const p = (want && next((x) => x.size === want)) || next(() => true);
+    const want = sleeveAt.includes(i) ? 'sleeve' : mediumAt.includes(i) ? 'medium' : largeAt.includes(i) ? 'large' : null;
+    /* no sleeve left in stock: a large design takes the place */
+    const p = (want && next((x) => x.size === want)) || (want === 'sleeve' && next((x) => x.size === 'large')) || next(() => true);
     if (p) out.push(p.id);
   }
   for (const p of avail) if (!used.has(p.id)) out.push(p.id);

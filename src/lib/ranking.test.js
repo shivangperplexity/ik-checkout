@@ -7,6 +7,15 @@ test('size from tags', () => {
   assert.equal(sizeOf(['size-c']), 'medium');
   assert.equal(sizeOf(['10x4cm']), 'medium');
   assert.equal(sizeOf(['size-large', 'size-f']), 'large');
+  assert.equal(sizeOf(['15.5x46.5cm', 'size-h', 'size-large']), 'sleeve');
+});
+
+test('full sleeves at places 2, 8, 14, 20; a large design when no sleeve is left', () => {
+  const list = Array.from({ length: 60 }, (_, i) => ({ id: 'p' + i, available: true, size: i === 30 || i === 40 ? 'sleeve' : i % 10 === 9 ? 'large' : i % 10 === 4 ? 'medium' : 'small' }));
+  const o = rankOrder(list), size = (id) => list.find((x) => x.id === id).size;
+  assert.equal(o[0], 'p0'); assert.equal(o[1], 'p30'); assert.equal(o[7], 'p40');
+  assert.equal(size(o[13]), 'large'); assert.equal(size(o[3]), 'medium');
+  assert.equal(new Set(o).size, 60);
 });
 
 test('sold out last, a few bigger designs in the first 24, rest best-selling', () => {
