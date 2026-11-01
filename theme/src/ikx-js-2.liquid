@@ -141,13 +141,33 @@
     fetchQuote(state.lines).then(function (q) {
       if (seq !== renderSeq) return;
       setQuote(q, true); paintUps(); paintPay(); paintBill(); paintFoot();
+      dropSoldOut(q.sold_out);
     }).catch(function (err) {
       if (seq !== renderSeq) return;
+      if (err && err.q && dropSoldOut(err.q.sold_out)) return;
       console.warn('[ik-express] quote unavailable, offering Shopify checkout', err);
       state.quote = null; state.final = false; paintAll();
     });
   }
   function refresh() { return getCart().then(function (c) { render(c); }); }
+  /* Build 056: a design that sold out after it went into the cart. The API prices the rest (and says which ones);
+     take them out of the Shopify cart and say so, instead of the whole checkout falling back to Shopify's. */
+  function dropSoldOut(list) {
+    if (!list || !list.length || !CART) return false;
+    var ids = list.map(function (x) { return String(x.variant_id); });
+    var gone = CART.items.filter(function (i) { return ids.indexOf(String(i.variant_id)) >= 0; });
+    if (!gone.length) return false;
+    var c = clone(CART); c.items = c.items.filter(function (i) { return ids.indexOf(String(i.variant_id)) < 0; }); recount(c);
+    tk('method', { method: state.method, data: { sold_out: gone.length } });
+    render(c);
+    showErr(list.map(function (x) { return x.title; }).join(', ') + ' just sold out, so we took it out of your cart.');
+    cartOp(function () {
+      var upd = {}; gone.forEach(function (i) { upd[i.key] = 0; });
+      return fetch(R + 'cart/update.js', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ updates: upd }) })
+        .then(function (r) { if (!r.ok) throw new Error('change'); return r.json(); });
+    });
+    return true;
+  }
 
   function emptyView() {
     state.built = false;

@@ -196,7 +196,7 @@
     if (hit && hit.q && Date.now() - hit.t < 600000) return Promise.resolve(hit.q);
     if (hit && hit.p) return hit.p;
     var p = api('/api/quote', { lines: lines, attribution: attrNow(), pv: 2 }).then(function (q) {
-      if (!q.ok) throw new Error('quote failed');
+      if (!q.ok) { var qe = new Error('quote failed'); qe.q = q; throw qe; }
       QC[sig] = { q: q, t: Date.now() }; saveQC(); return q;
     }).catch(function (e) { delete QC[sig]; throw e; });
     QC[sig] = { p: p };

@@ -1,7 +1,7 @@
 import { corsHeaders, allowedOrigins, json, cleanPhone, stateCode } from './util.js';
 import { isCollab, COLLAB_TAG } from './collab.js';
 import { cameFromAd } from './attribution.js';
-import { loadLines, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
+import { loadLines, splitSoldOut, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
 import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery } from './cod-otp.js';
@@ -51,7 +51,8 @@ const attrsIn = (b) => (b && b.attribution && typeof b.attribution === 'object' 
 
 async function handleQuote(req, env) {
   const body = await req.json();
-  const raw = cartLines(body);
+  const { raw, soldOut } = await splitSoldOut(env, cartLines(body));
+  if (!raw.length) return json({ ok: false, sold_out: soldOut, error: soldOut.length ? `${soldOut.map((x) => x.title).join(', ')} just sold out. Please pick another design.` : 'Your cart is empty' }, 409);
   const lines = await loadLines(env, raw);
   applyUpsells(env, raw, lines);
   /* Refer and earn: a friend's code (attribution.ref, from ?ref= on the store) takes ₹100 off the online-payment price */
@@ -60,7 +61,7 @@ async function handleQuote(req, env) {
   const inCart = new Set(raw.map((l) => String(l.variant_id)));
   const upsells = (env.SETTINGS?.upsells || []).filter((u) => u.enabled && !inCart.has(String(u.variantId)) && q.cod.subtotal >= (u.minCart || 0) * 100)
     .map((u) => ({ variantId: u.variantId, title: u.title, image: u.image, price: Math.round(u.price * 100), pct: u.pct, headline: u.headline }));
-  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, upi_logos: env.SETTINGS?.upi_logos || {}, partial: codOn(env, attrsIn(body)) ? quoteFlag(env) : { mode: 'off' }, cod_on: codOn(env, attrsIn(body)), px: metaPx(env), mystery: { on: false } /* Build 043 still asks: keeps its old mystery-gift lines hidden */, otp: otpOn(env), ...q });
+  return json({ ok: true, lines: lines.map((l) => ({ title: l.title, qty: l.qty, unit: l.unit, upsell: !!l.isUpsell })), upsells, sold_out: soldOut, upi_logos: env.SETTINGS?.upi_logos || {}, partial: codOn(env, attrsIn(body)) ? quoteFlag(env) : { mode: 'off' }, cod_on: codOn(env, attrsIn(body)), px: metaPx(env), mystery: { on: false } /* Build 043 still asks: keeps its old mystery-gift lines hidden */, otp: otpOn(env), ...q });
 }
 
 /** Partial COD: does this address / number pay the advance first? The checkout asks once the delivery details are in. */
@@ -148,7 +149,10 @@ async function handleOrder(req, env, ctx) {
     if (e.ok && e.serviceable === false) return json({ ok: false, error: `Sorry, we can't deliver to PIN code ${buyer.pincode} yet. Please use another address.`, unserviceable: true }, 400);
   } catch (e) { console.error('serviceability', e.message); }
 
-  const raw = cartLines(b);
+  /* a design that sold out meanwhile is left out (the quote the shopper saw left it out too) */
+  const { raw, soldOut } = await splitSoldOut(env, cartLines(b));
+  if (!raw.length) return json({ ok: false, sold_out: soldOut, error: `${soldOut.map((x) => x.title).join(', ') || 'This design'} just sold out. Please pick another design.` }, 409);
+  if (soldOut.length) console.log('order without sold-out', soldOut.map((x) => x.title).join(', '));
   const lines = await loadLines(env, raw);
   /* Same person, same tattoos again within 48 h (double tap, or ordering again after a WhatsApp code): don't make a
      second order. A new order that only repeats designs of an open one is refused with that order's number. */

@@ -81,3 +81,7 @@ Built on Build 055 in place (the store has the 20-theme maximum, so no copy). Pa
 - An odd number of tattoos (one more is free) brings back the Build 038 sheet once per page view before paying:
   "Wait! Add 1 more design, get it FREE" with designs that are really free (no dearer than the cheapest paid one).
   Events: `freeask` shown / skip (an add is the usual `pick`).
+- Sold-out design in the cart (parts 1, 2): `/api/quote` now prices the rest and returns `sold_out: [{variant_id, title}]`
+  (all sold out: 409 with `sold_out`); the sheet takes those lines out of the Shopify cart (`/cart/update.js`) and says
+  "X just sold out, so we took it out of your cart" instead of falling back to "Checkout on Shopify". `/api/order` leaves
+  sold-out lines out too (live for every theme as soon as the API deploys).

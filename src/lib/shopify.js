@@ -158,3 +158,21 @@ export async function createPartialOrder(env, { draftId, advancePaise, txnid }) 
   }
   throw last;
 }
+
+/**
+ * Nov 2026: a design that sold out after it went into a cart made loadLines throw ("sold out: X"), so the quote failed
+ * and the checkout fell back to "Checkout on Shopify" for the whole cart. Split those lines out first: the caller
+ * prices the rest and tells the shopper which designs were dropped. { raw: available cart lines, soldOut: [{ variant_id, title }] }
+ */
+export async function splitSoldOut(env, cartLines) {
+  if (!cartLines.length) return { raw: cartLines, soldOut: [] };
+  const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on ProductVariant { id availableForSale product { title } } } }`,
+    { ids: cartLines.map((l) => `gid://shopify/ProductVariant/${l.variant_id}`) });
+  const raw = [], soldOut = [];
+  cartLines.forEach((l, i) => {
+    const v = d.nodes[i];
+    if (v && v.availableForSale === false) soldOut.push({ variant_id: String(l.variant_id), title: v.product?.title || '' });
+    else raw.push(l);
+  });
+  return { raw, soldOut };
+}
