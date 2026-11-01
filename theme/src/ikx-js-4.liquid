@@ -220,6 +220,9 @@
   function onClick(e) {
     var t = e.target instanceof Element ? e.target : null; if (!t) return;
     if (t.closest('[data-ikx-close]')) { e.preventDefault(); closeSheet(); return; }
+    /* Build 056: buttons in the "pay online, save" sheet: log the answer; the pay buttons then work as usual */
+    var ca = t.closest('[data-ikx-ca]');
+    if (ca) { var cav = ca.getAttribute('data-ikx-ca'); tk('method', { method: cav === 'online' ? 'upi' : 'cod', data: { codask: cav } }); if (cav === 'online') closeAsk(); }
     var q = t.closest('[data-ikx-qty]');
     if (q) { e.preventDefault(); if (!state.busy) changeQty(q.closest('[data-key]').getAttribute('data-key'), parseInt(q.getAttribute('data-ikx-qty'), 10)); return; }
     var a = t.closest('[data-ikx-add]');
@@ -233,10 +236,10 @@
     if (t.closest('[data-otp-skip]')) { e.preventDefault(); if (!OTP || state.busy) return; var sd = OTP.d; state.otpSkip = true; otpClose(); tk('otp_skip'); placeOrder(sd, false, ''); return; }
     if (t.closest('[data-otp-paste]')) { e.preventDefault(); otpPaste(); return; }
     if (t.closest('[data-otp-edit]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); var pf = form() && form().elements.phone; goCheckout(false); if (pf) setTimeout(function () { pf.focus(); pf.select && pf.select(); }, 350); return; }
-    if (t.closest('[data-ikx-skip]')) { e.preventDefault(); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
+    if (t.closest('[data-ikx-skip]')) { e.preventDefault(); tk('method', { method: state.method, data: { freeask: 'skip' } }); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
     if (t.closest('[data-ikx-gofree]')) { e.preventDefault(); var ob = $('.ikx-offer', root); if (ob) ob.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     var m = t.closest('[data-ikx-method]');
-    if (m) { e.preventDefault(); if (state.busy) return; state.method = m.getAttribute('data-ikx-method'); paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: state.method }); if (m.hasAttribute('data-ikx-go')) submit(); return; }
+    if (m) { e.preventDefault(); if (state.busy) return; state.method = m.getAttribute('data-ikx-method'); paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: state.method }); if (m.hasAttribute('data-ikx-go')) submit(); else if (state.method === 'cod') askCod(); return; }
     var u = t.closest('[data-ikx-upi]');
     if (u) {
       e.preventDefault(); if (state.busy) return; state.upiApp = u.getAttribute('data-ikx-upi');
@@ -288,7 +291,9 @@
     var bad = invalid(d);
     if (bad) { paintFoot(); fieldError(bad[0]); goCheckout(true); return showErr(bad[1]); }
     if (SHIP.no && SHIP.pin === d.pincode) { fieldError('pincode'); goCheckout(true); return showErr('Sorry, we can\u2019t deliver to PIN code ' + d.pincode + ' yet. Please use another address.'); }
-    /* Build 039: no "you have 1 FREE tattoo" pop-up before paying (simpler checkout) */
+    /* Build 056: an odd number of tattoos (one more is FREE): "add 1 more design" once per page view before paying
+       (Build 039 had dropped it; shoppers kept ordering a single tattoo). */
+    if (!FREE_ASKED && askFree()) { FREE_ASKED = true; tk('method', { method: state.method, data: { freeask: 'shown' } }); paintFoot(); return; }
     state.draft = d; rememberBuyer(d);
     var pcx = state.method === 'cod' && pcOn();
     /* Build 044: Cash on delivery (not part-paid) is verified with a 4-digit WhatsApp code first. The code box opens
@@ -484,7 +489,7 @@
 
   /* Build 038: one last chance before paying with an unclaimed free tattoo (once per visit; "Continue without"
      is remembered for this browser tab only). */
-  var SKIP_FREE = false;
+  var SKIP_FREE = false, FREE_ASKED = false;
   try { SKIP_FREE = sessionStorage.getItem('ikx_skipfree') === '1'; } catch (e) {}
   function closeAsk() { var a = root && $('.ikx-ask', root); if (a) a.remove(); }
   function askFree() {
@@ -495,12 +500,43 @@
     var o = el('div', { class: 'ikx-ask', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your free tattoo' },
       '<div class="ikx-ask__card"><button type="button" class="ikx-x ikx-ask__x" data-ikx-askx aria-label="Close">' + ICON.close + '</button>' +
         '<p class="ikx-ask__k">Buy 1 Get 1 · don’t miss it</p>' +
-        '<h3>Wait! You have 1 FREE tattoo</h3>' +
-        '<p class="ikx-m">Tap a design to add it. You still pay ' + money(state.quote[qk(state.method)].total) + '.</p>' +
+        '<h3>Wait! Add 1 more design, get it FREE</h3>' +
+        '<p class="ikx-m">Your Buy 1 Get 1 has a free tattoo left. Tap a design to add it, you still pay ' + money(state.quote[qk(state.method)].total) + '.</p>' +
         '<div class="ikx-fp ikx-fp--ask">' + fp.map(freeTile).join('') + '</div>' +
         '<button type="button" class="ikx-ask__skip" data-ikx-skip>Continue without free tattoo</button></div>');
     $('.ikx-sheet', root).appendChild(o);
     var first = $('.ikx-fp__i', o); if (first) first.focus({ preventScroll: true });
+    return true;
+  }
+
+  /* Build 056: choosing Cash on delivery opens a short sheet, once per visit: how much paying online saves and that
+     prepaid orders are dispatched first. Its UPI app tiles (phones) / "Pay online" (computers) pay straight away;
+     "Continue with Cash on delivery" keeps COD. Not shown after a failed payment ("Cash on delivery instead"). */
+  var COD_ASKED = false;
+  try { COD_ASKED = sessionStorage.getItem('ikx_codask') === '1'; } catch (e) {}
+  function askCod() {
+    if (COD_ASKED || !state.quote || !state.final || state.busy || !root) return false;
+    var cod = state.quote.cod, pre = state.quote.prepaid, save = cod.total - pre.total;
+    if (!(save > 0)) return false;
+    COD_ASKED = true; try { sessionStorage.setItem('ikx_codask', '1'); } catch (e) {}
+    closeAsk();
+    var pay = IS_MOBILE
+      ? '<div class="ikx-po__apps ikx-ca__apps" role="group" aria-label="Pay with a UPI app">' + ['gpay', 'phonepe', 'paytm'].map(function (k) {
+          return '<button type="button" class="ikx-po__app ikx-po__app--' + k + '" data-ikx-upi="' + k + '" data-ikx-go data-ikx-ca="online" aria-label="Pay ' + esc(money(pre.total)) + ' with ' + UPI_TILE[k] + '"><span class="ikx-po__logo">' + upiIcon(k) + '</span><span>' + UPI_TILE[k] + '</span></button>';
+        }).join('') + '</div>' +
+        '<button type="button" class="ikx-po__line" data-ikx-upi="any" data-ikx-go data-ikx-ca="online"><span>Other UPI apps</span>' + ICON.chev + '</button>'
+      : '<button type="button" class="ikx-btn ikx-ca__go" data-ikx-method="upi" data-ikx-go data-ikx-ca="online">Pay ' + money(pre.total) + ' online</button>';
+    var o = el('div', { class: 'ikx-ask ikx-ask--cod', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pay online and save' },
+      '<div class="ikx-ask__card"><button type="button" class="ikx-x ikx-ask__x" data-ikx-askx data-ikx-ca="close" aria-label="Close">' + ICON.close + '</button>' +
+        '<p class="ikx-ask__k ikx-ca__k">Pay online · save ' + money(save) + '</p>' +
+        '<h3>Wait! Save ' + money(save) + ' by paying online</h3>' +
+        '<ul class="ikx-ca__l"><li>Pay <b>' + money(pre.total) + '</b> instead of <s>' + money(cod.total) + '</s></li>' +
+          '<li>Prepaid orders are packed and dispatched first</li>' +
+          (cod.cod ? '<li>No ' + money(cod.cod) + ' COD fee</li>' : '') + '</ul>' + pay +
+        '<button type="button" class="ikx-ask__skip" data-ikx-askx data-ikx-ca="cod">Continue with Cash on delivery</button></div>');
+    $('.ikx-sheet', root).appendChild(o);
+    tk('method', { method: 'cod', data: { codask: 'shown', save: save } });
+    var first = $('.ikx-po__app, .ikx-ca__go', o); if (first) first.focus({ preventScroll: true });
     return true;
   }
 

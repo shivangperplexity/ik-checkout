@@ -71,3 +71,13 @@ Build 053 also: PIN code first in the delivery form with "Get it by <date> · Fr
 under it (part 2 paintShip, `.ikx-pinedd`); city + state in one row after the address. OTP box: "Code not coming? Place
 order, confirm on WhatsApp" after 25 s (part 4). A failed online payment shows "Pay by UPI QR / UPI ID" and "Cash on
 delivery instead" buttons under the error (part 4 showErr).
+
+## Build 056: pay-online sheet on COD, "add 1 more design" before paying (Nov 2026)
+Built on Build 055 in place (the store has the 20-theme maximum, so no copy). Part 4 + `assets/ik-express-4.css`:
+- Tapping the Cash on delivery tile opens a bottom sheet once per visit (`sessionStorage.ikx_codask`): "Save ₹X by paying
+  online" (COD total minus online total), "Prepaid orders are packed and dispatched first", "No ₹29 COD fee"; UPI app tiles
+  (phones) or "Pay ₹Y online" (computers) pay straight away; "Continue with Cash on delivery" keeps COD. Not shown after a
+  failed payment ("Cash on delivery instead" pays directly). Events: `method` with data `codask` shown / online / cod / close.
+- An odd number of tattoos (one more is free) brings back the Build 038 sheet once per page view before paying:
+  "Wait! Add 1 more design, get it FREE" with designs that are really free (no dearer than the cheapest paid one).
+  Events: `freeask` shown / skip (an add is the usual `pick`).
