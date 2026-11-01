@@ -53,6 +53,13 @@ export async function sr(env, method, path, body) {
     }
   }
 }
+/** Read-only GET of a full Shiprocket URL with the API user's token (used to find report endpoints). */
+export async function srGetUrl(env, url) {
+  const t = await srToken(cfg(env), false);
+  const r = await fetch(url, { headers: { Authorization: 'Bearer ' + t, Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT) });
+  const j = await r.json().catch(() => ({}));
+  return { status: r.status, body: j };
+}
 async function sr1(env, method, path, body) {
   const c = cfg(env);
   for (let attempt = 0; attempt < 2; attempt++) {

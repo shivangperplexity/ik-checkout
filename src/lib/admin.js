@@ -1695,6 +1695,14 @@ const ACTIONS = {
     const csv = ['phone,fn,ln,ct,st,zip,country', ...rows.map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
     return { ok: true, rows: rows.length, csv };
   },
+  /** Finds Shiprocket's COD remittance endpoint: tries read-only GETs and reports status + top-level keys only. */
+  async sr_remit_probe(env) {
+    const { srGetUrl } = await import('./shiprocket.js'); const f = await withSettingsFresh(env);
+    const urls = ['v1/external/account/details/remittance', 'v1/external/remittance', 'v1/external/account/details/remittance_summary', 'v1/external/billing/remittance', 'v1/account/details/remittance', 'v1/account/details/remittance_summary', 'v1/remittance', 'v1/billing/remittance', 'v1/settings/remittance', 'v1/account/details/statement', 'v1/external/account/details/statement'];
+    const out = [];
+    for (const u of urls) { try { const r = await srGetUrl(f, 'https://apiv2.shiprocket.in/' + u); const d = r.body?.data ?? r.body; out.push({ u, status: r.status, keys: d && typeof d === 'object' ? Object.keys(Array.isArray(d) ? d[0] || {} : d).slice(0, 25) : String(d).slice(0, 80), msg: String(r.body?.message || '').slice(0, 80) }); } catch (e) { out.push({ u, error: e.message.slice(0, 100) }); } }
+    return { ok: true, out };
+  },
   /* ---------- ShipPrime NDR through its dashboard API (lib/sp-ndr.js) ---------- */
   async sp_ndr_status(env) {
     const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
