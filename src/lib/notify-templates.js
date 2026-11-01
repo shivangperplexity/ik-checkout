@@ -86,4 +86,20 @@ export const PACK_DONE_V1 = {
     FOOT,
   ],
 };
-export const ALL = [PACK_PENDING_V1, PACK_DONE_V1, COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1, COD_CONFIRM_V4, COD_PLACED_V3, ORDER_PAID_V2];
+/* Abandoned checkout, Nov 2026 (owner's copy idea): the ex joke, worded by the shopper's likely gender (lib/gender.js),
+   neutral when the name does not tell. Positional like the other checkout_reminder_* templates: {{1}} name,
+   {{2}} items, {{3}} cart link; photo header of the design in the cart. */
+const EX_TAIL = '\n\nOrder yahan complete karo: {{3}}\n\n🎁 Buy 1 Get 1 FREE + online payment pe extra discount.\n\nCash on Delivery bhi available.';
+const exTpl = (name, middle) => ({
+  name, language: 'en', category: 'MARKETING',
+  components: [
+    { type: 'HEADER', format: 'IMAGE' },
+    { type: 'BODY', text: 'Hi {{1}}, {{2}} cart mein chhod ke chale gaye? 💔\n\n' + middle + EX_TAIL, example: { body_text: [['Rahul', 'Snake Tattoo x 1', 'https://www.inkkulture.in/cart']] } },
+    { type: 'FOOTER', text: 'Reply STOP to opt out' },
+  ],
+});
+export const ABANDON_EX_M = exTpl('checkout_reminder_ex_m_offer', 'Jaise woh chhod ke chali gayi, waise aap humein mat chhodo.\nPromise: hamara tattoo uss se zyada time tak tikega. 😉');
+export const ABANDON_EX_F = exTpl('checkout_reminder_ex_f_offer', 'Jaise woh chhod ke chala gaya, waise aap humein mat chhodo.\nPromise: hamara tattoo uss se zyada time tak tikega. 😉');
+export const ABANDON_EX_N = exTpl('checkout_reminder_ex_offer', 'Jo chhod ke gaye, unhe jaane do. Aap humein mat chhodo.\nHamara tattoo 2 hafte tak saath nibhata hai, kuch logon se toh zyada hi. 😉');
+
+export const ALL = [ABANDON_EX_M, ABANDON_EX_F, ABANDON_EX_N, PACK_PENDING_V1, PACK_DONE_V1, COD_CONFIRM_V3, COD_PLACED_V1, SHIP_BOOKED_V1, COD_PLACED_V2, ADDRESS_FIX_V1, COD_CONFIRM_V4, COD_PLACED_V3, ORDER_PAID_V2];

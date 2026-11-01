@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { convertCfg, discountOrder, payKey, parseKey } from './wa-convert.js';
 
 test('settings: dashboard wins, legacy env still works, values clamped', () => {
-  assert.deepEqual(convertCfg({ SETTINGS: { convert: { mode: 'on', pct: 90, delay_min: -5, hours: 500 } } }), { mode: 'on', pct: 50, delay_min: 0, hours: 72, minutes: 30, template: 'cod_prepaid_offer_v2' });
+  assert.deepEqual(convertCfg({ SETTINGS: { convert: { mode: 'on', pct: 90, delay_min: -5, hours: 500 } } }), { mode: 'on', pct: 50, delay_min: 1, hours: 72, minutes: 30, template: 'cod_prepaid_offer_v3', match: true });
   assert.equal(convertCfg({ SETTINGS: { convert: { mode: 'on', minutes: 2 } } }).minutes, 5);
   assert.equal(convertCfg({ SETTINGS: { convert: { mode: 'on', minutes: 45 } } }).minutes, 45);
   assert.equal(convertCfg({}).mode, 'off');

@@ -288,7 +288,7 @@ export function pickVariant(cfg, phone, day = new Date().toISOString().slice(0, 
 
 /** Fire a configured trigger. vars = {name, order, ...}; to = 10-digit phone (or admin phone for admin_* triggers). Never throws. */
 const ONCE_EXEMPT = new Set(['cod_otp', 'admin_new_order', 'admin_high_risk']);
-export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName, force = false }) {
+export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName, force = false, template = '' }) {
   const { TRIGGERS, triggerConfig } = await import('./settings.js');
   const t = TRIGGERS[key];
   if (!t) return { skipped: 'unknown' };
@@ -297,12 +297,13 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
   if (!cfg.enabled && !force) return { skipped: 'disabled' };
   const phone = String(to || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
   const v = { ...vars };
-  let templateName = pickVariant(cfg, phone);
+  /* template: a caller's pick (e.g. the abandoned-checkout wording by gender); not approved yet -> the usual rotation */
+  let templateName = template || pickVariant(cfg, phone);
   /* Not yet approved? A rotation variant falls back to the base template; the base falls back to the trigger's
      older approved template (e.g. a reworded version still in review). */
   /* x_offer -> x_img -> x: photo+offer, photo only, text only. */
   const alts = (n) => [n, String(n || '').replace(/_offer$/, '_img'), String(n || '').replace(/_(offer|img)$/, '')];
-  const candidates = (n) => [...new Set([...alts(n), ...alts(cfg.name), t.fallback].filter(Boolean))];
+  const candidates = (n) => [...new Set([...alts(n), ...(template ? alts(pickVariant(cfg, phone)) : []), ...alts(cfg.name), t.fallback].filter(Boolean))];
   /* Worth trying the next template: not approved yet, an image version with no picture to send, or a button we can't fill. */
   const RETRY = /not found or not approved|image header but no image|dynamic link button/;
   let shown = '';   /* the template text as sent (Cloud API), else the variables */

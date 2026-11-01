@@ -1238,19 +1238,20 @@ const ACTIONS = {
     const e2 = await withSettings(f);
     const { metaTemplate } = await import('./whatsapp.js');
     const tpl = async (n) => { try { const t = await metaTemplate(e2, n); return t ? { name: n, status: t.status, category: t.category || '' } : { name: n, status: 'MISSING' }; } catch (e) { return { name: n, status: 'UNKNOWN', error: String(e.message || e).slice(0, 120) }; } };
-    return { ok: true, cfg: convertCfg(f), stats: await convertStats(env), templates: [await tpl('cod_prepaid_offer_v2'), await tpl('cod_prepaid_offer')], trigger_on: triggerConfig(f, 'cod_to_prepaid').enabled, store: env.STORE_URL || '' };
+    return { ok: true, cfg: convertCfg(f), stats: await convertStats(env), templates: [await tpl('cod_prepaid_offer_v3'), await tpl('cod_prepaid_offer_v2')], trigger_on: triggerConfig(f, 'cod_to_prepaid').enabled, store: env.STORE_URL || '' };
   },
   async save_convert(env, b) {
     const { CONVERT_DEFAULTS } = await import('./wa-convert.js');
     const c = { ...CONVERT_DEFAULTS, mode: b.mode === 'on' ? 'on' : 'off', pct: Math.min(50, Math.max(1, Math.round(Number(b.pct) || 20))),
-      minutes: Math.max(5, Math.min(72 * 60, Math.round(Number(b.minutes) || CONVERT_DEFAULTS.minutes))) };
+      minutes: Math.max(5, Math.min(72 * 60, Math.round(Number(b.minutes) || CONVERT_DEFAULTS.minutes))),
+      delay_min: Math.max(1, Math.min(24 * 60, Math.round(Number(b.delay_min) || CONVERT_DEFAULTS.delay_min))), match: b.match !== false };
     await putSetting(env, 'convert', c);
     return { ok: true, cfg: c };
   },
   /** Submit the cod_prepaid_offer template to Meta for approval. */
   async convert_template(env) {
-    const { OFFER_TEMPLATE } = await import('./wa-convert.js');
-    const r = await ACTIONS.wa_create_templates(env, { templates: [OFFER_TEMPLATE] });
+    const { OFFER_TEMPLATE, OFFER_TEMPLATE_V3 } = await import('./wa-convert.js');
+    const r = await ACTIONS.wa_create_templates(env, { templates: [OFFER_TEMPLATE_V3, OFFER_TEMPLATE] });
     const { clearMetaCache } = await import('./whatsapp.js'); clearMetaCache();
     return { ok: true, ...r };
   },
@@ -2176,12 +2177,18 @@ export async function handleLabel(req, env) {
 export async function runAutomations(env) {
   const out = { nudged: 0, reminded: 0 };
   const t = now();
-  if (triggerConfig(env, 'abandoned_cart').enabled) {
+  const istMin = (() => { const d = new Date((t + 19800) * 1000); return d.getUTCHours() * 60 + d.getUTCMinutes(); })();
+  /* marketing nudge: 9 am - 10 pm IST only; a cart left at night is nudged in the morning (6 h look-back) */
+  if (triggerConfig(env, 'abandoned_cart').enabled && istMin >= 9 * 60 && istMin < 22 * 60) {
     /* 20 minutes after the shopper went quiet (the cron runs every 5 minutes). */
     const rows = (await env.DB.prepare("SELECT * FROM leads WHERE status='open' AND nudged_at IS NULL AND updated_at<? AND updated_at>? LIMIT 30").bind(t - 20 * 60, t - 6 * 3600).all()).results;
+    const { guessGender } = await import('./gender.js');
     for (const l of rows) {
       await env.DB.prepare('UPDATE leads SET nudged_at=? WHERE phone=?').bind(t, l.phone).run();
-      await fireTrigger(env, 'abandoned_cart', { to: l.phone, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: await cartLink(env, l.phone) } });
+      /* "jaise woh chhod ke gayi / gaya": wording by the name's likely gender, neutral when unsure */
+      const g = guessGender(l.name);
+      const template = g === 'm' ? 'checkout_reminder_ex_m_offer' : g === 'f' ? 'checkout_reminder_ex_f_offer' : 'checkout_reminder_ex_offer';
+      await fireTrigger(env, 'abandoned_cart', { to: l.phone, template, vars: { name: l.name?.split(' ')[0] || 'there', items: 'your Ink Kulture cart', link: await cartLink(env, l.phone) } });
       out.nudged++;
     }
   }
