@@ -71,7 +71,7 @@ export async function handleTrack(req, env) {
   if (!sid || !STEPS.concat(['left', 'fail', 'method', 'upi', 'ping']).includes(type)) return json({ ok: false }, 400);
   const t = now();
   const rank = STEPS.indexOf(type);
-  const lines = Array.isArray(b.cart) ? b.cart.slice(0, 20).map((l) => ({ t: String(l.t || '').slice(0, 80), q: +l.q || 1, p: +l.p || 0 })) : null;
+  const lines = Array.isArray(b.cart) ? b.cart.slice(0, 20).filter((l) => !/^partial payment$/i.test(String(l.t || '').trim())).map((l) => ({ t: String(l.t || '').slice(0, 80), q: +l.q || 1, p: +l.p || 0 })) : null;
   const value = lines ? lines.reduce((s, l) => s + l.p * l.q, 0) : null;
   const utm = b.utm && typeof b.utm === 'object' ? JSON.stringify(b.utm).slice(0, 800) : null;
   const src = b.utm?.utm_source ? String(b.utm.utm_source).slice(0, 40) : b.utm?.fbclid ? 'facebook' : null;

@@ -27,8 +27,12 @@ async function rateLimit(env, ip, max) {
   return (r?.n || 1) <= max;
 }
 
+/* "Partial Payment" (₹0): left in some shoppers' carts by the old COD King app (switched off). Never part of an order. */
+export const JUNK_VARIANTS = new Set(['67841169817835']);
+const junkTitle = (t) => /^partial payment$/i.test(String(t || '').trim());
+
 function cartLines(body) {
-  const lines = (Array.isArray(body.lines) ? body.lines : []).slice(0, 30).filter((l) => /^\d+$/.test(String(l.variant_id)));
+  const lines = (Array.isArray(body.lines) ? body.lines : []).slice(0, 30).filter((l) => /^\d+$/.test(String(l.variant_id)) && !JUNK_VARIANTS.has(String(l.variant_id)) && !junkTitle(l.title));
   if (!lines.length) throw new Error('empty cart');
   return lines;
 }
