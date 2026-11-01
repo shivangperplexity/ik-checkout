@@ -48,15 +48,33 @@ export async function customerNdr(env, { orderId, phone, what, date = '', via = 
   const a1 = String(address1 || '').trim().slice(0, 200), a2 = String(address2 || '').trim().slice(0, 200);
   const ph = /^[6-9]\d{9}$/.test(String(altPhone || '').replace(/\D/g, '').slice(-10)) ? String(altPhone).replace(/\D/g, '').slice(-10) : '';
   const notes = [okDate(date) ? 'on ' + date : '', a1 || a2 ? 'new address: ' + [a1, a2].filter(Boolean).join(', ') : '', ph ? 'call ' + ph : ''].filter(Boolean).join('; ');
-  /* ShipPrime has no NDR API: the choice is kept (Shipments tab, NDR) for the team to apply in ShipPrime, Manage NDR */
-  const res = rec.provider === 'shipprime' ? { manual: true } : await ndrAction(env, { awb: rec.awb, action: key === 'return' ? 'return' : 're-attempt', deferred_date: okDate(date) ? date : '', address1: a1, address2: a2, phone: ph,
+  /* ShipPrime: re-attempt (with a new phone / address first) goes through its dashboard API (lib/sp-ndr.js).
+     A return is never applied automatically (owner's rule: RTO only by hand) and stays for the team. */
+  const res = rec.provider === 'shipprime' ? await spCustomerNdr(env, rec, { key, a1, a2, ph }) : await ndrAction(env, { awb: rec.awb, action: key === 'return' ? 'return' : 're-attempt', deferred_date: okDate(date) ? date : '', address1: a1, address2: a2, phone: ph,
     comments: (key === 'return' ? 'Customer asked for return on WhatsApp' : 'Customer asked for re-attempt on WhatsApp' + (notes ? ' (' + notes + ')' : '')) + (note ? '. ' + note : '') });
   await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_date=?, ndr_by=?, updated_at=? WHERE order_id=?').bind(key, now(), res?.deferred_date || (okDate(date) ? date : null), 'customer', now(), String(rec.order_id)).run().catch(() => {});
   /* keep Shopify's copy of the address in step (best effort: the courier already has the new one) */
   if (a1 || a2) await updateShopifyAddress(env, rec.order_id, { address1: a1, address2: a2 }).catch((e) => console.error('ndr address', e.message));
   await logMsg(env, { direction: 'in', phone: rec.phone, trigger: 'ndr-' + via, template: key.toUpperCase(), status: res?.manual ? 'todo-shipprime' : 'applied', orderName: rec.order_name,
-    preview: notes.replace(/new address: .*?(;|$)/, 'new address given$1') + (res?.manual ? (notes ? ' · ' : '') + 'ShipPrime parcel: apply it in ShipPrime, Manage NDR' : '') });
+    preview: notes.replace(/new address: .*?(;|$)/, 'new address given$1') + (res?.manual ? (notes ? ' · ' : '') + 'ShipPrime parcel: ' + (res.why || 'apply it in ShipPrime, Manage NDR') : res?.sp ? (notes ? ' · ' : '') + 'Re-opened in ShipPrime' : '') });
   return { status: key, rec };
+}
+
+async function spCustomerNdr(env, rec, { key, a1, a2, ph }) {
+  if (key === 'return') return { manual: true, why: 'customer wants it returned, mark RTO in ShipPrime if you agree' };
+  try {
+    const S = await import('./sp-ndr.js');
+    if (!S.dashCfg(env).token) return { manual: true, why: 'dashboard token missing (Settings, Shipping)' };
+    const o = await S.byAwb(env, rec.awb);
+    if (!o) return { manual: true, why: 'not in ShipPrime Manage NDR yet, the 30-minute check will re-open it' };
+    if (a1 || a2 || ph) {
+      const { orderDetail } = await import('./shopify.js');
+      const a = (await orderDetail(env, rec.order_id).catch(() => null))?.shippingAddress || {};
+      await S.updateContact(env, o.sp_id, { name: a.name || rec.first_name || '', phone: ph || String(a.phone || rec.phone || ''), address1: a1 || a.address1 || '', address2: a2 || a.address2 || '', city: a.city || '', state: a.province || '', pincode: a.zip || '' });
+    }
+    if (!o.action_taken) await S.reattempt(env, o.sp_id);
+    return { sp: true };
+  } catch (e) { return { manual: true, why: String(e.message).slice(0, 120) }; }
 }
 
 async function updateShopifyAddress(env, orderId, { address1, address2 }) {
