@@ -608,7 +608,7 @@ const ACTIONS = {
       resendDue(fresh, { anyTries: true }),
     ]);
     return { ok: true, pixel: c.pixelId, env_pixel: env.META_PIXEL_ID || '', test_code: c.testCode, env_test_ignored: !!env.META_TEST_EVENT_CODE, browser: c.browser, token: !!c.token,
-      ads_token: fresh.SETTINGS?.meta?.ads_token ? '••••' + String(fresh.SETTINGS.meta.ads_token).slice(-4) : (env.META_ADS_TOKEN ? 'env' : ''), ads_max_daily: fresh.SETTINGS?.meta?.ads_max_daily || 5000, ads_target_cpa: fresh.SETTINGS?.meta?.ads_target_cpa || 80,
+      ads_token: fresh.SETTINGS?.meta?.ads_token ? '••••' + String(fresh.SETTINGS.meta.ads_token).slice(-4) : (env.META_ADS_TOKEN ? 'env' : ''), ads_max_daily: fresh.SETTINGS?.meta?.ads_max_daily || 1750, ads_max_total: fresh.SETTINGS?.meta?.ads_max_total || 1750, ads_target_cpa: fresh.SETTINGS?.meta?.ads_target_cpa || 80,
       info, env_info: envInfo, resend_due: due.length, ...stats };
   },
   async save_meta(env, b) {
@@ -622,7 +622,8 @@ const ACTIONS = {
     if (b.test_code !== undefined) m.test_code = String(b.test_code || '').trim().slice(0, 40);
     if (b.browser !== undefined) m.browser = !!b.browser;
     if (b.ads_token !== undefined && !String(b.ads_token).startsWith('••')) m.ads_token = String(b.ads_token).replace(/^Bearer\s+/i, '').trim().slice(0, 1000);
-    if (b.ads_max_daily !== undefined) m.ads_max_daily = Math.max(100, Math.min(100000, Math.round(+b.ads_max_daily || 5000)));
+    if (b.ads_max_daily !== undefined) m.ads_max_daily = Math.max(100, Math.min(100000, Math.round(+b.ads_max_daily || 1750)));
+    if (b.ads_max_total !== undefined) m.ads_max_total = Math.max(100, Math.min(200000, Math.round(+b.ads_max_total || 1750)));
     if (b.ads_target_cpa !== undefined) m.ads_target_cpa = Math.max(1, Math.min(10000, Math.round(+b.ads_target_cpa || 80)));
     await putSetting(env, 'meta', m);
     return { ok: true, meta: { ...m, ads_token: m.ads_token ? '••••' + m.ads_token.slice(-4) : '' } };

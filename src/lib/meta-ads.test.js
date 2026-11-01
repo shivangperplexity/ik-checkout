@@ -17,6 +17,10 @@ test('meta-ads: customer rows are normalised and SHA-256 hashed; empty fields st
 test('meta-ads: budget cap and status guard; token never in the error', async () => {
   const env = { SETTINGS: { meta: { ads_token: 'SECRET', ads_max_daily: 2000 } } };
   await assert.rejects(setBudget(env, '120252142549410354', 5000), /cap of ₹2000/);
+  /* account total: other active budgets count against the limit */
+  const old0 = globalThis.fetch;
+  globalThis.fetch = async (u) => ({ ok: true, json: async () => (/\/adsets/.test(String(u)) ? { data: [{ id: '1', daily_budget: '75000' }, { id: '120252142549410354', daily_budget: '100000' }] } : /\/campaigns/.test(String(u)) ? { data: [] } : { name: 'Winning reels', daily_budget: '100000' }) });
+  try { await assert.rejects(setBudget({ SETTINGS: { meta: { ads_token: 'SECRET', ads_max_total: 1750 } } }, '120252142549410354', 1200), /limit is ₹1750/); } finally { globalThis.fetch = old0; }
   await assert.rejects(setBudget(env, '120252142549410354', 10), /at least/);
   await assert.rejects(setStatus(env, '120252142549410354', 'DELETED'), /ACTIVE or PAUSED/);
   await assert.rejects(graph(env, 'GET', 'act_1/ads?x=1'), /bad path/);
@@ -26,7 +30,7 @@ test('meta-ads: budget cap and status guard; token never in the error', async ()
   try {
     const r = await setBudget(env, '120252142549410354', 1200);
     assert.deepEqual(r, { id: '120252142549410354', name: 'Winning reels', from: 1000, to: 1200 });
-    assert.equal(calls[1][1].body.get('daily_budget'), '120000');
+    assert.equal(calls.find((c) => c[1]?.method === 'POST')[1].body.get('daily_budget'), '120000');
   } finally { globalThis.fetch = old; }
   assert.equal(await setBudget({ SETTINGS: { meta: {} } }, '120252142549410354', 500).catch((e) => /token not set/.test(e.message)), true);
 });

@@ -20,7 +20,8 @@ export function adsCfg(env) {
     token: String(m.ads_token || env.META_ADS_TOKEN || '').trim(),
     account: 'act_' + String(m.ad_account || env.META_AD_ACCOUNT || AD_ACCOUNT).replace(/^act_/, ''),
     version: String(m.ads_version || env.META_ADS_VERSION || 'v26.0').trim(), /* Meta answers #2635 with the version it wants; graph() follows it */
-    maxDaily: Math.max(100, Number(m.ads_max_daily) || 5000), /* rupees: no ad set or campaign can be set above this per day */
+    maxDaily: Math.max(100, Number(m.ads_max_daily) || 1750), /* rupees: no ad set or campaign can be set above this per day */
+    maxTotal: Math.max(100, Number(m.ads_max_total) || 1750), /* rupees: all delivering budgets together (owner, Nov 2026: 1500-1750 to start) */
     target: Math.max(1, Number(m.ads_target_cpa) || 80), /* rupees per purchase the scaling rules aim for */
   };
 }
@@ -141,6 +142,13 @@ export async function setStatus(env, id, status) {
   const s = String(status).toUpperCase();
   if (!['ACTIVE', 'PAUSED'].includes(s)) throw new Error('status must be ACTIVE or PAUSED');
   if (!/^\d{6,25}$/.test(String(id))) throw new Error('bad id');
+  if (s === 'ACTIVE') {
+    const c = adsCfg(env);
+    const me = await graph(env, 'GET', String(id), { fields: 'daily_budget' }).catch(() => ({}));
+    const add = Number(me.daily_budget || 0) / 100;
+    const cur = (await activeBudgets(env)).filter((b) => b.id !== String(id)).reduce((t, b) => t + b.daily, 0);
+    if (add && cur + add > c.maxTotal) throw new Error(`Turning this on makes ₹${cur + add}/day; the account limit is ₹${c.maxTotal}/day.`);
+  }
   await graph(env, 'POST', String(id), { status: s });
   return { id, status: s };
 }
@@ -153,8 +161,21 @@ export async function setBudget(env, id, rupees) {
   if (r > c.maxDaily) throw new Error(`₹${r}/day is above the cap of ₹${c.maxDaily}/day (Settings → Meta)`);
   if (!/^\d{6,25}$/.test(String(id))) throw new Error('bad id');
   const before = await graph(env, 'GET', String(id), { fields: 'name,daily_budget' });
+  const others = (await activeBudgets(env)).filter((b) => b.id !== String(id)).reduce((t, b) => t + b.daily, 0);
+  if (others + r > c.maxTotal) throw new Error(`Total would be ₹${others + r}/day; the account limit is ₹${c.maxTotal}/day (others already ₹${others}). Lower another budget first or raise the limit in Settings → Meta.`);
   await graph(env, 'POST', String(id), { daily_budget: r * 100 });
   return { id, name: before.name, from: before.daily_budget ? Number(before.daily_budget) / 100 : null, to: r };
+}
+
+/** Daily budgets that are spending now: CBO campaigns and ad sets with their own budget, in rupees. */
+export async function activeBudgets(env) {
+  const c = adsCfg(env);
+  const [camps, sets] = await Promise.all([
+    all(env, `${c.account}/campaigns`, { fields: 'id,name,effective_status,daily_budget', filtering: [{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }] }),
+    all(env, `${c.account}/adsets`, { fields: 'id,name,campaign_id,effective_status,daily_budget', filtering: [{ field: 'effective_status', operator: 'IN', value: ['ACTIVE'] }] }),
+  ]);
+  return [...camps.filter((k) => k.daily_budget).map((k) => ({ id: k.id, name: k.name, daily: Number(k.daily_budget) / 100 })),
+    ...sets.filter((s) => s.daily_budget).map((s) => ({ id: s.id, name: s.name, daily: Number(s.daily_budget) / 100 }))];
 }
 
 /** Copy an ad set (with its ads) into the same campaign, PAUSED; optional new name and budget. */
@@ -245,13 +266,18 @@ export async function suggestions(env) {
   const c = adsCfg(env);
   const [d3, d7] = await Promise.all([overview(env, { preset: 'last_3d' }), overview(env, { preset: 'last_7d' })]);
   const out = [];
+  let room = c.maxTotal - (await activeBudgets(env)).reduce((t, b) => t + b.daily, 0);
   for (const k of d3.campaigns) for (const s of k.adsets) {
     if (s.status !== 'ACTIVE' || !s.daily) continue;
-    if (s.purchases >= 3 && s.cpa !== null && s.cpa <= c.target) out.push({ kind: 'scale', id: s.id, name: s.name, cpa: s.cpa, purchases: s.purchases, from: s.daily, to: Math.min(c.maxDaily, Math.round(s.daily * 1.2)) });
+    if (s.purchases >= 3 && s.cpa !== null && s.cpa <= c.target) {
+      const to = Math.min(c.maxDaily, Math.round(s.daily * 1.2), s.daily + Math.max(0, room));
+      out.push(to > s.daily ? { kind: 'scale', id: s.id, name: s.name, cpa: s.cpa, purchases: s.purchases, from: s.daily, to } : { kind: 'scale_blocked', id: s.id, name: s.name, cpa: s.cpa, why: `account limit ₹${c.maxTotal}/day reached` });
+      room -= Math.max(0, to - s.daily);
+    }
   }
   for (const k of d7.campaigns) for (const s of k.adsets) for (const a of s.ads) {
     if (a.status !== 'ACTIVE') continue;
     if (a.spend >= 2 * c.target && (a.cpa === null || a.cpa > 1.5 * c.target)) out.push({ kind: 'pause', id: a.id, name: a.name, adset: s.name, spend: a.spend, purchases: a.purchases, cpa: a.cpa });
   }
-  return { target: c.target, max_daily: c.maxDaily, actions: out };
+  return { target: c.target, max_daily: c.maxDaily, max_total: c.maxTotal, actions: out };
 }
