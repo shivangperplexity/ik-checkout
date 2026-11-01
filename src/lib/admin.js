@@ -817,7 +817,8 @@ const ACTIONS = {
         policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days, shiprocket_block: s.shipping.shiprocket_block ?? null,
         cod_prefer: codPrefer(s.shipping), cod_prefer_extra: s.shipping.cod_prefer_extra ?? 25,
         sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack),
-        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token, shipprime_prefer: spPrefer(s.shipping),
+        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token,
+        sp_dash_token: mask(s.shipping.sp_dash_token), sp_dash_ok: !!s.shipping.sp_dash_token, sp_ndr_auto: s.shipping.sp_ndr_auto !== false, shipprime_prefer: spPrefer(s.shipping),
         ship_default: s.shipping.ship_default === 'shipprime' ? 'shipprime' : 'shiprocket', sp_pickup: s.shipping.sp_pickup || null,
         sp_webhook_url: spWebhookUrl(env), sp_webhook_secret: await spWebhookSecret(env), sp_couriers: SP_COURIERS },
     };
@@ -845,6 +846,13 @@ const ACTIONS = {
     if (b.tolerance_days !== undefined) sh.tolerance_days = Math.max(0, Math.min(10, Math.round(+b.tolerance_days || 0)));
     /* ShipPrime: API token (Profile > API Setup), courier order, default carrier for bulk booking, pickup address */
     if (b.shipprime_token !== undefined && !String(b.shipprime_token).startsWith('••')) sh.shipprime_token = String(b.shipprime_token).replace(/^Bearer\s+/i, '').trim().slice(0, 2000);
+    if (b.sp_dash_token !== undefined && !String(b.sp_dash_token).startsWith('••')) {
+      const { parseDashToken } = await import('./sp-ndr.js');
+      const tok = parseDashToken(b.sp_dash_token);
+      if (String(b.sp_dash_token).trim() && !tok) throw new Error('That is not a ShipPrime dashboard token. Open app.shipprime.live/api/auth/session while logged in and paste the whole page (or the "token" value).');
+      sh.sp_dash_token = tok;
+    }
+    if (b.sp_ndr_auto !== undefined) sh.sp_ndr_auto = !!b.sp_ndr_auto;
     if (b.shipprime_prefer !== undefined) sh.shipprime_prefer = String(b.shipprime_prefer).toUpperCase().split(/[|,\s]+/).filter((c) => SP_COURIERS.includes(c)).join('|');
     if (b.ship_default !== undefined) sh.ship_default = b.ship_default === 'shipprime' ? 'shipprime' : 'shiprocket';
     if (b.sp_pickup && typeof b.sp_pickup === 'object') {
@@ -1667,7 +1675,9 @@ const ACTIONS = {
       order: r.order_name, awb: r.awb, courier: r.courier, attempts: r.attempts, status: String(r.sr_status || '').slice(0, 120),
       customer: r.ndr_by && r.ndr_by !== 'auto' && r.ndr_by !== 'team' ? r.ndr_choice : '',
     }));
-    return { ok: true, at: now(), sr_open: list.length, sr_escalate, sr_failed, sp };
+    let sp_dash = null;
+    try { const S = await import('./sp-ndr.js'); if (S.dashCfg(f).token) { const rows = await S.ndrOrders(f, { days: 30 }); sp_dash = { open: rows.filter((o) => o.status === 'UNDELIVERED' && !o.action_taken).map((o) => `${o.order} ${o.courier} · ${o.reason} · attempts ${o.attempts}`), run: await S.autoReattempt(f, { force: true }) }; } } catch (e) { sp_dash = { error: e.message }; }
+    return { ok: true, at: now(), sr_open: list.length, sr_escalate, sr_failed, sp, sp_dash };
   },
   async track_link(env, b) { const C = await import('./self-cancel.js'); return { ok: true, url: await C.trackLink(env, String(b.id || '')) }; },
   async insights(env, b) { const I = await import('./insights.js'); return I.insights(env, { days: Math.min(180, Math.max(14, Number(b?.days) || 90)) }); },
@@ -1684,6 +1694,31 @@ const ACTIONS = {
     const csv = ['phone,fn,ln,ct,st,zip,country', ...rows.map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
     return { ok: true, rows: rows.length, csv };
   },
+  /* ---------- ShipPrime NDR through its dashboard API (lib/sp-ndr.js) ---------- */
+  async sp_ndr_status(env) {
+    const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
+    if (!c.token) return { ok: true, connected: false };
+    const exp = S.tokenExpiry(c.token);
+    try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, open: rows.filter((o) => o.status === 'UNDELIVERED' && !o.action_taken).length, rows }; }
+    catch (e) { return { ok: true, connected: false, auto: c.auto, expires: exp, error: e.message }; }
+  },
+  async sp_ndr_rto_list(env) { const S = await import('./sp-ndr.js'); return { ok: true, rows: await S.ndrOrders(await withSettingsFresh(env), { type: 'RTO', days: 60 }) }; },
+  async sp_ndr_run(env, b) { const S = await import('./sp-ndr.js'); return { ok: true, ...(await S.autoReattempt(await withSettingsFresh(env), { force: true, dry: !!b.dry })) }; },
+  /** One ShipPrime NDR by AWB: action 'reattempt' | 'rto' | 'contact' (phone / address for the next attempt). */
+  async sp_ndr_do(env, b) {
+    const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env);
+    const o = b.sp_id ? { sp_id: String(b.sp_id) } : await S.byAwb(f, String(b.awb || ''));
+    if (!o) throw new Error('This AWB is not in ShipPrime Manage NDR (last 30 days)');
+    const act = String(b.action || 'reattempt');
+    let r;
+    if (act === 'reattempt') r = await S.reattempt(f, o.sp_id);
+    else if (act === 'rto') r = await S.markRto(f, o.sp_id);
+    else if (act === 'contact') r = await S.updateContact(f, o.sp_id, b.contact || {});
+    else throw new Error('action: reattempt | rto | contact');
+    if (b.awb && act !== 'contact') await env.DB.prepare('UPDATE shipments SET ndr_choice=?, ndr_choice_at=?, ndr_by=?, updated_at=? WHERE awb=?').bind(act === 'rto' ? 'return' : 'reattempt', now(), 'team', now(), String(b.awb)).run().catch(() => {});
+    return { ok: true, sp_id: o.sp_id, response: r?.message || 'Done' };
+  },
+  async sp_ndr_history(env, b) { const S = await import('./sp-ndr.js'); return { ok: true, data: await S.history(await withSettingsFresh(env), String(b.sp_id || '')) }; },
   /* ---------- packing alerts to the team (lib/pack-alert.js) ---------- */
   async pack_alert_status(env) {
     const P = await import('./pack-alert.js'); const f = await withSettingsFresh(env); const c = P.packCfg(f);
@@ -1742,6 +1777,12 @@ const ACTIONS = {
   },
   /** action: 'reattempt' (optionally with a new date/phone) or 'return' (start RTO). */
   async ndr_do(env, b) {
+    /* ShipPrime parcels: through its dashboard API (lib/sp-ndr.js) */
+    const prov = (await env.DB.prepare('SELECT provider FROM shipments WHERE awb=?').bind(String(b.awb || '')).first().catch(() => null))?.provider;
+    if (prov === 'shipprime') {
+      const r = await ACTIONS.sp_ndr_do(env, { awb: b.awb, action: b.action_type === 'return' ? 'rto' : 'reattempt' });
+      return { ok: true, response: (b.action_type === 'return' ? 'Marked RTO in ShipPrime' : 'Re-opened in ShipPrime') + (r.response && r.response !== 'Done' ? ' · ' + r.response : ''), deferred_date: '' };
+    }
     const action = b.action_type === 'return' ? 'return' : 're-attempt';
     const date = String(b.deferred_date || '').trim();
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Date must look like 2026-10-20');
@@ -2152,6 +2193,7 @@ export async function runAutomations(env) {
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
+  try { const { autoReattempt } = await import('./sp-ndr.js'); const r = await autoReattempt(env); if (r.reopened?.length || r.failed?.length) out.spNdr = r; } catch (e) { console.error('sp ndr', e); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
