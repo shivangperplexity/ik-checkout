@@ -50,14 +50,30 @@ export async function shipprimeWallet(env) {
   };
 }
 
-/** Shiprocket remittance rows, when an endpoint is configured (settings shipping.sr_remit_path). */
-export async function shiprocketRemit(env) {
-  const path = env.SETTINGS?.shipping?.sr_remit_path;
-  if (!path) return { connected: false };
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Shiprocket wants dates like 2026-Oct-03 */
+export const srDate = (ts) => { const d = new Date((ts + IST) * 1000); return `${d.getUTCFullYear()}-${MON[d.getUTCMonth()]}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+
+/**
+ * Shiprocket COD remittances (CRFs): GET /v1/external/account/details/remittance?from=2026-Oct-03&to=2026-Nov-01
+ * -> [{ created_at, crf_id, utr, cod_payble, remitted_value, deduction_value, recharge_value, status, remarks, remittance_type }]
+ * (found Nov 2026; other date formats answer 500 "Trailing data").
+ */
+export async function shiprocketRemit(env, { days = 60 } = {}) {
   const { srGetUrl } = await import('./shiprocket.js');
-  const r = await srGetUrl(env, 'https://apiv2.shiprocket.in/' + path);
-  if (r.status !== 200) return { connected: false, error: `HTTP ${r.status}` };
-  return { connected: true, raw: r.body?.data ?? r.body };
+  const t = now();
+  const r = await srGetUrl(env, `https://apiv2.shiprocket.in/v1/external/account/details/remittance?from=${srDate(t - days * DAY)}&to=${srDate(t)}`);
+  if (r.status !== 200) return { connected: false, error: `HTTP ${r.status} ${String(r.body?.message || '').slice(0, 80)}` };
+  const list = (Array.isArray(r.body?.data) ? r.body.data : []).map((x) => ({
+    at: Number(x.created_at) || 0, day: dstr(Number(x.created_at) || 0), crf: x.crf_id, utr: x.utr || '', status: x.status || '',
+    cod: Number(x.cod_payble || 0), paid: Number(x.remitted_value || 0), deducted: Number(x.deduction_value || 0), to_wallet: Number(x.recharge_value || 0),
+  })).sort((a, b) => b.at - a.at);
+  const sum = (k, f = () => true) => r2(list.filter(f).reduce((s2, x) => s2 + x[k], 0));
+  const done = (x) => /success|remitted/i.test(x.status);
+  return {
+    connected: true, count: list.length, cod: sum('cod'), paid: sum('paid', done), deducted: sum('deducted'), to_wallet: sum('to_wallet'),
+    in_process: sum('cod', (x) => !done(x)), last: list[0] || null, list: list.slice(0, 20),
+  };
 }
 
 /** The money view: collected by couriers, paid to us, pending and when. */
@@ -75,6 +91,8 @@ export async function remittance(env, { days = 60 } = {}) {
     }
   }
   for (const p of Object.values(by)) { p.cod = r2(p.cod); p.overdue = r2(p.overdue); }
-  const [sp, sr] = await Promise.all([shipprimeWallet(env).catch((e) => ({ connected: false, error: e.message })), shiprocketRemit(env).catch((e) => ({ connected: false, error: e.message }))]);
-  return { days, today: dstr(t), delivered: by, shipprime: sp, shiprocket: sr, note: 'Shiprocket pays about 8 days after delivery; "overdue" = past that and not yet matched to a payout (needs the Shiprocket remittance feed to confirm).' };
+  const [sp, sr] = await Promise.all([shipprimeWallet(env).catch((e) => ({ connected: false, error: e.message })), shiprocketRemit(env, { days }).catch((e) => ({ connected: false, error: e.message }))]);
+  /* Shiprocket: what it should still pay = delivered COD (window) - COD it has already put in a remittance (window) */
+  if (sr.connected && by.shiprocket) by.shiprocket.pending_est = r2(Math.max(0, by.shiprocket.cod - sr.cod));
+  return { days, today: dstr(t), delivered: by, shipprime: sp, shiprocket: sr, note: 'Shiprocket pays about 8 days after delivery (due dates are estimates from delivery day); pending = delivered COD in the window minus COD Shiprocket has already remitted in the window.' };
 }
