@@ -140,9 +140,38 @@ async function placeBarter(env, phone, b) {
 }
 
 /* ---------------- dashboard ---------------- */
+/**
+ * Nov 2026: where each approved collab parcel is (same shipment record and stages as the Shipments tab). Parcels
+ * still moving whose reading is older than 30 min are asked again first (a few per open), so the list is current.
+ */
 export async function barterList(env) {
-  const rows = (await env.DB.prepare('SELECT * FROM barter_orders ORDER BY id DESC LIMIT 200').all()).results;
-  return { ok: true, rows: rows.map((r) => ({ id: r.id, ref: refOf(r.id), phone: r.phone, name: r.name, email: r.email, instagram: r.instagram, items: JSON.parse(r.items_json || '[]'), address: JSON.parse(r.address_json || '{}'), edd: r.edd, post_date: r.post_date, status: r.status, order_name: r.order_name || '', created_at: Number(r.created_at), decided_at: Number(r.decided_at) || null, note: r.note || '' })) };
+  const q = () => env.DB.prepare(`SELECT b.*, s.awb, s.courier, s.provider, s.stage, s.status AS ship_status, s.sr_status, s.edd AS ship_edd, s.picked_at, s.delivered_at,
+      s.tracked_at, s.rto, s.created_at AS booked_at, s.order_id AS ship_order_id, s.sr_order_id, s.label_url, s.charge_paise, s.pack, s.pickup, s.fulfil_error,
+      o.packed_at, o.status AS order_status
+      FROM barter_orders b LEFT JOIN shipments s ON s.order_id = b.order_id LEFT JOIN orders o ON o.order_id = b.order_id
+      ORDER BY b.id DESC LIMIT 200`).all();
+  let rows = (await q()).results;
+  const t = now();
+  const stale = rows.filter((r) => r.awb && r.ship_status !== 'cancelled' && !['delivered', 'lost', 'cancelled'].includes(r.stage || '') && Number(r.tracked_at || 0) < t - 1800).slice(0, 6);
+  if (stale.length) {
+    try {
+      const { refreshShipment } = await import('./ship-status.js');
+      await Promise.all(stale.map((r) => refreshShipment(env, { ...r, order_id: r.ship_order_id, status: r.ship_status, created_at: r.booked_at }).catch((e) => console.error('barter track', r.order_name, e.message))));
+      rows = (await q()).results;
+    } catch (e) { console.error('barter track', e.message); }
+  }
+  const { LABEL } = await import('./ship-status.js');
+  const { trackUrlOf } = await import('./shipprime.js');
+  return { ok: true, rows: rows.map((r) => {
+    let ship = null;
+    if (r.status === 'approved') {
+      const stage = r.order_status === 'cancelled' || r.ship_status === 'cancelled' ? 'cancelled' : r.awb ? (r.stage || 'pickup_pending') : 'not_booked';
+      ship = { stage, label: stage === 'not_booked' ? (r.packed_at ? 'Packed, not booked yet' : 'Not shipped yet') : LABEL[stage] || stage, awb: r.awb || '', courier: r.courier || '',
+        scan: r.sr_status || '', edd: r.ship_edd || '', booked_at: Number(r.booked_at) || null, picked_at: Number(r.picked_at) || null, delivered_at: Number(r.delivered_at) || null,
+        tracked_at: Number(r.tracked_at) || null, track_url: r.awb ? trackUrlOf({ awb: r.awb, courier: r.courier, provider: r.provider }) : '' };
+    }
+    return { id: r.id, ref: refOf(r.id), phone: r.phone, name: r.name, email: r.email, instagram: r.instagram, items: JSON.parse(r.items_json || '[]'), address: JSON.parse(r.address_json || '{}'), edd: r.edd, post_date: r.post_date, status: r.status, order_name: r.order_name || '', created_at: Number(r.created_at), decided_at: Number(r.decided_at) || null, note: r.note || '', ship };
+  }) };
 }
 export async function barterDecide(env, id, approve) {
   const r = await env.DB.prepare('SELECT * FROM barter_orders WHERE id=?').bind(Number(id)).first();

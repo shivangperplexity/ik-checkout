@@ -1551,7 +1551,7 @@ const ACTIONS = {
   /* product order on the main collections (lib/merch.js) */
   async merch(env, b) { const M = await import('./merch.js'); const r = await M.merchandise(env, { apply: !!b.apply }); if (b.apply) await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('merch_auto', '1') ON CONFLICT (k) DO UPDATE SET v='1'").run(); return r; },
   /* barter collab orders from /collab (lib/barter.js) */
-  async barter(env) { const B = await import('./barter.js'); return B.barterList(env); },
+  async barter(env) { const B = await import('./barter.js'); return B.barterList(await withSettingsFresh(env)); },
   /** Submit the order-update templates with a delivery estimate (lib/notify-templates.js). */
   async notify_templates_submit(env, b = {}) {
     const N = await import('./notify-templates.js');

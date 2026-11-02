@@ -599,14 +599,28 @@ function loadBroadcast(){rpc('broadcast').then(function(r){if(tab!=='broadcast')
 /* ---- barter collab orders (lib/barter.js, page /collab) ---- */
 function loadBarter(){rpc('barter').then(function(r){if(tab!=='barter')return;
  var pend=r.rows.filter(function(x){return x.status==='pending'});
- var h='<div class="card"><h3 style="margin:0 0 4px">Barter collabs</h3><p class="small mut" style="margin:0">Send creators <b>inkkulture.in/pages/collab</b>. They pick up to 4 tattoos (10+ in stock, no sleeves), verify WhatsApp, and get an ID like IKC-1001. Approve only after they DM that ID to @inkkulture.in. Approve = a ₹0 paid order in Shopify, shown in To ship. Reject = the draft is deleted. '+pend.length+' waiting.</p><div class="row" style="margin-top:8px"><button class="btn sm" id="bt_copy">Copy creator link</button></div></div>';
+ var today=new Date(Date.now()+19800000).toISOString().slice(0,10);
+ /* Nov 2026: where each approved parcel is, and whether the reel is due */
+ function shipBox(o){var s=o.ship;if(!s)return '';
+  var reel='';
+  if(s.stage==='delivered')reel=o.post_date&&o.post_date<today?'<b style="color:var(--bad)">Reel overdue (was due '+esc(eddNice(o.post_date).replace(' (overdue)',''))+'). Check @'+esc(o.instagram)+'</b>':'<b>Reel due '+esc(eddNice(o.post_date))+'</b>';
+  var when=s.stage==='delivered'&&s.delivered_at?'Delivered '+ist(s.delivered_at):s.edd&&['transit','ofd','ndr','pickup_pending'].indexOf(s.stage)>=0?'Expected '+esc(eddNice(s.edd)):s.picked_at?'Picked up '+ist(s.picked_at):s.booked_at?'Booked '+ist(s.booked_at):'';
+  return '<div style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px">'
+   +'<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="pill '+(STGC[s.stage]||(s.stage==='not_booked'?'warn':''))+'">'+esc(s.label)+'</span>'
+   +(s.awb?'<span class="small">'+esc(s.courier||'Courier')+' · <a href="'+esc(s.track_url)+'" target="_blank" rel="noopener">'+esc(s.awb)+'</a></span>':'<span class="small mut">'+esc(o.order_name)+' is in To ship</span>')+'</div>'
+   +(s.scan?'<div class="small mut" style="margin-top:4px">'+esc(s.scan)+'</div>':'')
+   +(when?'<div class="small" style="margin-top:2px">'+when+'</div>':'')
+   +(reel?'<div class="small" style="margin-top:4px">'+reel+'</div>':'')+'</div>'}
+ var cnt={wait:pend.length,toship:0,moving:0,done:0,overdue:0};
+ r.rows.forEach(function(o){var s=o.ship;if(!s)return;if(s.stage==='not_booked')cnt.toship++;else if(s.stage==='delivered'){cnt.done++;if(o.post_date&&o.post_date<today)cnt.overdue++}else if(['pickup_pending','pickup_failed','transit','ofd','ndr'].indexOf(s.stage)>=0)cnt.moving++});
+ var h='<div class="card"><h3 style="margin:0 0 4px">Barter collabs</h3><p class="small mut" style="margin:0">Send creators <b>inkkulture.in/pages/collab</b>. They pick up to 4 tattoos (10+ in stock, no sleeves), verify WhatsApp, and get an ID like IKC-1001. Approve only after they DM that ID to @inkkulture.in. Approve = a ₹0 paid order in Shopify, shown in To ship. Reject = the draft is deleted.</p><div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><span class="pill warn">Waiting for DM · '+cnt.wait+'</span><span class="pill">Not shipped · '+cnt.toship+'</span><span class="pill">On the way · '+cnt.moving+'</span><span class="pill ok">Delivered · '+cnt.done+'</span>'+(cnt.overdue?'<span class="pill bad">Reel overdue · '+cnt.overdue+'</span>':'')+'</div><div class="row" style="margin-top:8px"><button class="btn sm" id="bt_copy">Copy creator link</button></div></div>';
  h+=r.rows.map(function(o){var a=o.address||{};
   var st=o.status==='pending'?'<span class="pill warn">Waiting for DM</span>':o.status==='approved'?'<span class="pill ok">Approved '+esc(o.order_name)+'</span>':'<span class="pill">'+esc(o.status)+'</span>';
   return '<div class="card" style="margin-top:10px"><div class="row" style="justify-content:space-between;align-items:center"><b style="font-size:17px">'+esc(o.ref)+'</b>'+st+'</div>'
   +'<div style="margin-top:6px"><b>'+esc(o.name)+'</b> · <a href="https://instagram.com/'+encodeURIComponent(o.instagram)+'" target="_blank" rel="noopener">@'+esc(o.instagram)+'</a> · '+esc(o.phone)+' · '+esc(o.email)+'</div>'
   +'<div class="small mut" style="margin-top:4px">'+esc([a.address1,a.address2,a.city,a.state,a.pincode].filter(Boolean).join(', '))+'</div>'
   +'<div class="small" style="margin-top:6px">Delivery '+esc(o.edd||'-')+' · <b>Reel by '+esc(o.post_date)+'</b> · '+ago(o.created_at)+'</div>'
-  +'<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">'+o.items.map(function(i){return '<div style="display:flex;gap:6px;align-items:center;font-size:13px">'+(i.image?'<img src="'+esc(i.image)+'&width=80" style="width:40px;height:40px;object-fit:cover;border-radius:6px">':'')+esc(i.title)+(i.qty>1?' ×'+i.qty:'')+'</div>'}).join('')+'</div>'
+  +'<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">'+o.items.map(function(i){return '<div style="display:flex;gap:6px;align-items:center;font-size:13px">'+(i.image?'<img src="'+esc(i.image)+'&width=80" style="width:40px;height:40px;object-fit:cover;border-radius:6px">':'')+esc(i.title)+(i.qty>1?' ×'+i.qty:'')+'</div>'}).join('')+'</div>'+shipBox(o)
   +(o.status==='failed'?'<div class="small" style="margin-top:8px;color:var(--bad)">Shopify said: '+esc(o.note||'unknown error')+'</div><div class="row" style="margin-top:8px"><button class="btn sm" data-btx="'+o.id+'">Retry (fixes email typos)</button></div>':'')
   +(o.status==='pending'?'<div class="row" style="margin-top:10px;gap:8px"><button class="btn sm" data-bta="'+o.id+'">Approve (DM received)</button><button class="btn sm ghost" data-btr="'+o.id+'">Reject</button></div>':'')+'</div>'}).join('')||'';
  if(!r.rows.length)h+='<div class="card mut" style="margin-top:10px">No collab orders yet.</div>';
