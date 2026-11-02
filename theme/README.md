@@ -85,3 +85,10 @@ Built on Build 055 in place (the store has the 20-theme maximum, so no copy). Pa
   (all sold out: 409 with `sold_out`); the sheet takes those lines out of the Shopify cart (`/cart/update.js`) and says
   "X just sold out, so we took it out of your cart" instead of falling back to "Checkout on Shopify". `/api/order` leaves
   sold-out lines out too (live for every theme as soon as the API deploys).
+
+## Build 056 home hero: ad banners as slides (Nov 2026)
+`templates/index.json`: slide 1 = "Real tattoo? Nope." (IK05 ad, desktop 2400x750 + mobile 1080x1440), slide 2 = the
+existing Buy 1 Get 1 banner, slide 3 = the men's "Real tattoo? Nope. Semi-permanent." banner. Files in Shopify Files as
+`ik-hero-*.jpg` (sources in `src/public/banners/`, composed from the studio photos + the ad typography; the ad's Anton-like
+face is not installed, Poppins Bold Italic stands in). Scrim off: the banners carry their own contrast. The theme's own
+"Shop now" button stays bottom-left on every slide, so the logo sits top-left in the banners.
