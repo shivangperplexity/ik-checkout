@@ -1791,6 +1791,8 @@ const ACTIONS = {
   /* record a post published outside the engine (e.g. via the Shopify connector) so dedupe/history sees it */
   async blog_record(env, b) {
     const { shingles, istDay, nowSec } = await import('./blog.js');
+    const have0 = b.handle && await env.DB.prepare('SELECT id FROM blog_posts WHERE handle=?').bind(b.handle).first();
+    if (have0) { await env.DB.prepare('UPDATE blog_posts SET topic=?, angle=?, audience=? WHERE id=?').bind(b.topic || '', b.angle || '', b.audience || '', have0.id).run(); return { ok: true, updated: true }; }
     if (b.handle && !b.body_html) {
       /* app token lacks read_content: read the public Atom feed, which carries the full body */
       const r = await fetch('https://www.inkkulture.in/blogs/news.atom', { headers: { 'user-agent': 'ik-checkout' } });
