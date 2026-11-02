@@ -104,7 +104,7 @@ export async function publishPost(env, p, cfg = blogCfg(env)) {
 }
 
 /** One cron tick: publish at most one post, inside the day window, until per_day is reached. */
-export async function blogTick(env, { force = false } = {}) {
+export async function blogTick(env, { force = false, dry = false } = {}) {
   const cfg = blogCfg(env);
   if (!cfg.on && !force) return { skipped: 'off' };
   const h = istHour(); if (!force && (h < cfg.from || h >= cfg.to)) return { skipped: 'night' };
@@ -113,7 +113,7 @@ export async function blogTick(env, { force = false } = {}) {
   if (!force && today >= cfg.per_day) return { skipped: 'quota', today };
   /* spread the quota across the window: one post per slot */
   const slotMin = Math.max(5, Math.floor(((cfg.to - cfg.from) * 60) / cfg.per_day));
-  if (!(await claim(env, 'blog:tick', force ? 1 : slotMin * 60 - 30))) return { skipped: 'slot', today };
+  if (!dry && !(await claim(env, 'blog:tick', force ? 1 : slotMin * 60 - 30))) return { skipped: 'slot', today };
   const hist = await history(env);
   const pick = pickTopic(hist);
   let post, tries = 0, reason = '';
@@ -127,6 +127,7 @@ export async function blogTick(env, { force = false } = {}) {
     post.shingles = sig; reason = ''; break;
   }
   if (reason) { console.error('blog', reason); return { error: reason, topic: pick.topic }; }
+  if (dry) return { dry: true, pick, post: { title: post.title, handle: post.handle, summary: post.summary, tags: post.tags, words: post.words, body_html: post.body_html } };
   /* handle collision with an existing article: add a suffix */
   const taken = await env.DB.prepare('SELECT 1 FROM blog_posts WHERE handle=?').bind(post.handle).first();
   if (taken) post.handle = `${post.handle}-${Math.floor(Date.now() / 1000) % 10000}`;

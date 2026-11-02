@@ -1778,7 +1778,7 @@ const ACTIONS = {
   },
   /* SEO blog engine (lib/blog.js) */
   async blog_status(env) { const B = await import('./blog.js'); return B.blogStatus(env); },
-  async blog_now(env, b) { const B = await import('./blog.js'); return { ok: true, ...(await B.blogTick(await withSettingsFresh(env), { force: true })) }; },
+  async blog_now(env, b) { const B = await import('./blog.js'); return { ok: true, ...(await B.blogTick(await withSettingsFresh(env), { force: true, dry: !!b.dry })) }; },
   async blog_save(env, b) {
     const { blogCfg, BLOG_DEFAULTS } = await import('./blog.js');
     const cur = blogCfg(env), n = { ...cur };
