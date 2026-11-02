@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shingles, overlap, TOPICS } from './blog.js';
 
-const para = (seed) => Array.from({ length: 300 }, (_, i) => 'w' + ((i * 7 + seed * 13) % 97)).join(' ');
+const para = (seed) => { let x = seed * 2654435761 >>> 0; return Array.from({ length: 400 }, () => { x = (x * 1103515245 + 12345) >>> 0; return 'w' + (x % 5000); }).join(' '); };
 test('duplicate check: same text 100%, different text near 0', () => {
   const a = shingles('<p>' + para(1) + '</p>'), b = shingles('<p>' + para(1) + '</p>'), c = shingles('<p>' + para(5) + '</p>');
   assert.ok(a.length > 20);
