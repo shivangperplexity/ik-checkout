@@ -1788,6 +1788,15 @@ const ACTIONS = {
     if (b.to != null) n.to = Math.max(1, Math.min(24, Number(b.to) || 24));
     await putSetting(env, 'blog', n); return { ok: true, blog: n };
   },
+  /* record a post published outside the engine (e.g. via the Shopify connector) so dedupe/history sees it */
+  async blog_record(env, b) {
+    const { shingles, istDay, nowSec } = await import('./blog.js');
+    if (!b.title || !b.handle || !b.body_html) return { ok: false, error: 'title, handle, body_html required' };
+    const words = String(b.body_html).replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+    await env.DB.prepare('INSERT INTO blog_posts (day, title, handle, topic, angle, audience, words, tags, article_id, shingles, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(istDay(), b.title, b.handle, b.topic || '', b.angle || '', b.audience || '', words, (b.tags || []).join(','), b.article_id || '', JSON.stringify(shingles(b.body_html)), nowSec()).run();
+    return { ok: true, words };
+  },
   async sp_ndr_status(env) {
     const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
     if (!c.token) return { ok: true, connected: false };

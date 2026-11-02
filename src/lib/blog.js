@@ -11,10 +11,10 @@
 import { gql } from './shopify.orig.js';
 import { claim } from './once.js';
 
-const now = () => Math.floor(Date.now() / 1000);
+export const nowSec = () => Math.floor(Date.now() / 1000);
 const IST = 19800;
-const istHour = () => new Date((now() + IST) * 1000).getUTCHours();
-const istDay = () => new Date((now() + IST) * 1000).toISOString().slice(0, 10);
+const istHour = () => new Date((nowSec() + IST) * 1000).getUTCHours();
+export const istDay = () => new Date((nowSec() + IST) * 1000).toISOString().slice(0, 10);
 
 export const BLOG_DEFAULTS = { on: true, per_day: 12, from: 7, to: 22, blog_id: 'gid://shopify/Blog/107386700011', author: 'Ink Kulture', min_words: 900 };
 export const blogCfg = (env) => ({ ...BLOG_DEFAULTS, ...(env.SETTINGS?.blog || {}) });
@@ -136,7 +136,7 @@ export async function blogTick(env, { force = false, dry = false } = {}) {
   if (taken) post.handle = `${post.handle}-${Math.floor(Date.now() / 1000) % 10000}`;
   const art = await publishPost(env, post, cfg);
   await env.DB.prepare('INSERT INTO blog_posts (day, title, handle, topic, angle, audience, words, tags, article_id, shingles, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(day, post.title, art.handle, pick.topic, pick.angle, pick.audience, post.words, post.tags.join(','), art.id, JSON.stringify(post.shingles), now()).run();
+    .bind(day, post.title, art.handle, pick.topic, pick.angle, pick.audience, post.words, post.tags.join(','), art.id, JSON.stringify(post.shingles), nowSec()).run();
   return { published: { title: post.title, handle: art.handle, words: post.words, topic: pick.topic }, today: today + 1 };
 }
 
