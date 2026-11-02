@@ -1707,6 +1707,21 @@ const ACTIONS = {
     return { ok: true, out };
   },
   /* ---------- ShipPrime NDR through its dashboard API (lib/sp-ndr.js) ---------- */
+  /** ShipPrime spend from our own bookings (charge quoted at booking) + its full wallet ledger (all pages) */
+  async sp_spend(env) {
+    const rows = (await env.DB.prepare(`SELECT s.status, COALESCE(s.stage,'') AS stage, s.courier, s.charge_paise, s.rto, s.created_at, s.picked_at, o.method
+        FROM shipments s LEFT JOIN orders o ON o.order_id = s.order_id WHERE s.provider='shipprime' AND s.awb IS NOT NULL AND s.awb<>''`).all()).results;
+    const sum = (f) => { const x = rows.filter(f); return { n: x.length, rs: Math.round(x.reduce((a, r) => a + (Number(r.charge_paise) || 0), 0)) / 100 }; };
+    const by = {}; for (const r of rows) { const k = (r.status === 'cancelled' ? 'cancelled' : r.stage || 'pickup_pending'); (by[k] ||= { n: 0, rs: 0 }); by[k].n++; by[k].rs += (Number(r.charge_paise) || 0) / 100; }
+    const cour = {}; for (const r of rows.filter((x) => x.status !== 'cancelled')) { const k = r.courier || '?'; (cour[k] ||= { n: 0, rs: 0 }); cour[k].n++; cour[k].rs += (Number(r.charge_paise) || 0) / 100; }
+    const ts = rows.map((r) => Number(r.created_at)).filter(Boolean);
+    let ledger = [];
+    try {
+      const { dash, dashCfg } = await import('./sp-ndr.js'); const c = dashCfg(await withSettingsFresh(env));
+      for (let off = 0; off < 1000; off += 100) { const t = await dash(await withSettingsFresh(env), 'GET', `/transactions?shop_id=${c.shop}&limit=100&offset=${off}`); const l = t.transactions || []; ledger = ledger.concat(l.map((x) => ({ at: x.created_at, type: x.transaction_type, ref: x.reference_type, amount: Number(x.amount || 0), cod: Number(x.cod_collected || 0), csv: x.payment_data_link || '' }))); if (l.length < 100) break; }
+    } catch (e) { ledger = [{ error: e.message }]; }
+    return { ok: true, first: ts.length ? Math.min(...ts) : null, last: ts.length ? Math.max(...ts) : null, all: sum(() => true), live: sum((r) => r.status !== 'cancelled'), picked: sum((r) => r.status !== 'cancelled' && r.picked_at), rto: sum((r) => r.rto), by_stage: by, by_courier: cour, ledger };
+  },
   async sp_ndr_status(env) {
     const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
     if (!c.token) return { ok: true, connected: false };
