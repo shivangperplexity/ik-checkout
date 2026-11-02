@@ -92,3 +92,7 @@ existing Buy 1 Get 1 banner, slide 3 = the men's "Real tattoo? Nope. Semi-perman
 `ik-hero-*.jpg` (sources in `src/public/banners/`, composed from the studio photos + the ad typography; the ad's Anton-like
 face is not installed, Poppins Bold Italic stands in). Scrim off: the banners carry their own contrast. The theme's own
 "Shop now" button stays bottom-left on every slide, so the logo sits top-left in the banners.
+- Sale countdown bar (`snippets/ikl-sale-timer.liquid`, rendered from `ik-checkout.liquid`, so on every page, moved to the
+  top of `<body>`): "<Name> Buy 1 Get 1 Sale ends in d h m s". 7-day phases from 3 Nov 2026 00:00 IST, same for everyone:
+  Diwali -> Christmas -> New Year -> Valentine's -> Holi -> Summer -> round again. Only the name and deadline roll; the
+  offer never ends. Edit NAMES / START in the snippet.

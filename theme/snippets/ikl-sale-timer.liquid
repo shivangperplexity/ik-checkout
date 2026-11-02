@@ -1,0 +1,42 @@
+{%- comment -%}
+  Build 057: rolling sale countdown at the very top of every page (rendered from ik-checkout.liquid).
+  7-day phases from a fixed start (3 Nov 2026, 00:00 IST), the same for every visitor: Diwali -> Christmas -> New Year ->
+  Valentine's -> ... and round again, so the bar never shows an ended sale. The offer itself (Buy 1 Get 1) never changes;
+  only the name and the deadline roll over. Edit NAMES / START here.
+{%- endcomment -%}
+<div id="ikl-sale-timer" class="ikl-st" role="status" aria-live="polite" hidden>
+  <span class="ikl-st__t"><b data-st-name></b> Buy 1 Get 1 Sale ends in</span>
+  <span class="ikl-st__c" data-st-clock aria-label="time left">
+    <span><i data-st-d>0</i><small>days</small></span><span><i data-st-h>00</i><small>hrs</small></span><span><i data-st-m>00</i><small>min</small></span><span><i data-st-s>00</i><small>sec</small></span>
+  </span>
+</div>
+<style>
+  .ikl-st{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:7px 12px;background:#b3261e;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;letter-spacing:.02em;text-align:center}
+  .ikl-st__t b{font-weight:800;text-transform:uppercase}
+  .ikl-st__c{display:inline-flex;gap:6px}
+  .ikl-st__c span{display:inline-flex;flex-direction:column;align-items:center;min-width:34px;padding:2px 5px;border-radius:6px;background:rgba(0,0,0,.28)}
+  .ikl-st__c i{font-style:normal;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+  .ikl-st__c small{font-size:9px;opacity:.85;text-transform:uppercase;letter-spacing:.06em}
+  @media (max-width:749px){.ikl-st{gap:8px;padding:6px 8px;font-size:12px}.ikl-st__c span{min-width:30px}}
+</style>
+<script>
+(function(){
+  var NAMES=['Diwali','Christmas','New Year',"Valentine's",'Holi','Summer'];
+  var START=Date.UTC(2026,10,2,18,30);           /* 3 Nov 2026 00:00 IST */
+  var PHASE=7*24*3600*1000;
+  var el=document.getElementById('ikl-sale-timer'); if(!el) return;
+  function pad(n){return (n<10?'0':'')+n}
+  function tick(){
+    var now=Date.now(), k=Math.max(0,Math.floor((now-START)/PHASE)), end=START+(k+1)*PHASE, left=Math.max(0,end-now);
+    el.querySelector('[data-st-name]').textContent=NAMES[k%NAMES.length];
+    el.querySelector('[data-st-d]').textContent=Math.floor(left/86400000);
+    el.querySelector('[data-st-h]').textContent=pad(Math.floor(left%86400000/3600000));
+    el.querySelector('[data-st-m]').textContent=pad(Math.floor(left%3600000/60000));
+    el.querySelector('[data-st-s]').textContent=pad(Math.floor(left%60000/1000));
+    el.hidden=false;
+  }
+  /* put the bar above everything (header, announcement strip) */
+  document.body.insertBefore(el,document.body.firstChild);
+  tick(); setInterval(tick,1000);
+})();
+</script>
