@@ -1231,6 +1231,14 @@ const ACTIONS = {
         plan: plan ? { act: plan.act, why: plan.why, due: plan.due || null, then: plan.then || '' } : null, asked_at: num(m?.ndr_asked_at) || null, auto_action: st?.action || '', auto_error: st?.error || '' }; }) };
   },
   /** Pay-online offer (lib/wa-convert.js): settings, template status, results. */
+  /** Every pay-online offer in the window: was the WhatsApp delivered / read, was the pay page opened, did they pay */
+  async convert_report(env, b) {
+    const since = Math.floor(Date.now() / 1000) - (Number(b.days) || 7) * 86400;
+    const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.created_at, o.convert_offer_at, o.convert_expires_at, o.convert_started_at, o.converted_at, o.paid_paise, o.total_paise, o.status, o.method, o.shipped_at,
+        (SELECT json_agg(json_build_object('t', m.template, 's', m.status, 'e', m.error, 'ts', m.ts) ORDER BY m.id) FROM messages m WHERE m.order_name = o.order_name AND m.trigger = 'cod_to_prepaid') AS msgs
+      FROM orders o WHERE o.convert_offer_at > ? ORDER BY o.convert_offer_at DESC`).bind(since).all()).results;
+    return { ok: true, rows: rows.map((r) => ({ order: r.order_name, created: num(r.created_at), offered: num(r.convert_offer_at), mins_after_order: Math.round((num(r.convert_offer_at) - num(r.created_at)) / 60), until: num(r.convert_expires_at), opened: !!r.convert_started_at, paid: !!r.converted_at, total: num(r.total_paise) / 100, status: r.status, shipped: !!r.shipped_at, msgs: typeof r.msgs === 'string' ? JSON.parse(r.msgs) : r.msgs || [] })) };
+  },
   async convert_settings(env) {
     const { convertCfg, convertStats } = await import('./wa-convert.js');
     const f = await withSettingsFresh(env);
