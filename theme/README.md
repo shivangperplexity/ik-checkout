@@ -96,3 +96,8 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
   top of `<body>`): "<Name> Buy 1 Get 1 Sale ends in d h m s". 7-day phases from 3 Nov 2026 00:00 IST, same for everyone:
   Diwali -> Christmas -> New Year -> Valentine's -> Holi -> Summer -> round again. Only the name and deadline roll; the
   offer never ends. Edit NAMES / START in the snippet.
+
+## Blog engine (3 Nov)
+- `blog_record {handle, topic, angle, audience}` logs a post published via the Shopify connector (body read from /blogs/news.atom); existing handle → updates topic/angle/audience.
+- Writer prompt: link whitelist (collections only), no team members in personal stories, no invented specs/safety/medical claims, no minors. Audience/angle rotate least-used over last 20 posts.
+- 10 posts published 3 Nov via connector (app still lacks write_content; add scope → engine runs 12/day itself).

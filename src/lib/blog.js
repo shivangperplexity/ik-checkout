@@ -61,7 +61,7 @@ Output strict JSON only: {"title": "...", "handle": "kebab-case-url-slug", "summ
 
 /** titles already published (and the posts' text), for the duplicate check */
 async function history(env, limit = 400) {
-  const rows = (await env.DB.prepare('SELECT title, topic, shingles FROM blog_posts ORDER BY id DESC LIMIT ?').bind(limit).all()).results;
+  const rows = (await env.DB.prepare('SELECT title, topic, angle, audience, shingles FROM blog_posts ORDER BY id DESC LIMIT ?').bind(limit).all()).results;
   return rows;
 }
 const words = (html) => String(html).replace(/<[^>]+>/g, ' ').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
@@ -78,7 +78,10 @@ function pickTopic(hist) {
   const least = Math.min(...TOPICS.map((t) => used.get(t) || 0));
   const pool = TOPICS.filter((t) => (used.get(t) || 0) === least);
   const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  return { topic: r(pool), angle: r(ANGLES), audience: r(AUDIENCES) };
+  /* rotate audiences and angles too, judged over the last 20 posts */
+  const recent = hist.slice(0, 20);
+  const leastOf = (list, key) => { const c = new Map(); for (const h of recent) c.set(h[key], (c.get(h[key]) || 0) + 1); const m = Math.min(...list.map((x) => c.get(x) || 0)); return list.filter((x) => (c.get(x) || 0) === m); };
+  return { topic: r(pool), angle: r(leastOf(ANGLES, 'angle')), audience: r(leastOf(AUDIENCES, 'audience')) };
 }
 
 export async function writePost(env, { topic, angle, audience, avoidTitles = [] }) {
