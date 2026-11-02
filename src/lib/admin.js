@@ -1792,10 +1792,16 @@ const ACTIONS = {
   async blog_record(env, b) {
     const { shingles, istDay, nowSec } = await import('./blog.js');
     if (b.handle && !b.body_html) {
-      const { gql } = await import('./shopify.orig.js');
-      const d = await gql(env, `query($q: String!) { articles(first: 1, query: $q) { nodes { id title handle body tags } } }`, { q: `handle:${b.handle}` });
-      const a = d.articles?.nodes?.[0]; if (!a) return { ok: false, error: 'article not found' };
-      b = { ...b, title: a.title, body_html: a.body, tags: a.tags, article_id: a.id };
+      /* app token lacks read_content: read the public Atom feed, which carries the full body */
+      const r = await fetch('https://www.inkkulture.in/blogs/news.atom', { headers: { 'user-agent': 'ik-checkout' } });
+      const xml = await r.text();
+      const ent = xml.split('<entry>').slice(1).find((e) => e.includes(`/blogs/news/${b.handle}"`) || e.includes(`/blogs/news/${b.handle}<`));
+      if (!ent) return { ok: false, error: 'article not in feed' };
+      const un = (t) => t.replace(/^<!\[CDATA\[|\]\]>$/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      const title = un((ent.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || '');
+      const body = un((ent.match(/<content type="html">([\s\S]*?)<\/content>/) || [])[1] || '');
+      const id = ((ent.match(/<id>([\s\S]*?)<\/id>/) || [])[1] || '').trim();
+      b = { ...b, title, body_html: body, tags: b.tags || [], article_id: id };
     }
     if (!b.title || !b.handle || !b.body_html) return { ok: false, error: 'title, handle, body_html required' };
     const words = String(b.body_html).replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
