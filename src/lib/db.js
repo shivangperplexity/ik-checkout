@@ -134,6 +134,9 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS courier_perf (pin TEXT, courier TEXT, rto REAL, delivery REAL, pickup REAL, rating REAL, at BIGINT, PRIMARY KEY (pin, courier))`,
   /* delivery date + serviceability per PIN (lib/edd.js) */
   `CREATE TABLE IF NOT EXISTS edd_cache (k TEXT PRIMARY KEY, body TEXT, at BIGINT)`,
+  /* SEO blog engine (lib/blog.js): every article it published, with a text signature for the duplicate check */
+  `CREATE TABLE IF NOT EXISTS blog_posts (id BIGSERIAL PRIMARY KEY, day TEXT, title TEXT, handle TEXT, topic TEXT, angle TEXT, audience TEXT, words INT, tags TEXT, article_id TEXT, shingles TEXT, created_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS blog_posts_day ON blog_posts (day)`,
   /* Instagram comment -> DM (lib/ig-dm.js) */
   `CREATE TABLE IF NOT EXISTS ig_dm (comment_id TEXT PRIMARY KEY, media_id TEXT, from_id TEXT, username TEXT, text TEXT, status TEXT, error TEXT, created_at BIGINT, sent_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS ig_dm_media ON ig_dm (media_id, from_id)`,

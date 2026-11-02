@@ -1776,6 +1776,18 @@ const ACTIONS = {
     } catch (e) { ledger = [{ error: e.message }]; }
     return { ok: true, first: ts.length ? Math.min(...ts) : null, last: ts.length ? Math.max(...ts) : null, all: sum(() => true), live: sum((r) => r.status !== 'cancelled'), picked: sum((r) => r.status !== 'cancelled' && r.picked_at), rto: sum((r) => r.rto), by_stage: by, by_courier: cour, ledger };
   },
+  /* SEO blog engine (lib/blog.js) */
+  async blog_status(env) { const B = await import('./blog.js'); return B.blogStatus(env); },
+  async blog_now(env, b) { const B = await import('./blog.js'); return { ok: true, ...(await B.blogTick(await withSettingsFresh(env), { force: true })) }; },
+  async blog_save(env, b) {
+    const { blogCfg, BLOG_DEFAULTS } = await import('./blog.js');
+    const cur = blogCfg(env), n = { ...cur };
+    if (b.on != null) n.on = !!b.on;
+    if (b.per_day != null) n.per_day = Math.max(1, Math.min(30, Number(b.per_day) || BLOG_DEFAULTS.per_day));
+    if (b.from != null) n.from = Math.max(0, Math.min(23, Number(b.from) || 0));
+    if (b.to != null) n.to = Math.max(1, Math.min(24, Number(b.to) || 24));
+    await putSetting(env, 'blog', n); return { ok: true, blog: n };
+  },
   async sp_ndr_status(env) {
     const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
     if (!c.token) return { ok: true, connected: false };
@@ -2280,6 +2292,7 @@ export async function runAutomations(env) {
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
+  try { const { blogTick } = await import('./blog.js'); const r = await blogTick(env); if (r.published || r.error) out.blog = r; } catch (e) { console.error('blog', e.message); }
   try { const { autoReattempt } = await import('./sp-ndr.js'); const r = await autoReattempt(env); if (r.reopened?.length || r.failed?.length) out.spNdr = r; } catch (e) { console.error('sp ndr', e); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
