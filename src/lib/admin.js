@@ -1249,6 +1249,42 @@ const ACTIONS = {
     const r = await C.handleConvertApi(new Request('https://x/api/convert', { method: 'POST', body: JSON.stringify({ k, op: 'probe' }) }), env, {});
     return { ok: true, link_shape: link.replace(/k=.*/, 'k=…'), api: r };
   },
+  /**
+   * When the COD still out there should reach us: each live COD parcel's expected delivery (courier's own date, else
+   * pickup + that courier's median transit from our delivered parcels), then payout = ShipPrime next day (03:00 wallet
+   * settlement) / Shiprocket delivery + 8 days. Unshipped COD orders: pickup tomorrow + the overall median.
+   */
+  async cod_forecast(env, b) {
+    const DAY = 86400, t = Math.floor(Date.now() / 1000), rto = Math.min(1, Math.max(0, Number(b.rto ?? 0.5)));
+    const iso = (ts) => new Date((ts + 19800) * 1000).toISOString().slice(0, 10);
+    const istTs = (d) => Math.floor(Date.parse(d + 'T12:00:00+05:30') / 1000);
+    const hist = (await env.DB.prepare(`SELECT COALESCE(provider,'shiprocket') AS provider, courier, delivered_at - picked_at AS d FROM shipments WHERE delivered_at IS NOT NULL AND picked_at IS NOT NULL AND delivered_at > picked_at AND created_at > ?`).bind(t - 60 * DAY).all()).results;
+    const med = (a) => { if (!a.length) return 4 * DAY; const x = a.map(Number).sort((p, q) => p - q); return x[Math.floor(x.length / 2)]; };
+    const byC = {}; hist.forEach((h) => { (byC[h.courier || '?'] ||= []).push(h.d); });
+    const allMed = med(hist.map((h) => h.d)), transit = (c) => (byC[c] && byC[c].length >= 3 ? med(byC[c]) : allMed);
+    const live = (await env.DB.prepare(`SELECT s.order_id, s.order_name, COALESCE(s.provider,'shiprocket') AS provider, s.courier, COALESCE(s.stage,'pickup_pending') AS stage, s.edd, s.picked_at, s.created_at, s.cod_paise,
+        o.method, o.total_paise, o.advance_paise, o.converted_at, o.status
+      FROM shipments s JOIN orders o ON o.order_id = s.order_id
+      WHERE s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled' AND COALESCE(s.stage,'pickup_pending') IN ('pickup_pending','pickup_failed','transit','ofd','ndr') AND s.created_at > ?`).bind(t - 60 * DAY).all()).results;
+    const unshipped = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.method, o.total_paise, o.advance_paise, o.converted_at, o.status, o.created_at FROM orders o
+      WHERE o.method='cod' AND o.converted_at IS NULL AND o.status NOT IN ('cancelled','failed','pending_payment','completing') AND o.shipped_at IS NULL AND o.created_at > ?
+        AND NOT EXISTS (SELECT 1 FROM shipments s WHERE s.order_id=o.order_id AND s.awb IS NOT NULL AND s.awb<>'' AND COALESCE(s.status,'')<>'cancelled')`).bind(t - 30 * DAY).all()).results;
+    const days = {}, add = (d, cod, kind) => { const x = (days[d] ||= { cod: 0, n: 0, shipprime: 0, shiprocket: 0, unshipped: 0 }); x.cod += cod; x.n++; x[kind] += cod; };
+    const tomorrow = t + DAY;
+    let skipped = 0;
+    for (const r of live) {
+      const cod = (r.cod_paise != null ? Number(r.cod_paise) : codDue(r)) / 100; if (!(cod > 0)) { skipped++; continue; }
+      let del = r.edd && /^\d{4}-\d{2}-\d{2}/.test(r.edd) ? istTs(r.edd.slice(0, 10)) : 0;
+      if (!del) del = r.stage === 'ofd' ? t : r.stage === 'ndr' ? t + 2 * DAY : (Number(r.picked_at) || tomorrow) + transit(r.courier);
+      if (del < t) del = r.stage === 'ndr' ? t + 2 * DAY : tomorrow;
+      const pay = r.provider === 'shipprime' ? del + DAY : del + 8 * DAY;
+      add(iso(pay), cod, r.provider === 'shipprime' ? 'shipprime' : 'shiprocket');
+    }
+    for (const r of unshipped) { const cod = codDue(r) / 100; if (!(cod > 0)) continue; add(iso(tomorrow + allMed + DAY), cod, 'unshipped'); }
+    const out = Object.keys(days).sort().map((d) => ({ date: d, parcels: days[d].n, cod: Math.round(days[d].cod), expected: Math.round(days[d].cod * (1 - rto)), shipprime: Math.round(days[d].shipprime), shiprocket: Math.round(days[d].shiprocket), unshipped: Math.round(days[d].unshipped) }));
+    return { ok: true, rto, median_transit_days: Math.round((allMed / DAY) * 10) / 10, by_courier: Object.fromEntries(Object.entries(byC).map(([k, v]) => [k, { n: v.length, days: Math.round((med(v) / DAY) * 10) / 10 }])), live: live.length, unshipped: unshipped.length, skipped_prepaid: skipped, days: out,
+      total: { cod: out.reduce((a, x) => a + x.cod, 0), expected: out.reduce((a, x) => a + x.expected, 0) } };
+  },
   async convert_settings(env) {
     const { convertCfg, convertStats } = await import('./wa-convert.js');
     const f = await withSettingsFresh(env);
