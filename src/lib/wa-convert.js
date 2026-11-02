@@ -119,6 +119,7 @@ export async function handleConvertApi(req, env0, ctx) {
   if (!orderId) return { ok: false, state: 'invalid', error: 'This link is not valid. Please use the link from your WhatsApp message.' };
   const st = await offerState(env, orderId);
   const row = st.row;
+  if (!b.op || b.op === 'info') await env.DB.prepare('UPDATE orders SET convert_viewed_at=? WHERE order_id=? AND convert_viewed_at IS NULL').bind(now(), String(orderId)).run().catch(() => {});
   const base = row ? { order: row.order_name, name: row.first_name || '' } : {};
   if (b.op === 'status') return { ok: true, ...base, ...(await pollStatus(env, ctx, row, String(b.txnid || ''))) };
   if (st.state !== 'open') return { ok: true, ...base, state: st.state };

@@ -1234,10 +1234,20 @@ const ACTIONS = {
   /** Every pay-online offer in the window: was the WhatsApp delivered / read, was the pay page opened, did they pay */
   async convert_report(env, b) {
     const since = Math.floor(Date.now() / 1000) - (Number(b.days) || 7) * 86400;
-    const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.created_at, o.convert_offer_at, o.convert_expires_at, o.convert_started_at, o.converted_at, o.paid_paise, o.total_paise, o.status, o.method, o.shipped_at,
+    const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.created_at, o.convert_offer_at, o.convert_expires_at, o.convert_started_at, o.convert_viewed_at, o.converted_at, o.paid_paise, o.total_paise, o.status, o.method, o.shipped_at,
         (SELECT json_agg(json_build_object('t', m.template, 's', m.status, 'e', m.error, 'ts', m.ts) ORDER BY m.id) FROM messages m WHERE m.order_name = o.order_name AND m.trigger = 'cod_to_prepaid') AS msgs
       FROM orders o WHERE o.convert_offer_at > ? ORDER BY o.convert_offer_at DESC`).bind(since).all()).results;
-    return { ok: true, rows: rows.map((r) => ({ order: r.order_name, created: num(r.created_at), offered: num(r.convert_offer_at), mins_after_order: Math.round((num(r.convert_offer_at) - num(r.created_at)) / 60), until: num(r.convert_expires_at), opened: !!r.convert_started_at, paid: !!r.converted_at, total: num(r.total_paise) / 100, status: r.status, shipped: !!r.shipped_at, msgs: typeof r.msgs === 'string' ? JSON.parse(r.msgs) : r.msgs || [] })) };
+    return { ok: true, rows: rows.map((r) => ({ order: r.order_name, created: num(r.created_at), offered: num(r.convert_offer_at), mins_after_order: Math.round((num(r.convert_offer_at) - num(r.created_at)) / 60), until: num(r.convert_expires_at), viewed: num(r.convert_viewed_at) || null, pay_started: !!r.convert_started_at, paid: !!r.converted_at, total: num(r.total_paise) / 100, status: r.status, shipped: !!r.shipped_at, msgs: typeof r.msgs === 'string' ? JSON.parse(r.msgs) : r.msgs || [] })) };
+  },
+  /** Test the pay page's API for one order (as the page does on open, without counting it as a view) */
+  async convert_probe(env, b) {
+    const C = await import('./wa-convert.js');
+    const o = await env.DB.prepare('SELECT order_id FROM orders WHERE order_name=?').bind(String(b.order || '')).first();
+    if (!o) throw new Error('No such order');
+    const link = await C.storePayLink(await withSettingsFresh(env), o.order_id);
+    const k = /k=([^&]+)/.exec(link)?.[1] || '';
+    const r = await C.handleConvertApi(new Request('https://x/api/convert', { method: 'POST', body: JSON.stringify({ k, op: 'probe' }) }), env, {});
+    return { ok: true, link_shape: link.replace(/k=.*/, 'k=…'), api: r };
   },
   async convert_settings(env) {
     const { convertCfg, convertStats } = await import('./wa-convert.js');

@@ -165,6 +165,8 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_pct INT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_payable_paise BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_started_at BIGINT`,
+  /* the pay-online page was opened (first time), Nov 2026 */
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS convert_viewed_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS addr_tagged_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS warned_at BIGINT`,
   /* WhatsApp OTP for COD (lib/cod-otp.js): one row per phone, the code only as an HMAC */
