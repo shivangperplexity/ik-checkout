@@ -1977,6 +1977,7 @@ const ACTIONS = {
     const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const m = f.SETTINGS?.meta || {};
     if (b.run === 'reel') return { ok: true, ...(await A.reelTick(f, { force: true })) };
     if (b.run === 'night') return { ok: true, ...(await A.nightTick(f)) };
+    if (b.run === 'losers') return { ok: true, ...(await A.loserTick(f, { force: !!b.force })) };
     if (b.run === 'reels_list') return { ok: true, reels: await A.recentReels(f) };
     return { ok: true, cfg: A.autoCfg(f), hour_ist: A.istHour(), night: m.ads_night || null, log: (m.ads_auto || {}).log || [], reels: (m.ads_auto || {}).reels || {} };
   },
@@ -2424,7 +2425,7 @@ export async function runAutomations(env) {
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
   try { const { deliveredSweep } = await import('./meta.js'); const r = await deliveredSweep(env); if (r.sent || r.failed) out.delivered = r; } catch (e) { console.error('delivered event', e); }
   /* ads autopilot (lib/ads-auto.js): night pause 23-06 IST, daily +₹50/100 on the best ad set, one strong reel → ad per day */
-  try { const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const r = { night: await A.nightTick(f), scale: await A.scaleTick(f), reel: await A.reelTick(f) }; if (Object.values(r).some((x) => !x.skipped && !x.idle)) out.adsAuto = r; } catch (e) { console.error('ads auto', e.message); }
+  try { const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const r = { night: await A.nightTick(f), scale: await A.scaleTick(f), reel: await A.reelTick(f) }; r.losers = await A.loserTick(await withSettingsFresh(env)); if (Object.values(r).some((x) => !x.skipped && !x.idle)) out.adsAuto = r; } catch (e) { console.error('ads auto', e.message); }
   /* once a day: refresh the Meta seed (delivered + prepaid) and exclusion (RTO + cancelled) customer lists */
   try {
     const { claim } = await import('./once.js');

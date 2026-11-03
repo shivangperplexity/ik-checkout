@@ -22,3 +22,16 @@ test('pickReel wants a reel clearly above the median and unused', () => {
   assert.equal(pickReel(reels, { used: { r4: {} } }), null);
   assert.equal(pickReel([{ id: 'x', type: 'FEED', views: 9e6 }]), null);
 });
+
+import { pickLosers } from './ads-auto.js';
+test('pickLosers: reel ads with ₹150+ and no purchase, never the last live ad of a set', () => {
+  const rows = [
+    { id: 'a', name: 'Reel - Top likes', adset_id: 's1', status: 'ACTIVE', spend: 900, purchases: 30 },
+    { id: 'b', name: 'Reel - 1.4k likes', adset_id: 's1', status: 'ACTIVE', spend: 241, purchases: 0 },
+    { id: 'c', name: 'Reel X (auto)', adset_id: 's1', status: 'ACTIVE', spend: 120, purchases: 0 },
+    { id: 'd', name: 'IK05 static', adset_id: 's2', status: 'ACTIVE', spend: 500, purchases: 0 },
+    { id: 'e', name: 'Reel lonely (auto)', adset_id: 's3', status: 'ACTIVE', spend: 400, purchases: 0 },
+    { id: 'f', name: 'Reel paused', adset_id: 's1', status: 'PAUSED', spend: 400, purchases: 0 },
+  ];
+  assert.deepEqual(pickLosers(rows).map((x) => x.id), ['b']);
+});

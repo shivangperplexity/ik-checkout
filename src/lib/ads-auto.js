@@ -4,8 +4,9 @@
  *    and switched back on in the morning; only what we paused is resumed (ads_night setting).
  *  - scale: once a day, the best ad set of the last 3 days gets +₹100 (CPA ≤ 1.2× target) or +₹50 (CPA ≤ 1.5× target,
  *    ≥ 3 purchases). The account caps in Settings → Meta rise with it, up to `ads_ceiling` (default ₹5,000/day).
- *  - reels: once a day, the strongest recent Instagram reel that is not an ad yet becomes an ACTIVE ad in the best ad
- *    set. Reels Meta refuses (licensed music, policy) are remembered and skipped. One new ad per day.
+ *  - reels: once a WEEK (owner, 3 Nov), the strongest recent Instagram reel that is not an ad yet becomes an ACTIVE ad in
+ *    the best ad set. Reels Meta refuses (licensed music, policy) are remembered and skipped.
+ *  - losers: a reel ad that has spent ₹150 (lifetime) with 0 purchases is paused, never the last live ad of its ad set.
  * All state lives in settings rows: ads_night {paused:[ids], at}, ads_auto {log:[...], reels:{media_id: ...}}.
  */
 import { adsCfg, graph, all, overview, activeBudgets, igAd, identities } from './meta-ads.js';
@@ -15,14 +16,16 @@ import { claim } from './once.js';
 const IST = 19800;
 const nowSec = () => Math.floor(Date.now() / 1000);
 export const istHour = (t = nowSec()) => new Date((t + IST) * 1000).getUTCHours();
-const CONFIRMED = '1141111382186066'; /* "Confirmed Purchase" custom conversion: the purchases we trust */
+const CONFIRMED = '1141111382186066';
+export const REEL_EVERY = 7 * 86400 - 3600; /* one new reel ad a week */
+export const LOSER_SPEND = 150;            /* ₹ spent with no purchase -> pause */ /* "Confirmed Purchase" custom conversion: the purchases we trust */
 
 export function autoCfg(env) {
   const m = env.SETTINGS?.meta || {};
   return {
     night: m.ads_night_off !== false, nightFrom: Number(m.ads_night_from ?? 23), nightTo: Number(m.ads_night_to ?? 6),
     scale: m.ads_scale_off !== true, ceiling: Math.max(500, Number(m.ads_ceiling) || 5000), stepBig: 100, stepSmall: 50,
-    reels: m.ads_reels_off !== true, reelDays: 21, minViews: Number(m.ads_reel_min_views) || 0,
+    reels: m.ads_reels_off !== true, reelDays: 21, losers: m.ads_losers_off !== true, loserSpend: Number(m.ads_loser_spend) || LOSER_SPEND, minViews: Number(m.ads_reel_min_views) || 0,
   };
 }
 
@@ -111,7 +114,7 @@ export async function recentReels(env, { days = 21 } = {}) {
 export async function reelTick(env, { force = false } = {}) {
   const c = autoCfg(env); if (!c.reels && !force) return { skipped: 'off' };
   const h = istHour(); if (!force && (h < 11 || h >= 13)) return { skipped: 'hour' };
-  if (!force && !(await claim(env, 'ads:reels', 20 * 3600))) return { skipped: 'slot' };
+  if (!force && !(await claim(env, 'ads:reels', REEL_EVERY))) return { skipped: 'slot' };
   const meta = env.SETTINGS?.meta || {}; const auto = meta.ads_auto || {}; const used = auto.reels || {};
   /* reels already running as ads (by source media id in the creative) count as used */
   const a = adsCfg(env);
@@ -135,4 +138,31 @@ export async function reelTick(env, { force = false } = {}) {
     await save({ rejected: pick.shortcode || pick.id, error: String(e.message).slice(0, 160) });
     return { rejected: { reel: pick.link, error: e.message } };
   }
+}
+
+/** Pure: which reel ads to pause. rows = ads with lifetime spend/purchases; a reel ad = name starts with "Reel" or
+    carries "(auto)". Never pauses the last live ad of an ad set. */
+export function pickLosers(rows, { spend = LOSER_SPEND } = {}) {
+  const isReel = (a) => /^reel\b/i.test(a.name || '') || /\(auto\)/i.test(a.name || '');
+  const live = rows.filter((a) => a.status === 'ACTIVE');
+  const liveBySet = {}; for (const a of live) liveBySet[a.adset_id] = (liveBySet[a.adset_id] || 0) + 1;
+  const out = [];
+  for (const a of live.filter(isReel).sort((x, y) => y.spend - x.spend)) {
+    const p = Math.max(Number(a.purchases) || 0, Number(a.custom?.[CONFIRMED]) || 0);
+    if (Number(a.spend) >= spend && p === 0 && liveBySet[a.adset_id] > 1) { out.push({ id: a.id, name: a.name, spend: Math.round(a.spend) }); liveBySet[a.adset_id]--; }
+  }
+  return out;
+}
+
+export async function loserTick(env, { force = false } = {}) {
+  const c = autoCfg(env); if (!c.losers && !force) return { skipped: 'off' };
+  const h = istHour(); if (!force && (h < 7 || h >= 22)) return { skipped: 'hour' };
+  if (!force && !(await claim(env, 'ads:losers', 3 * 3600))) return { skipped: 'slot' };
+  const ov = await overview(env, { preset: 'maximum' });
+  const rows = ov.campaigns.flatMap((k) => k.adsets.flatMap((s) => s.ads || []));
+  const pick = pickLosers(rows, { spend: c.loserSpend });
+  const meta = env.SETTINGS?.meta || {};
+  for (const a of pick) await graph(env, 'POST', a.id, { status: 'PAUSED' });
+  if (pick.length) await putSetting(env, 'meta', { ...meta, ads_auto: { ...(meta.ads_auto || {}), log: [{ at: nowSec(), kind: 'loser', paused: pick }, ...((meta.ads_auto || {}).log || [])].slice(0, 60) } });
+  return { paused: pick };
 }
