@@ -393,10 +393,11 @@ const ACTIONS = {
     ]);
     const [otps, stuck] = await Promise.all([
       q(`SELECT ((sent_at+${IST})/86400) d, COUNT(*) sent, SUM(CASE WHEN verified_at IS NOT NULL THEN 1 ELSE 0 END) verified, SUM(CASE WHEN COALESCE(drank,0)>=9 THEN 1 ELSE 0 END) undelivered, SUM(CASE WHEN COALESCE(drank,0) BETWEEN 2 AND 8 THEN 1 ELSE 0 END) delivered FROM cod_otps WHERE sent_at>?::bigint GROUP BY 1 ORDER BY 1`, since),
-      q(`SELECT ((first_seen+${IST})/86400) d, COALESCE(method,'?') method, step, COUNT(*) n FROM sessions WHERE first_seen>?::bigint AND ordered=0 AND max_step>=6 GROUP BY 1,2,3 ORDER BY 1`, since),
+      q(`SELECT ((first_seen+${IST})/86400) d, COALESCE(method,'unknown') method, step, COUNT(*) n FROM sessions WHERE first_seen>?::bigint AND ordered=0 AND max_step>=6 GROUP BY 1,2,3 ORDER BY 1`, since),
     ]);
+    const partials = await q(`SELECT ((created_at+${IST})/86400) d, status, state_code, pincode, partial_reason, advance_paise, total_paise, ((created_at+${IST})%86400)/3600 h FROM orders WHERE created_at>?::bigint AND advance_paise IS NOT NULL ORDER BY created_at DESC LIMIT 60`, since);
     const byMsg = {}; for (const f of fails) { let m = ''; try { const d = JSON.parse(f.data || '{}'); m = String(d.error || d.msg || d.reason || f.data).slice(0, 120); } catch { m = String(f.data).slice(0, 120); } byMsg[m] = (byMsg[m] || 0) + 1; }
-    return { ok: true, hours, fail_count: fails.length, by_message: Object.entries(byMsg).sort((a, b2) => b2[1] - a[1]), recent: fails.slice(0, 40).map((f) => ({ at: new Date((Number(f.ts) + IST) * 1000).toISOString().slice(5, 16), data: f.data })), steps: b.steps ? steps : undefined, orders, otps, stuck };
+    return { ok: true, hours, fail_count: fails.length, by_message: Object.entries(byMsg).sort((a, b2) => b2[1] - a[1]), recent: fails.slice(0, 40).map((f) => ({ at: new Date((Number(f.ts) + IST) * 1000).toISOString().slice(5, 16), data: f.data })), steps: b.steps ? steps : undefined, orders, otps, stuck, partials };
   },
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
   async orders(env, b) {
