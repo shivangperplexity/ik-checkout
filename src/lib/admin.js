@@ -1557,6 +1557,14 @@ const ACTIONS = {
     if (r?.ok) await env.DB.prepare('UPDATE credits SET told_at=? WHERE id=?').bind(t, c.id).run();
     return { ok: !!r?.ok, result: r };
   },
+  /** Every credit row and use for one number (support / debugging). */
+  async credit_history(env, b) {
+    const phone = String(b.phone || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+    const credits = (await env.DB.prepare('SELECT id, amount_paise, left_paise, reason, ref_idem, created_at, expires_at, told_at FROM credits WHERE phone=? ORDER BY id DESC LIMIT 50').bind(phone).all()).results;
+    const uses = (await env.DB.prepare('SELECT idem, amount, took, status, order_id, created_at, used_at FROM credit_uses WHERE phone=? ORDER BY created_at DESC LIMIT 50').bind(phone).all()).results;
+    const orders = (await env.DB.prepare('SELECT idem, order_name, method, status, total_paise, created_at FROM orders WHERE phone=? ORDER BY created_at DESC LIMIT 10').bind(phone).all()).results;
+    return { ok: true, phone, credits, uses, orders };
+  },
   async credit_status(env) {
     const t = Math.floor(Date.now() / 1000);
     const q = async (sql) => (await env.DB.prepare(sql).bind(t).first()) || {};
