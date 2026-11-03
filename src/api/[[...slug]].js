@@ -33,6 +33,11 @@ export default {
     const env = { ...process.env, DB: makeDb(process.env) };
     const ctx = { waitUntil };
     const path = new URL(req.url).pathname;
+    /* CodWing, the multi-seller Shopify app (app.codwing.com): its own tables and auth, nothing shared with IK's admin */
+    if (path.startsWith('/api/cw/')) {
+      try { const { handleCw } = await import('../lib/cw/app.js'); return await handleCw(req, env); }
+      catch (e) { console.error('cw route', path, e); return new Response('{"ok":false}', { status: 500, headers: { 'Content-Type': 'application/json' } }); }
+    }
     try {
       /* WhatsApp via Go4WhatsUp: inbound replies, one-tap confirm, COD -> prepaid. */
       if (path === '/api/wa/g4w') return await handleG4w(req, env, ctx);
