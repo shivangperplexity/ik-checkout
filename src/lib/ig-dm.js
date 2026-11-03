@@ -140,7 +140,8 @@ export async function bioReply(env, c, cm, why = '') {
 export async function bioBacklog(env, { days = 3, max = 80, dry = false } = {}) {
   const c = await igCfg(env);
   if (!c.token) throw new Error('Instagram is not connected');
-  const rows = (await env.DB.prepare("SELECT comment_id, media_id, from_id, username, text FROM ig_dm WHERE status = 'failed' AND bio_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT ?")
+  const rows = (await env.DB.prepare(`SELECT d.comment_id, d.media_id, d.from_id, d.username, d.text FROM ig_dm d WHERE d.status = 'failed' AND d.bio_at IS NULL AND d.created_at > ?
+      AND NOT EXISTS (SELECT 1 FROM ig_dm o WHERE o.media_id = d.media_id AND o.from_id = d.from_id AND o.bio_at IS NOT NULL) ORDER BY d.created_at DESC LIMIT ?`)
     .bind(now() - days * 86400, Math.min(200, max)).all()).results;
   if (dry) return { would_reply: rows.length, users: rows.map((r) => r.username) };
   const seen = new Set(); const out = { replied: 0, failed: 0, skipped: 0, errors: [] };
