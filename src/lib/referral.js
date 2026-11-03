@@ -247,7 +247,8 @@ export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
     let ok = false;
     try { const { metaTemplate } = await import('./whatsapp.js'); const tp = await metaTemplate(env, DLV_TEMPLATE); ok = tp?.status === 'APPROVED'; } catch { ok = false; }
     out.dlv_template = ok ? 'approved' : 'waiting';
-    const hit = await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE direction='out' AND status='failed' AND ts>? AND (error ILIKE '%rate limit%' OR error ILIKE '%131048%' OR error ILIKE '%131049%')`).bind(t - 3600).first().catch(() => null);
+    /* pause only for a real account rate limit; 131049 "healthy ecosystem" is Meta declining one recipient, not us */
+    const hit = await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE direction='out' AND status='failed' AND ts>? AND (error ILIKE '%rate limit%' OR error ILIKE '%131048%')`).bind(t - 3600).first().catch(() => null);
     if (ok && !(Number(hit?.n) > 0)) {
       /* one message per phone per run even when several credits wait; the others follow on later runs */
       const due = (await env.DB.prepare(`SELECT c.id, c.phone, c.amount_paise, c.expires_at, (SELECT MAX(first_name) FROM orders o WHERE o.phone=c.phone) AS first_name
@@ -260,7 +261,8 @@ export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
         if (!claim) continue;
         const r = await fireTrigger(env, 'dlv_credit', { to: c.phone, vars: { name: String(c.first_name || '').split(/\s+/)[0] || 'there', amount: String(Math.round(c.amount_paise / 100)), till: dateIst(c.expires_at) } }).catch((e) => ({ ok: false, error: e.message }));
         if (r?.ok) out.dlv_told = (out.dlv_told || 0) + 1;
-        else if (!r?.skipped) await env.DB.prepare('UPDATE credits SET told_at=NULL WHERE id=?').bind(c.id).run();
+        /* Meta declined this recipient (131049) or the number is not on WhatsApp: no retry; a transient error is retried */
+        else if (!r?.skipped && !/131049|healthy ecosystem|131026|not a valid whatsapp/i.test(String(r?.error || ''))) await env.DB.prepare('UPDATE credits SET told_at=NULL WHERE id=?').bind(c.id).run();
       }
     }
   }
