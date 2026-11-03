@@ -94,6 +94,9 @@ async function authed(req, env) {
     await env.DB.prepare(`INSERT INTO cw_shops (shop, token_box, scopes, installed_at, uninstalled_at, settings, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)
       ON CONFLICT (shop) DO UPDATE SET token_box = EXCLUDED.token_box, scopes = EXCLUDED.scopes, installed_at = EXCLUDED.installed_at, uninstalled_at = NULL, updated_at = EXCLUDED.updated_at`)
       .bind(s.shop, seal(t.token, cfg.secret), t.scope, now(), JSON.stringify(defaults()), now()).run();
+    /* app/uninstalled -> clear the token (Dev Dashboard apps have no webhook form; subscribe per shop) */
+    adminGraphql(s.shop, t.token, `mutation { webhookSubscriptionCreate(topic: APP_UNINSTALLED, webhookSubscription: { uri: "https://app.codwing.com/api/cw/webhooks" }) { userErrors { message } } }`)
+      .catch((e) => console.warn('cw webhook', s.shop, e.message));
     try {
       const d = await adminGraphql(s.shop, t.token, '{ shop { name primaryDomain { url } } }');
       await env.DB.prepare('UPDATE cw_shops SET name = ?, domain = ? WHERE shop = ?').bind(d.shop.name, d.shop.primaryDomain?.url || null, s.shop).run();
