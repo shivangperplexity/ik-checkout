@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terms · CodWing</title><link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --surface:#ffffff; --sunk:#f3f5fd; --line:#d9def0; --line-strong:#7f86b0;
+  --ink:#04032e; --muted:#525a82; --indigo:#070655; --wing:#224ff2; --sky:#3e8bf4; --wing-soft:#e6ecfe;
+  --go:#0a7a4f; --go-soft:#e2f5ec; --risk:#a14a05; --risk-soft:#fdf0dc;
+  --display:Poppins,"Plus Jakarta Sans",system-ui,sans-serif; --sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --r-sm:6px; --r-md:10px; --r-lg:16px; --max:1120px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--surface);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6}
+img{max-width:100%;display:block}
+a{color:var(--wing)}
+.wrap{max-width:var(--max);margin:0 auto;padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+h1,h2,h3{font-family:var(--display);line-height:1.12;letter-spacing:-.015em;margin:0;text-wrap:balance}
+:focus-visible{outline:2px solid var(--wing);outline-offset:2px;border-radius:4px}
+
+/* header */
+.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:68px;gap:16px}
+.top img{height:34px;width:auto}
+.nav{display:flex;align-items:center;gap:24px;font-weight:600;font-size:14px}
+.nav a{color:var(--ink);text-decoration:none}
+.nav a:hover{color:var(--wing)}
+.nav a.btn-primary,.nav a.btn-primary:hover{color:#fff}
+@media (max-width:720px){.nav .hide-m{display:none}}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 24px;border-radius:var(--r-md);font-weight:700;font-size:15px;text-decoration:none;border:1.5px solid transparent;transition:background-color .16s ease-out,border-color .16s ease-out,color .16s ease-out;white-space:nowrap}
+.btn-primary{background:var(--wing);color:#fff}
+.btn-primary:hover{background:var(--indigo)}
+.btn-ghost{border-color:var(--line-strong);color:var(--ink);background:#fff}
+.btn-ghost:hover{border-color:var(--wing);color:var(--wing)}
+.btn-sm{height:40px;padding:0 16px;font-size:14px}
+
+/* hero */
+.hero{padding-block:72px 64px}
+.hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center}
+@media (max-width:900px){.hero .wrap{grid-template-columns:1fr;gap:40px}.hero{padding-block:40px 48px}}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--wing);background:var(--wing-soft);padding:6px 12px;border-radius:999px}
+.hero h1{font-size:clamp(40px,6.4vw,68px);margin-top:20px}
+.hero h1 span{color:var(--wing)}
+.lede{font-size:clamp(17px,2vw,19px);color:var(--muted);max-width:34em;margin:20px 0 0}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.note{font-size:13px;color:var(--muted);margin-top:14px}
+
+/* checkout mock */
+.sheet{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 1px 2px rgba(4,3,46,.06),0 18px 50px rgba(4,3,46,.12);padding:20px;max-width:420px;justify-self:center;width:100%}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.sheet-head b{font-family:var(--display);font-size:18px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pay{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:start;padding:14px;border:1.5px solid var(--line);border-radius:var(--r-lg);margin-bottom:10px}
+.pay.on{border-color:var(--wing);background:var(--wing-soft)}
+.dot{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line-strong);display:grid;place-items:center;margin-top:2px}
+.on .dot{border-color:var(--wing)}.on .dot::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--wing)}
+.pt{font-weight:700;font-size:15px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pd{font-size:13px;color:var(--muted);line-height:1.4;margin-top:2px}
+.pp{font-family:var(--mono);font-weight:600;text-align:right;white-space:nowrap}
+.pp s{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;line-height:1;padding:5px 8px;border-radius:var(--r-sm)}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.b-go{background:var(--go-soft);color:var(--go)}.b-wing{background:var(--wing-soft);color:var(--wing)}.b-risk{background:var(--risk-soft);color:var(--risk)}
+.otp{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.otp label{font-size:13px;font-weight:700}
+.boxes{display:flex;gap:8px;margin:8px 0 6px}
+.boxes span{width:46px;height:54px;border:1.5px solid var(--line-strong);border-radius:var(--r-sm);display:grid;place-items:center;font-family:var(--mono);font-size:22px;font-weight:600}
+.boxes span.f{border-color:var(--wing);box-shadow:0 0 0 3px var(--wing-soft)}
+.otp small{font-size:12px;color:var(--muted)}
+.sheet .btn{width:100%;margin-top:16px}
+
+/* sections */
+section{padding-block:80px}
+@media (max-width:720px){section{padding-block:56px}}
+.sec-head{max-width:640px;margin-bottom:40px}
+.sec-head h2{font-size:clamp(30px,4vw,42px)}
+.sec-head p{color:var(--muted);font-size:17px;margin:14px 0 0}
+.band{background:var(--sunk)}
+
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+@media (max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.grid{grid-template-columns:1fr}}
+.feat{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:24px}
+.feat svg{width:28px;height:28px;stroke:var(--wing);fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.feat h3{font-size:19px;margin-top:16px}
+.feat p{color:var(--muted);font-size:15px;margin:8px 0 0}
+
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;counter-reset:s}
+@media (max-width:800px){.steps{grid-template-columns:1fr}}
+.step{border-top:3px solid var(--wing);padding-top:20px}
+.step:nth-child(2){border-color:var(--sky)}.step:nth-child(3){border-color:var(--indigo)}
+.step .n{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.step h3{font-size:21px;margin-top:6px}
+.step p{color:var(--muted);margin:8px 0 0;font-size:15px}
+
+/* dark band */
+.own{background:var(--ink);color:#eef1ff}
+.own .wrap{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+@media (max-width:900px){.own .wrap{grid-template-columns:1fr;gap:32px}}
+.own h2{font-size:clamp(30px,4vw,42px)}
+.own p{color:#a7adda;font-size:17px}
+.own ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.own li{display:flex;gap:14px;align-items:flex-start;background:#0b0a45;border:1px solid #26266a;border-radius:var(--r-lg);padding:16px 18px}
+.own li b{display:block;color:#fff}
+.own li span{color:#a7adda;font-size:14px}
+.own li i{flex:none;width:10px;height:10px;border-radius:50%;background:var(--sky);margin-top:8px}
+
+/* pricing */
+.plans{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;max-width:880px}
+@media (max-width:720px){.plans{grid-template-columns:1fr}}
+.plan{border:1.5px solid var(--line);border-radius:20px;padding:28px;background:#fff;display:flex;flex-direction:column}
+.plan.hl{border-color:var(--wing);box-shadow:0 0 0 4px var(--wing-soft)}
+.plan h3{font-size:22px}
+.price{font-family:var(--display);font-size:40px;font-weight:700;margin:14px 0 2px;letter-spacing:-.02em}
+.price small{font-family:var(--sans);font-size:15px;font-weight:500;color:var(--muted);letter-spacing:0}
+.plan .sub{color:var(--muted);font-size:14px;margin:0}
+.plan ul{margin:20px 0 24px;padding:0;list-style:none;display:grid;gap:10px;font-size:15px}
+.plan li{display:flex;gap:10px}
+.plan li::before{content:"";flex:none;width:18px;height:18px;margin-top:3px;border-radius:50%;background:var(--go-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230a7a4f' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/12px no-repeat}
+.plan .btn{margin-top:auto}
+
+/* faq */
+.faq{max-width:760px;display:grid;gap:12px}
+details{border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;background:#fff}
+summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none;display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-family:var(--mono);color:var(--wing);font-size:20px;line-height:1}
+details[open] summary::after{content:"–"}
+details p{color:var(--muted);margin:10px 0 0;font-size:15px}
+
+/* cta + footer */
+.final{text-align:center}
+.final h2{font-size:clamp(32px,4.6vw,48px)}
+.final p{color:var(--muted);font-size:17px;margin:14px auto 28px;max-width:34em}
+.final .ctas{justify-content:center}
+footer{border-top:1px solid var(--line);padding-block:32px;font-size:14px;color:var(--muted)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+footer img{height:26px;width:auto}
+footer nav{display:flex;gap:20px;flex-wrap:wrap}
+footer a{color:var(--muted);text-decoration:none}footer a:hover{color:var(--wing)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+.doc{max-width:760px;padding-block:56px 80px} .doc h1{font-size:clamp(32px,5vw,44px)} .doc h2{font-size:22px;margin-top:36px} .doc p,.doc li{color:#2b3060;font-size:16px} .doc .upd{color:var(--muted);font-size:14px;margin-top:8px}</style></head>
+<body><header class="top"><div class="wrap"><a href="/" aria-label="CodWing home"><img src="/assets/logo.png" alt="CodWing" width="280" height="76"></a>
+<nav class="nav"><a class="btn btn-primary btn-sm" href="mailto:hello@codwing.com">Contact</a></nav></div></header>
+<main class="wrap doc"><h1>Terms of service</h1><p class="upd">Last updated 3 November 2026</p>
+<p>These terms apply to merchants who install or buy CodWing. By installing CodWing or paying for setup, you agree to them. Contact: <a href="mailto:hello@codwing.com">hello@codwing.com</a>.</p>
+<h2>The service</h2><p>CodWing provides a checkout, cash-on-delivery verification, RTO rules, WhatsApp order messaging and Meta event tracking for Shopify stores, plus an optional done-for-you setup.</p>
+<h2>Your accounts</h2><p>You connect your own payment gateway, WhatsApp Business account and Meta pixel. You are responsible for those accounts, their fees and their terms. CodWing never receives or settles your customers' payments.</p>
+<h2>Plans and billing</h2><ul><li>The Growth plan is billed monthly through Shopify. The first month is free for new stores. You can cancel any time; cancelling stops future charges.</li>
+<li>The done-for-you setup is a one-time fee for the work described when you buy it and is not refundable once the setup call has taken place.</li>
+<li>Prices are in INR and exclude GST.</li></ul>
+<h2>Fair use</h2><p>Don't use CodWing to sell illegal goods, send spam or misleading messages, or break Shopify's, Meta's or your gateway's rules. We may suspend stores that do.</p>
+<h2>Availability</h2><p>We work to keep CodWing running at all times but can't promise it will never be interrupted. If CodWing is unavailable, your store can fall back to Shopify's default checkout.</p>
+<h2>Liability</h2><p>CodWing reduces fake and returned orders but cannot guarantee any particular result. To the extent the law allows, our total liability for any claim is limited to the fees you paid us in the three months before the claim.</p>
+<h2>Data</h2><p>Our <a href="/privacy">privacy policy</a> explains how we handle your store's and your buyers' data.</p>
+<h2>Changes</h2><p>We may update these terms and will tell you by email before changes that affect your plan take effect.</p></main>
+<footer><div class="wrap"><img src="/assets/logo.png" alt="CodWing" width="196" height="53"><nav><a href="/privacy">Privacy policy</a><a href="/terms">Terms</a><a href="mailto:hello@codwing.com">hello@codwing.com</a></nav><span>© 2026 CodWing</span></div></footer>
+</body></html>

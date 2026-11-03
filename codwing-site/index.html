@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CodWing · Checkout that lands</title>
+<meta name="description" content="One-click checkout, OTP-verified COD, RTO control and WhatsApp updates for Shopify brands. Your own payment gateway, pixel and WhatsApp, set up for you.">
+<meta property="og:title" content="CodWing · Checkout that lands">
+<meta property="og:description" content="One-click checkout, OTP-verified COD and RTO control for Shopify D2C brands.">
+<meta property="og:image" content="https://codwing.com/assets/og.jpg">
+<meta property="og:url" content="https://codwing.com/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+:root{
+  --surface:#ffffff; --sunk:#f3f5fd; --line:#d9def0; --line-strong:#7f86b0;
+  --ink:#04032e; --muted:#525a82; --indigo:#070655; --wing:#224ff2; --sky:#3e8bf4; --wing-soft:#e6ecfe;
+  --go:#0a7a4f; --go-soft:#e2f5ec; --risk:#a14a05; --risk-soft:#fdf0dc;
+  --display:Poppins,"Plus Jakarta Sans",system-ui,sans-serif; --sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --r-sm:6px; --r-md:10px; --r-lg:16px; --max:1120px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--surface);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6}
+img{max-width:100%;display:block}
+a{color:var(--wing)}
+.wrap{max-width:var(--max);margin:0 auto;padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+h1,h2,h3{font-family:var(--display);line-height:1.12;letter-spacing:-.015em;margin:0;text-wrap:balance}
+:focus-visible{outline:2px solid var(--wing);outline-offset:2px;border-radius:4px}
+
+/* header */
+.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:68px;gap:16px}
+.top img{height:34px;width:auto}
+.nav{display:flex;align-items:center;gap:24px;font-weight:600;font-size:14px}
+.nav a{color:var(--ink);text-decoration:none}
+.nav a:hover{color:var(--wing)}
+.nav a.btn-primary,.nav a.btn-primary:hover{color:#fff}
+@media (max-width:720px){.nav .hide-m{display:none}}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 24px;border-radius:var(--r-md);font-weight:700;font-size:15px;text-decoration:none;border:1.5px solid transparent;transition:background-color .16s ease-out,border-color .16s ease-out,color .16s ease-out;white-space:nowrap}
+.btn-primary{background:var(--wing);color:#fff}
+.btn-primary:hover{background:var(--indigo)}
+.btn-ghost{border-color:var(--line-strong);color:var(--ink);background:#fff}
+.btn-ghost:hover{border-color:var(--wing);color:var(--wing)}
+.btn-sm{height:40px;padding:0 16px;font-size:14px}
+
+/* hero */
+.hero{padding-block:72px 64px}
+.hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center}
+@media (max-width:900px){.hero .wrap{grid-template-columns:1fr;gap:40px}.hero{padding-block:40px 48px}}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--wing);background:var(--wing-soft);padding:6px 12px;border-radius:999px}
+.hero h1{font-size:clamp(40px,6.4vw,68px);margin-top:20px}
+.hero h1 span{color:var(--wing)}
+.lede{font-size:clamp(17px,2vw,19px);color:var(--muted);max-width:34em;margin:20px 0 0}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.note{font-size:13px;color:var(--muted);margin-top:14px}
+
+/* checkout mock */
+.sheet{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 1px 2px rgba(4,3,46,.06),0 18px 50px rgba(4,3,46,.12);padding:20px;max-width:420px;justify-self:center;width:100%}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.sheet-head b{font-family:var(--display);font-size:18px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pay{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:start;padding:14px;border:1.5px solid var(--line);border-radius:var(--r-lg);margin-bottom:10px}
+.pay.on{border-color:var(--wing);background:var(--wing-soft)}
+.dot{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line-strong);display:grid;place-items:center;margin-top:2px}
+.on .dot{border-color:var(--wing)}.on .dot::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--wing)}
+.pt{font-weight:700;font-size:15px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pd{font-size:13px;color:var(--muted);line-height:1.4;margin-top:2px}
+.pp{font-family:var(--mono);font-weight:600;text-align:right;white-space:nowrap}
+.pp s{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;line-height:1;padding:5px 8px;border-radius:var(--r-sm)}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.b-go{background:var(--go-soft);color:var(--go)}.b-wing{background:var(--wing-soft);color:var(--wing)}.b-risk{background:var(--risk-soft);color:var(--risk)}
+.otp{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.otp label{font-size:13px;font-weight:700}
+.boxes{display:flex;gap:8px;margin:8px 0 6px}
+.boxes span{width:46px;height:54px;border:1.5px solid var(--line-strong);border-radius:var(--r-sm);display:grid;place-items:center;font-family:var(--mono);font-size:22px;font-weight:600}
+.boxes span.f{border-color:var(--wing);box-shadow:0 0 0 3px var(--wing-soft)}
+.otp small{font-size:12px;color:var(--muted)}
+.sheet .btn{width:100%;margin-top:16px}
+
+/* sections */
+section{padding-block:80px}
+@media (max-width:720px){section{padding-block:56px}}
+.sec-head{max-width:640px;margin-bottom:40px}
+.sec-head h2{font-size:clamp(30px,4vw,42px)}
+.sec-head p{color:var(--muted);font-size:17px;margin:14px 0 0}
+.band{background:var(--sunk)}
+
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+@media (max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.grid{grid-template-columns:1fr}}
+.feat{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:24px}
+.feat svg{width:28px;height:28px;stroke:var(--wing);fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.feat h3{font-size:19px;margin-top:16px}
+.feat p{color:var(--muted);font-size:15px;margin:8px 0 0}
+
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;counter-reset:s}
+@media (max-width:800px){.steps{grid-template-columns:1fr}}
+.step{border-top:3px solid var(--wing);padding-top:20px}
+.step:nth-child(2){border-color:var(--sky)}.step:nth-child(3){border-color:var(--indigo)}
+.step .n{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.step h3{font-size:21px;margin-top:6px}
+.step p{color:var(--muted);margin:8px 0 0;font-size:15px}
+
+/* dark band */
+.own{background:var(--ink);color:#eef1ff}
+.own .wrap{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+@media (max-width:900px){.own .wrap{grid-template-columns:1fr;gap:32px}}
+.own h2{font-size:clamp(30px,4vw,42px)}
+.own p{color:#a7adda;font-size:17px}
+.own ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.own li{display:flex;gap:14px;align-items:flex-start;background:#0b0a45;border:1px solid #26266a;border-radius:var(--r-lg);padding:16px 18px}
+.own li b{display:block;color:#fff}
+.own li span{color:#a7adda;font-size:14px}
+.own li i{flex:none;width:10px;height:10px;border-radius:50%;background:var(--sky);margin-top:8px}
+
+/* pricing */
+.plans{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;max-width:880px}
+@media (max-width:720px){.plans{grid-template-columns:1fr}}
+.plan{border:1.5px solid var(--line);border-radius:20px;padding:28px;background:#fff;display:flex;flex-direction:column}
+.plan.hl{border-color:var(--wing);box-shadow:0 0 0 4px var(--wing-soft)}
+.plan h3{font-size:22px}
+.price{font-family:var(--display);font-size:40px;font-weight:700;margin:14px 0 2px;letter-spacing:-.02em}
+.price small{font-family:var(--sans);font-size:15px;font-weight:500;color:var(--muted);letter-spacing:0}
+.plan .sub{color:var(--muted);font-size:14px;margin:0}
+.plan ul{margin:20px 0 24px;padding:0;list-style:none;display:grid;gap:10px;font-size:15px}
+.plan li{display:flex;gap:10px}
+.plan li::before{content:"";flex:none;width:18px;height:18px;margin-top:3px;border-radius:50%;background:var(--go-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230a7a4f' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/12px no-repeat}
+.plan .btn{margin-top:auto}
+
+/* faq */
+.faq{max-width:760px;display:grid;gap:12px}
+details{border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;background:#fff}
+summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none;display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-family:var(--mono);color:var(--wing);font-size:20px;line-height:1}
+details[open] summary::after{content:"–"}
+details p{color:var(--muted);margin:10px 0 0;font-size:15px}
+
+/* cta + footer */
+.final{text-align:center}
+.final h2{font-size:clamp(32px,4.6vw,48px)}
+.final p{color:var(--muted);font-size:17px;margin:14px auto 28px;max-width:34em}
+.final .ctas{justify-content:center}
+footer{border-top:1px solid var(--line);padding-block:32px;font-size:14px;color:var(--muted)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+footer img{height:26px;width:auto}
+footer nav{display:flex;gap:20px;flex-wrap:wrap}
+footer a{color:var(--muted);text-decoration:none}footer a:hover{color:var(--wing)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a href="/" aria-label="CodWing home"><img src="/assets/logo.png" alt="CodWing" width="280" height="76"></a>
+    <nav class="nav">
+      <a class="hide-m" href="#features">Features</a>
+      <a class="hide-m" href="#pricing">Pricing</a>
+      <a class="hide-m" href="#faq">FAQ</a>
+      <a class="btn btn-primary btn-sm" href="mailto:hello@codwing.com?subject=CodWing%20demo">Book a demo</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">Built for Shopify D2C brands in India</span>
+      <h1>Checkout that <span>lands.</span></h1>
+      <p class="lede">One-click checkout, OTP-verified cash on delivery and RTO control, running on your own payment gateway, your own pixel and your own WhatsApp. We set it up for you.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="mailto:hello@codwing.com?subject=CodWing%20demo">Book a free demo</a>
+        <a class="btn btn-ghost" href="#pricing">See pricing</a>
+      </div>
+      <p class="note">First month of Growth free. No long contracts.</p>
+    </div>
+
+    <div class="sheet" aria-label="Example of a CodWing checkout">
+      <div class="sheet-head"><b>Checkout</b><span class="mono" style="font-size:13px;color:var(--muted)">2 items</span></div>
+      <div class="pay on">
+        <span class="dot" aria-hidden="true"></span>
+        <div><div class="pt">UPI / Card <span class="badge b-go">Save ₹50</span></div><div class="pd">Pay now with any UPI app or card</div></div>
+        <div class="pp">₹1,249<s>₹1,299</s></div>
+      </div>
+      <div class="pay">
+        <span class="dot" aria-hidden="true"></span>
+        <div><div class="pt">Cash on delivery</div><div class="pd">Confirm with a 4-digit OTP</div></div>
+        <div class="pp">₹1,299</div>
+      </div>
+      <div class="pay">
+        <span class="dot" aria-hidden="true"></span>
+        <div><div class="pt">Partial COD <span class="badge b-risk">High-RTO pincode</span></div><div class="pd">Pay ₹99 now, rest on delivery</div></div>
+        <div class="pp">₹1,299</div>
+      </div>
+      <div class="otp">
+        <label>Enter the code sent to your WhatsApp</label>
+        <div class="boxes" aria-hidden="true"><span>4</span><span>8</span><span class="f"></span><span></span></div>
+        <small>Resend in 0:24</small>
+      </div>
+      <span class="btn btn-primary" role="presentation">Place order</span>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Everything between "Buy now" and "Delivered"</h2>
+      <p>CodWing replaces the patchwork of COD apps, OTP apps and WhatsApp tools with one checkout that knows which orders are real.</p>
+    </div>
+    <div class="grid">
+      <article class="feat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+        <h3>One-click checkout</h3>
+        <p>Phone number first, address remembered, UPI and cards in one sheet. Fewer steps between the ad and the order.</p>
+      </article>
+      <article class="feat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 18h6"/><path d="m9 10 2 2 4-4"/></svg>
+        <h3>OTP-verified COD</h3>
+        <p>Buyers confirm cash orders with a one-time code on WhatsApp, so fake numbers and prank orders never reach your courier.</p>
+      </article>
+      <article class="feat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <h3>RTO control</h3>
+        <p>Flag risky pincodes and repeat returners. Ask for a small advance only where it matters, and nudge everyone else to prepaid.</p>
+      </article>
+      <article class="feat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-13.5 7.8L3 21l1.2-4.5A9 9 0 1 1 21 12z"/></svg>
+        <h3>WhatsApp updates</h3>
+        <p>Order confirmed, shipped, out for delivery and delivered, sent from your own WhatsApp Business number.</p>
+      </article>
+      <article class="feat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+        <h3>Ads that learn from real orders</h3>
+        <p>Server-side Meta events for confirmed and delivered orders, so your campaigns optimise for buyers who pay, not just clicks.</p>
+      </article>
+      <article class="feat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+        <h3>Store credit and referrals</h3>
+        <p>Reward delivered orders with credit buyers can use next time, even on COD, protected by the same OTP.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="own">
+  <div class="wrap">
+    <div>
+      <h2>Your money, your data, your accounts.</h2>
+      <p>CodWing never holds your payments. Buyers pay straight into your own gateway account, messages go out from your own WhatsApp number, and every event lands in your own Meta pixel.</p>
+    </div>
+    <ul>
+      <li><i></i><div><b>Your payment gateway</b><span>Connect Razorpay or PayU with your own keys. Settlements go to your bank as usual.</span></div></li>
+      <li><i></i><div><b>Your WhatsApp Business number</b><span>Templates approved under your brand name, not ours.</span></div></li>
+      <li><i></i><div><b>Your Meta pixel</b><span>Purchase, confirmed and delivered events sent server-side to your own pixel.</span></div></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Live in a day</h2>
+      <p>We do the setup with you on a call. No developer needed on your side.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><span class="n">Step 1</span><h3>Install on Shopify</h3><p>Add CodWing to your store. Your theme stays as it is.</p></div>
+      <div class="step"><span class="n">Step 2</span><h3>Connect your accounts</h3><p>Razorpay or PayU, WhatsApp Business and Meta pixel, from one settings page.</p></div>
+      <div class="step"><span class="n">Step 3</span><h3>Turn on your rules</h3><p>Choose where COD needs an OTP, which pincodes pay an advance, and the prepaid discount.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="pricing">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Simple pricing</h2>
+      <p>A one-time setup, then one monthly plan. Prices in INR, plus GST.</p>
+    </div>
+    <div class="plans">
+      <div class="plan">
+        <h3>Done-for-you setup</h3>
+        <div class="price">₹25,000 <small>one-time</small></div>
+        <p class="sub">We set up your whole checkout stack.</p>
+        <ul>
+          <li>Checkout, COD OTP and RTO rules configured</li>
+          <li>Razorpay or PayU connected and tested</li>
+          <li>WhatsApp Business templates written and submitted</li>
+          <li>Meta pixel and server events verified</li>
+          <li>Training call for your team</li>
+        </ul>
+        <a class="btn btn-ghost" href="mailto:hello@codwing.com?subject=CodWing%20setup">Talk to us</a>
+      </div>
+      <div class="plan hl">
+        <h3>Growth</h3>
+        <div class="price">₹3,499 <small>/ month</small></div>
+        <p class="sub">First month free.</p>
+        <ul>
+          <li>Unlimited orders through CodWing checkout</li>
+          <li>OTP-verified COD and partial COD</li>
+          <li>RTO risk flags and pincode rules</li>
+          <li>WhatsApp order updates and store credit</li>
+          <li>Monthly RTO and conversion review</li>
+        </ul>
+        <a class="btn btn-primary" href="mailto:hello@codwing.com?subject=CodWing%20Growth">Start free month</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head"><h2>Questions</h2></div>
+    <div class="faq">
+      <details><summary>Do you hold or settle my payments?</summary><p>No. Buyers pay through your own Razorpay or PayU account and money settles to your bank on your gateway's normal schedule. CodWing only creates and verifies the order.</p></details>
+      <details><summary>Will it change my Shopify theme?</summary><p>No. CodWing adds its checkout through a Shopify app extension. Turn it off and your store goes back to Shopify's default checkout.</p></details>
+      <details><summary>Who pays for WhatsApp messages and OTPs?</summary><p>Order updates and COD OTPs go out from your own WhatsApp Business number, so Meta bills those messages directly to your WhatsApp Business account at Meta's rates. CodWing adds no markup.</p></details>
+      <details><summary>Can I cancel any time?</summary><p>Yes. Growth is month to month. Cancel from the app and you won't be billed again.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="band final">
+  <div class="wrap">
+    <h2>Make every COD order count.</h2>
+    <p>Show us your store and last month's RTO. We'll show you where CodWing would have saved orders.</p>
+    <div class="ctas"><a class="btn btn-primary" href="mailto:hello@codwing.com?subject=CodWing%20demo">Book a free demo</a></div>
+    <p class="note">hello@codwing.com</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="/assets/logo.png" alt="CodWing" width="196" height="53">
+    <nav><a href="/privacy">Privacy policy</a><a href="/terms">Terms</a><a href="mailto:hello@codwing.com">hello@codwing.com</a></nav>
+    <span>© 2026 CodWing</span>
+  </div>
+</footer>
+</body>
+</html>
