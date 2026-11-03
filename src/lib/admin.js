@@ -1881,7 +1881,10 @@ const ACTIONS = {
     const A = await import('./meta-ads.js');
     const m = String(b.method || 'GET').toUpperCase();
     if (!['GET', 'POST'].includes(m)) throw new Error('GET or POST only');
-    return { ok: true, data: await A.graph(await withSettingsFresh(env), m, String(b.path || ''), b.params && typeof b.params === 'object' ? b.params : {}) };
+    const data = await A.graph(await withSettingsFresh(env), m, String(b.path || ''), b.params && typeof b.params === 'object' ? b.params : {});
+    /* Meta puts the access token into paging URLs; never echo it */
+    const scrub = (o) => { if (o && typeof o === 'object') { for (const k of Object.keys(o)) { if (typeof o[k] === 'string' && /access_token=/.test(o[k])) o[k] = o[k].replace(/access_token=[^&]+/g, 'access_token=***'); else scrub(o[k]); } } return o; };
+    return { ok: true, data: scrub(data) };
   },
   async ig_reels(env) { const I = await import('./ig-dm.js'); return { ok: true, rows: await I.reelsReport(await withSettingsFresh(env)) }; },
   async cancel_requests(env) { const C = await import('./self-cancel.js'); return { ok: true, rows: await C.listRequests(env) }; },
