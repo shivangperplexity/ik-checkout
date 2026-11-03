@@ -1897,7 +1897,7 @@ const ACTIONS = {
     const A = await import('./meta-ads.js'); const { metaCfg } = await import('./meta.js'); const f = await withSettingsFresh(env); const c = A.adsCfg(f); const m = metaCfg(f);
     const list = await A.all(f, `${c.account}/customconversions`, { fields: 'id,name,rule' }, 200);
     const have = list.find((x) => x.name === 'Delivered'); if (have) return { ok: true, id: have.id, existed: true };
-    const r = await A.graph(f, 'POST', `${c.account}/customconversions`, { name: 'Delivered', event_source_id: m.pixelId, custom_event_type: 'OTHER', rule: JSON.stringify({ event: { eq: 'Delivered' } }), description: 'Parcel delivered (server event from IK checkout)' });
+    const r = await A.graph(f, 'POST', `${c.account}/customconversions`, { name: 'Delivered', event_source_id: m.pixelId, custom_event_type: 'PURCHASE', rule: JSON.stringify({ and: [{ event: { eq: 'Delivered' } }, { or: [{ currency: { i_contains: 'INR' } }] }] }), description: 'Parcel delivered (server event from IK checkout)' });
     return { ok: true, id: r.id, created: true };
   },
   /** Any Marketing API read, or a POST (create / update). No DELETE: removals stay with the owner. */
