@@ -368,8 +368,14 @@ async function audienceRows(env, kind) {
     for (const r of await q("SELECT DISTINCT phone FROM messages WHERE direction='in' AND ts>?", t - 90 * 86400)) if (!buyers.has(p10(r.phone))) add(r);
   } else if (kind === 'buyers') {
     for (const r of await q("SELECT phone, first_name, last_name, city, state_code, pincode FROM orders WHERE order_id IS NOT NULL AND status<>'cancelled' ORDER BY created_at DESC")) add(r);
+  } else if (kind === 'rto') {
+    /* people Meta should stay away from: parcels that came back, and orders cancelled before dispatch */
+    for (const r of await q("SELECT o.phone, o.first_name, o.last_name, o.city, o.state_code, o.pincode FROM orders o JOIN shipments s ON s.order_id=o.order_id WHERE s.stage IN ('rto','returned','rto_delivered') ORDER BY o.created_at DESC")) add(r);
+    for (const r of await q("SELECT phone, first_name, last_name, city, state_code, pincode FROM orders WHERE order_id IS NOT NULL AND status='cancelled' ORDER BY created_at DESC")) add(r);
   } else {
+    /* delivered parcels + every prepaid order: the people who actually pay */
     for (const r of await q("SELECT o.phone, o.first_name, o.last_name, o.city, o.state_code, o.pincode FROM orders o JOIN shipments s ON s.order_id=o.order_id WHERE s.stage='delivered' ORDER BY o.created_at DESC")) add(r);
+    for (const r of await q("SELECT phone, first_name, last_name, city, state_code, pincode FROM orders WHERE order_id IS NOT NULL AND method='prepaid' AND status='paid' ORDER BY created_at DESC")) add(r);
   }
   return [...rows.values()];
 }
@@ -1870,11 +1876,29 @@ const ACTIONS = {
   async ads_suggest(env) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.suggestions(await withSettingsFresh(env))) }; },
   /** Customer list straight to Meta (hashed), no CSV download. kind: nonbuyers | buyers | delivered */
   async ads_audience_sync(env, b) {
-    const kind = ['nonbuyers', 'buyers', 'delivered'].includes(b.kind) ? b.kind : null;
-    if (!kind) throw new Error('kind: nonbuyers | buyers | delivered');
+    const kind = ['nonbuyers', 'buyers', 'delivered', 'rto'].includes(b.kind) ? b.kind : null;
+    if (!kind) throw new Error('kind: nonbuyers | buyers | delivered | rto');
     const A = await import('./meta-ads.js');
-    const names = { nonbuyers: 'IK - checkout/chat, no purchase (90d)', buyers: 'IK - all buyers', delivered: 'IK - delivered customers' };
+    const names = { nonbuyers: 'IK - checkout/chat, no purchase (90d)', buyers: 'IK - all buyers', delivered: 'IK - delivered + prepaid customers', rto: 'IK - RTO + cancelled (exclude)' };
     return { ok: true, ...(await A.uploadAudience(await withSettingsFresh(env), names[kind], await audienceRows(env, kind))) };
+  },
+  /** 1% India lookalike of a custom audience (by name); returns the existing one when already there. */
+  async ads_lookalike(env, b) {
+    const A = await import('./meta-ads.js'); const f = await withSettingsFresh(env); const c = A.adsCfg(f);
+    const list = await A.all(f, `${c.account}/customaudiences`, { fields: 'id,name,subtype' }, 1000);
+    const seed = list.find((a) => a.name === b.seed_name && a.subtype === 'CUSTOM'); if (!seed) throw new Error('seed audience not found: ' + b.seed_name);
+    const name = b.name || `${b.seed_name} - LAL 1% IN`;
+    const have = list.find((a) => a.name === name && a.subtype === 'LOOKALIKE'); if (have) return { ok: true, id: have.id, name, existed: true };
+    const r = await A.graph(f, 'POST', `${c.account}/customaudiences`, { name, subtype: 'LOOKALIKE', origin_audience_id: seed.id, lookalike_spec: { type: 'similarity', country: 'IN', ratio: Number(b.ratio) || 0.01 } });
+    return { ok: true, id: r.id, name, created: true };
+  },
+  /** Delivered custom conversion in Meta (built on the Delivered server event) so ad sets can optimise for it. */
+  async ads_delivered_setup(env) {
+    const A = await import('./meta-ads.js'); const { metaCfg } = await import('./meta.js'); const f = await withSettingsFresh(env); const c = A.adsCfg(f); const m = metaCfg(f);
+    const list = await A.all(f, `${c.account}/customconversions`, { fields: 'id,name,rule' }, 200);
+    const have = list.find((x) => x.name === 'Delivered'); if (have) return { ok: true, id: have.id, existed: true };
+    const r = await A.graph(f, 'POST', `${c.account}/customconversions`, { name: 'Delivered', event_source_id: m.pixelId, custom_event_type: 'OTHER', rule: JSON.stringify({ event: { eq: 'Delivered' } }), description: 'Parcel delivered (server event from IK checkout)' });
+    return { ok: true, id: r.id, created: true };
   },
   /** Any Marketing API read, or a POST (create / update). No DELETE: removals stay with the owner. */
   async ads_api(env, b) {
@@ -2318,6 +2342,7 @@ export async function runAutomations(env) {
   /* messages Meta accepted then failed for a rate limit: back through the normal path once (lib/wa-resend.js) */
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
+  try { const { deliveredSweep } = await import('./meta.js'); const r = await deliveredSweep(env); if (r.sent || r.failed) out.delivered = r; } catch (e) { console.error('delivered event', e); }
   try { const { blogTick } = await import('./blog.js'); const r = await blogTick(env); if (r.published || r.error) out.blog = r; } catch (e) { console.error('blog', e.message); }
   try { const { autoReattempt } = await import('./sp-ndr.js'); const r = await autoReattempt(env); if (r.reopened?.length || r.failed?.length) out.spNdr = r; } catch (e) { console.error('sp ndr', e); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }

@@ -117,6 +117,33 @@ export async function confirmedSweep(env, { max = 25 } = {}) {
   return out;
 }
 
+/**
+ * Delivered (Nov 2026): the only purchase that is money in the bank. One server event per order (event_id dv_<order id>)
+ * once the parcel's stage is delivered, dated at the order time when that is under 7 days old (same ad click), else as
+ * late as Meta accepts. Value = order total. In Events Manager a custom conversion "Delivered" is built on this event
+ * (ads_delivered_setup) so the sales ad sets can be optimised for people who actually take the parcel.
+ */
+export async function deliveredSweep(env, { max = 25 } = {}) {
+  if (!env.DB) return { skipped: 'no db' };
+  const c = metaCfg(env);
+  if (!c.pixelId || !c.token) return { skipped: 'no pixel' };
+  const t = Math.floor(Date.now() / 1000);
+  const rows = (await env.DB.prepare(`SELECT o.*, s.delivered_at AS dlv FROM orders o JOIN shipments s ON s.order_id=o.order_id
+      WHERE o.dv_at IS NULL AND o.order_name IS NOT NULL AND s.stage='delivered' AND COALESCE(s.delivered_at, s.tracked_at, 0) > ?
+      ORDER BY s.delivered_at LIMIT ?`).bind(t - WEEK, max).all()).results;
+  const out = { sent: 0, failed: 0 };
+  for (const r of rows) {
+    const claim = await env.DB.prepare('UPDATE orders SET dv_at=? WHERE idem=? AND dv_at IS NULL RETURNING idem').bind(t, r.idem).first();
+    if (!claim) continue;
+    const p = purchasePayload(r, r.order_name);
+    const when = Math.max(Number(r.created_at) || 0, t - WEEK + 600);
+    const res = await sendPurchase(env, { ...p, eventName: 'Delivered', eventId: 'dv_' + (r.order_id || r.idem), eventTime: when });
+    if (res.ok) out.sent++;
+    else { out.failed++; await env.DB.prepare('UPDATE orders SET dv_at=NULL WHERE idem=?').bind(r.idem).run().catch(() => {}); if (out.failed === 1) console.error('delivered event', r.order_name, res.error); }
+  }
+  return out;
+}
+
 export function purchasePayload(row, orderName, ip, ua) {
   return ({
     eventId: row.eventId || row.event_id, orderName, valuePaise: row.total ?? row.total_paise,

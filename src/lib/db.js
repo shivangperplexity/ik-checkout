@@ -102,6 +102,8 @@ export const SCHEMA = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_ip TEXT`,
   /* when the ConfirmedPurchase server event went to Meta (lib/meta.js confirmedSweep) */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS cp_at BIGINT`,
+  /* when the Delivered server event went to Meta (lib/meta.js deliveredSweep) */
+  `ALTER TABLE orders ADD COLUMN IF NOT EXISTS dv_at BIGINT`,
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_ua TEXT`,
   /* Automatic NDR handling (lib/ndr-rules.js): one row per failed attempt (k = attempt number, or the day it was raised) */
   `CREATE TABLE IF NOT EXISTS ndr_auto (awb TEXT, k TEXT, order_id TEXT, order_name TEXT, attempt INT, category TEXT, reason TEXT, first_seen BIGINT, action TEXT, action_at BIGINT, note TEXT, error TEXT, PRIMARY KEY (awb, k))`,

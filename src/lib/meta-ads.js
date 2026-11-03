@@ -64,7 +64,7 @@ export async function graph(env, method, path, params = {}, token, retry = true)
 }
 
 /** Follow paging.next for list endpoints (bounded). */
-async function all(env, path, params, max = 500) {
+export async function all(env, path, params, max = 500) {
   const out = [];
   let j = await graph(env, 'GET', path, { limit: 200, ...params });
   for (;;) {
