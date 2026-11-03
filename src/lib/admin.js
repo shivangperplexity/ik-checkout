@@ -382,6 +382,18 @@ async function audienceRows(env, kind) {
 
 const ACTIONS = {
   async live(env) { return liveData(env); },
+  /* Diagnostics: checkout failures ('fail' events) and step events per hour, for "why did conversion drop" */
+  async checkout_fails(env, b = {}) {
+    const hours = Math.min(96, Math.max(1, Number(b.hours) || 48)); const since = now() - hours * 3600;
+    const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results);
+    const [fails, steps, orders] = await Promise.all([
+      q("SELECT ts, sid, data FROM events WHERE type='fail' AND ts>? ORDER BY ts DESC LIMIT 200", since),
+      q(`SELECT ((ts+${IST})/3600)%24 h, ((ts+${IST})/86400) d, type, COUNT(*) n FROM events WHERE ts>? AND type IN ('open','phone','submit','done','fail') GROUP BY 1,2,3 ORDER BY 2,1`, since),
+      q(`SELECT method, status, COUNT(*) n FROM orders WHERE created_at>? GROUP BY 1,2`, since),
+    ]);
+    const byMsg = {}; for (const f of fails) { let m = ''; try { const d = JSON.parse(f.data || '{}'); m = String(d.error || d.msg || d.reason || f.data).slice(0, 120); } catch { m = String(f.data).slice(0, 120); } byMsg[m] = (byMsg[m] || 0) + 1; }
+    return { ok: true, hours, fail_count: fails.length, by_message: Object.entries(byMsg).sort((a, b2) => b2[1] - a[1]), recent: fails.slice(0, 40).map((f) => ({ at: new Date((Number(f.ts) + IST) * 1000).toISOString().slice(5, 16), data: f.data })), steps, orders };
+  },
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
   async orders(env, b) {
     const [all, booked] = await Promise.all([recentOrders(env, 90), bookedMap(env).catch(() => ({}))]);
