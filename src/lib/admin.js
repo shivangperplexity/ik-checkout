@@ -1546,6 +1546,17 @@ const ACTIONS = {
       .bind(phone, paise, paise, String(b.reason || 'Gift from Ink Kulture').slice(0, 120), key, t, t + R.CREDIT_DAYS * 86400).run();
     return { ok: true, phone, rupees: paise / 100, balance: await R.creditBalance(env, phone), expires: R.dateIst(t + R.CREDIT_DAYS * 86400) };
   },
+  /** Tell one number about its waiting credit now (owner test / support), outside the 9-21 window. */
+  async credit_tell(env, b) {
+    const R = await import('./referral.js'); const { fireTrigger } = await import('./whatsapp.js');
+    const phone = String(b.phone || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+    const t = Math.floor(Date.now() / 1000);
+    const c = await env.DB.prepare("SELECT c.id, c.amount_paise, c.expires_at, (SELECT MAX(first_name) FROM orders o WHERE o.phone=c.phone) AS first_name FROM credits c WHERE c.phone=? AND c.told_at IS NULL AND c.left_paise>0 AND c.expires_at>? ORDER BY c.created_at LIMIT 1").bind(phone, t).first();
+    if (!c) return { ok: false, error: 'no untold credit on this number' };
+    const r = await fireTrigger(await withSettingsFresh(env), 'dlv_credit', { to: phone, vars: { name: String(b.name || c.first_name || '').split(/\s+/)[0] || 'there', amount: String(Math.round(c.amount_paise / 100)), till: R.dateIst(c.expires_at) }, force: true });
+    if (r?.ok) await env.DB.prepare('UPDATE credits SET told_at=? WHERE id=?').bind(t, c.id).run();
+    return { ok: !!r?.ok, result: r };
+  },
   async credit_status(env) {
     const t = Math.floor(Date.now() / 1000);
     const q = async (sql) => (await env.DB.prepare(sql).bind(t).first()) || {};
