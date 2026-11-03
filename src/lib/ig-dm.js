@@ -23,7 +23,11 @@ export const DEFAULTS = {
   keywords: ['link', 'price', 'buy', 'order', 'want', 'need', 'details', 'dm', 'kitne', 'kaise', 'chahiye', 'kaha', 'where', 'how much', 'cost'],
   text: 'Hi {name} 🖤 Here is the link for this design: {link}\n\nCash on delivery available across India. Reply here if you have any question.',
   public_reply: true, public_text: 'Sent you the link in DM 📩', default_url: STORE, media: {}, hourly_cap: 150,
+  /* when Instagram refuses the DM (account restricted, or the person can't get private replies): a public reply */
+  bio_text: '{name} Link is in our bio 🖤 Tap @inkkulture.in → link in bio. Cash on delivery available.',
 };
+/** How long to stop trying DMs after Instagram refuses one (they keep failing while the account is restricted). */
+export const DM_PAUSE = 2 * 3600;
 
 export async function igCfg(env) {
   const r = await env.DB.prepare("SELECT v FROM settings WHERE k='ig'").first().catch(() => null);
@@ -45,7 +49,16 @@ export const webhookUrl = (env) => `${String(env.WORKER_URL || 'https://ik-check
 export function wantsLink(text, c) {
   const s = ` ${String(text || '').toLowerCase().replace(/[^a-z0-9ऀ-ॿ@ ]/g, ' ').replace(/\s+/g, ' ')} `;
   if (c.mode === 'all') return s.trim().length > 0;
-  return (c.keywords || []).some((k) => { const w = String(k || '').toLowerCase().trim(); return w && s.includes(` ${w} `); });
+  /* "linkkk", "links", "linkz" count too: the keyword plus repeats of its last letter or a plural s/z (not "linking") */
+  const words = s.trim().split(' ');
+  return (c.keywords || []).some((k) => {
+    const w = String(k || '').toLowerCase().trim();
+    if (!w) return false;
+    if (s.includes(` ${w} `)) return true;
+    if (w.length < 4 || !/^[a-z]+$/.test(w)) return false;
+    const re = new RegExp(`^${w}[${w.slice(-1)}sz]*$`);
+    return words.some((x) => re.test(x));
+  });
 }
 /** The design link for a post, tagged so the order is credited to this post. */
 export function linkFor(c, mediaId) {
@@ -94,12 +107,53 @@ export async function handleComment(env, c, cm) {
   if (Number(hour?.n) >= (Number(c.hourly_cap) || 150)) { await set('hourly cap reached'); return 'cap'; }
   const link = linkFor(c, cm.media_id);
   const name = cm.username ? '@' + cm.username : 'there';
+  /* DMs refused recently (account restricted): go straight to the public "link in bio" reply */
+  if (Number(c.dm_pause_until) > t) return bioReply(env, c, cm, 'DMs paused: ' + (c.dm_pause_reason || 'Instagram refused'));
   try {
     await ig(env, c, 'POST', `${c.user_id || 'me'}/messages`, { recipient: { comment_id: cm.id }, message: { text: fill(c.text, { name, link }) } });
     await set('sent');
-  } catch (e) { await set('failed', e.message); return 'failed'; }
+  } catch (e) {
+    await set('failed', e.message);
+    await saveIg(env, { dm_pause_until: now() + DM_PAUSE, dm_pause_reason: String(e.message).slice(0, 120) }).catch(() => {});
+    return bioReply(env, c, cm, e.message);
+  }
   if (c.public_reply && c.public_text) { try { await ig(env, c, 'POST', `${cm.id}/replies`, { message: fill(c.public_text, { name }) }); } catch (e) { console.error('ig public reply', e.message); } }
   return 'sent';
+}
+
+/** Public reply under the comment: "{name} Link is in our bio". Marks the row (bio_at) so it is never sent twice. */
+export async function bioReply(env, c, cm, why = '') {
+  const name = cm.username ? '@' + cm.username : '';
+  const claimed = await env.DB.prepare('UPDATE ig_dm SET bio_at = ? WHERE comment_id = ? AND bio_at IS NULL RETURNING comment_id').bind(now(), cm.id).first();
+  if (!claimed) return 'dup';
+  try {
+    await ig(env, c, 'POST', `${cm.id}/replies`, { message: fill(c.bio_text || DEFAULTS.bio_text, { name }).trim() });
+    await env.DB.prepare('UPDATE ig_dm SET status = ?, error = ? WHERE comment_id = ?').bind('bio', String(why).slice(0, 300), cm.id).run();
+    return 'bio';
+  } catch (e) {
+    await env.DB.prepare('UPDATE ig_dm SET bio_at = NULL, status = ?, error = ? WHERE comment_id = ?').bind('failed', ('bio reply: ' + e.message).slice(0, 300), cm.id).run();
+    return 'failed';
+  }
+}
+
+/** Comments whose DM failed in the last `days` days and have no bio reply yet: reply now (spaced out). */
+export async function bioBacklog(env, { days = 3, max = 80, dry = false } = {}) {
+  const c = await igCfg(env);
+  if (!c.token) throw new Error('Instagram is not connected');
+  const rows = (await env.DB.prepare("SELECT comment_id, media_id, from_id, username, text FROM ig_dm WHERE status = 'failed' AND bio_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT ?")
+    .bind(now() - days * 86400, Math.min(200, max)).all()).results;
+  if (dry) return { would_reply: rows.length, users: rows.map((r) => r.username) };
+  const seen = new Set(); const out = { replied: 0, failed: 0, skipped: 0, errors: [] };
+  for (const r of rows) {
+    const key = r.media_id + ':' + (r.from_id || r.username);
+    if (seen.has(key)) { out.skipped++; continue; } /* one reply per person per post */
+    seen.add(key);
+    const res = await bioReply(env, c, { id: r.comment_id, username: r.username || '' }, 'backlog');
+    if (res === 'bio') out.replied++; else { out.failed++; const e = await env.DB.prepare('SELECT error FROM ig_dm WHERE comment_id = ?').bind(r.comment_id).first(); if (out.errors.length < 3) out.errors.push(e?.error || res); }
+    if (out.failed >= 3 && !out.replied) break; /* replies refused too: stop, don't hammer */
+    await new Promise((ok) => setTimeout(ok, 1200));
+  }
+  return out;
 }
 
 /** /api/ig/webhook (GET verify, POST events), /api/ig/callback (login). */

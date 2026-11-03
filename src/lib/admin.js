@@ -1761,6 +1761,7 @@ const ACTIONS = {
   async ig(env) { const I = await import('./ig-dm.js'); return I.igDashboard(env); },
   async ig_save(env, b) { const I = await import('./ig-dm.js'); return I.igSave(env, b); },
   async ig_connect(env) { const I = await import('./ig-dm.js'); return { ok: true, url: await I.connectUrl(env) }; },
+  async ig_bio_backlog(env, b = {}) { const I = await import('./ig-dm.js'); return { ok: true, ...(await I.bioBacklog(env, { days: Number(b.days) || 3, max: Number(b.max) || 80, dry: !!b.dry })) }; },
   async ig_disconnect(env) { const I = await import('./ig-dm.js'); await I.saveIg(env, { token: '', user_id: '', username: '', on: false }); return I.igDashboard(env); },
   async referrals(env) { const R = await import('./referral.js'); return R.referralStats(env); },
   /** Refer and earn: a customer's code (made if missing) and credit, by phone. */

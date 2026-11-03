@@ -10,6 +10,8 @@ test('keywords: whole words, Hinglish, every-comment mode', () => {
   assert.equal(wantsLink('how much is this', c), true);
   assert.equal(wantsLink('beautiful 🔥', c), false);
   assert.equal(wantsLink('linking park', c), false);
+  assert.equal(wantsLink('Linkkk', c), true);
+  assert.equal(wantsLink('linkz bro 🔗', c), true);
   assert.equal(wantsLink('beautiful 🔥', { ...c, mode: 'all' }), true);
 });
 

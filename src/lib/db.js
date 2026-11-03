@@ -144,6 +144,8 @@ export const SCHEMA = [
   /* Instagram comment -> DM (lib/ig-dm.js) */
   `CREATE TABLE IF NOT EXISTS ig_dm (comment_id TEXT PRIMARY KEY, media_id TEXT, from_id TEXT, username TEXT, text TEXT, status TEXT, error TEXT, created_at BIGINT, sent_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS ig_dm_media ON ig_dm (media_id, from_id)`,
+  /* Nov 2026: Instagram blocked DMs for the account; failed ones get a public "link is in bio" reply instead */
+  `ALTER TABLE ig_dm ADD COLUMN IF NOT EXISTS bio_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS ref_codes (phone TEXT PRIMARY KEY, code TEXT UNIQUE, name TEXT, created_at BIGINT, invited_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS referrals (idem TEXT PRIMARY KEY, code TEXT, referrer_phone TEXT, friend_phone TEXT, order_id TEXT, order_name TEXT, amount BIGINT, status TEXT, note TEXT, created_at BIGINT, placed_at BIGINT, credited_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS referrals_status ON referrals (status)`,
