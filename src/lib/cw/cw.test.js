@@ -134,3 +134,14 @@ test('Shopify order -> COD amount to collect', () => {
     shippingAddress: { firstName: 'A', lastName: 'B', address1: 'x', city: 'Jaipur', province: 'Rajasthan', provinceCode: 'RJ', zip: '302 001', phone: '+919876543210' }, lineItems: { nodes: [{ title: 'Tee', quantity: 1, originalUnitPriceSet: { shopMoney: { amount: '799.00' } } }] } });
   assert.equal(o.id, '55'); assert.equal(o.cod, true); assert.equal(o.collect, 72900); assert.equal(o.address.pin, '302001'); assert.equal(o.phone, '9876543210');
 });
+
+import { peekAud, vaultOf, defaultApp } from './apps.js';
+test('per-seller apps: audience read from the token, vault key from server secrets', () => {
+  const tok = signSessionToken({ ...base, aud: 'abc123' }, 'x');
+  assert.equal(peekAud(tok), 'abc123');
+  assert.equal(peekAud('nonsense'), '');
+  assert.equal(vaultOf({}), '');
+  assert.equal(vaultOf({ CRON_SECRET: 'a' }).length, 64);
+  assert.notEqual(vaultOf({ CRON_SECRET: 'a' }), vaultOf({ CRON_SECRET: 'b' }));
+  assert.deepEqual(defaultApp({ CW_SHOPIFY_API_KEY: 'k' }), { key: 'k', secret: '' });
+});

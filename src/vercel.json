@@ -29,6 +29,10 @@
       "destination": "/cw-demo.html"
     },
     {
+      "source": "/partner",
+      "destination": "/cw-partner.html"
+    },
+    {
       "source": "/admin",
       "destination": "/admin.html"
     },

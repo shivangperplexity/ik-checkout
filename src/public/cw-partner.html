@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>CodWing Partner</title>
+<link rel="icon" href="https://codwing.com/assets/favicon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#f3f5fd;--line:#d9def0;--ink:#04032e;--muted:#525a82;--wing:#224ff2;--indigo:#070655;--go:#0a7a4f;--go-soft:#e2f5ec;--bad:#c0262d;--bad-soft:#fdeaea}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "Plus Jakarta Sans",system-ui,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:24px 16px 80px}
+h1,h2{font-family:Poppins,sans-serif;margin:0}h1{font-size:22px}h2{font-size:17px;margin-bottom:6px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px}
+.help{color:var(--muted);font-size:13.5px;margin:4px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}@media(max-width:600px){.grid{grid-template-columns:1fr}}
+label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600}
+input{font:inherit;height:42px;padding:0 12px;border:1.5px solid #7f86b0;border-radius:10px;width:100%}
+input:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 3px #e6ecfe}
+.btn{font:inherit;font-weight:700;height:42px;padding:0 18px;border:0;border-radius:10px;background:var(--wing);color:#fff;cursor:pointer}
+.btn:disabled{opacity:.5}
+.msg{font-size:13px;color:var(--muted);margin-left:10px}
+.err{color:var(--bad)}
+ol{margin:6px 0 0;padding-left:20px;font-size:14px}ol li{margin:4px 0}
+code{font:12.5px ui-monospace,Menlo,monospace;background:#eef1fb;padding:2px 6px;border-radius:6px;word-break:break-all}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:12px 0;border-top:1px solid var(--line)}.row:first-child{border-top:0}
+.badge{font-size:12px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eef1fb;color:var(--muted);align-self:start}
+.badge.on{background:var(--go-soft);color:var(--go)}
+.meta{color:var(--muted);font-size:12.5px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><img src="https://codwing.com/assets/mark.png" alt="" width="32" height="32"><h1>CodWing Partner</h1></div>
+
+  <div class="card" id="login">
+    <h2>Log in</h2>
+    <p class="help">Same email and password as the Ink Kulture admin.</p>
+    <form id="lf" class="grid">
+      <label>Email<input name="email" type="email" autocomplete="username" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <div><button class="btn">Log in</button><span class="msg" id="lmsg"></span></div>
+    </form>
+  </div>
+
+  <div id="main" hidden>
+    <div class="card">
+      <h2>Add a seller's app</h2>
+      <ol>
+        <li>Dev Dashboard → Apps → Create app: name <b>CodWing – Brand</b>, App URL <code>https://app.codwing.com</code>, embedded on, scopes <code id="scopes">read_products,read_orders,write_orders,read_customers,write_customers,write_script_tags,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders</code>, then Release.</li>
+        <li>Paste its Client ID and Client secret below with the seller's store, and save.</li>
+        <li>App → Distribution → Custom distribution → seller's store → Generate link. Send that link to the seller (or open it yourself as their collaborator).</li>
+      </ol>
+      <form id="af" class="grid" style="margin-top:14px">
+        <label>Brand name<input name="label" placeholder="Brand"></label>
+        <label>Seller store<input name="shop" placeholder="brand.myshopify.com" required></label>
+        <label>Client ID<input name="client_id" required autocomplete="off"></label>
+        <label>Client secret<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved one"></label>
+        <div><button class="btn" id="ab">Save app</button><span class="msg" id="amsg"></span></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Seller apps</h2>
+      <div id="list"><p class="help">Loading…</p></div>
+    </div>
+  </div>
+</div>
+<script>
+var T = (function () { try { return sessionStorage.getItem('cw_partner') || ''; } catch (e) { return ''; } })();
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function rpc(action, body) {
+  return fetch('/api/admin/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + T }, body: JSON.stringify(Object.assign({ action: action }, body || {})) })
+    .then(function (r) { if (r.status === 401) { T = ''; show(); throw new Error('Please log in again'); } return r.json(); });
+}
+function show() { document.getElementById('login').hidden = !!T; document.getElementById('main').hidden = !T; if (T) load(); }
+function load() {
+  rpc('cw_apps').then(function (d) {
+    if (!d.ok) { document.getElementById('list').innerHTML = '<p class="help err">' + esc(d.error) + '</p>'; return; }
+    var rows = d.apps.map(function (a) {
+      return '<div class="row"><div><b>' + esc(a.label || 'Seller') + '</b> · ' + esc(a.shop || 'no store') + '<div class="meta">Client ID ' + esc(a.client_id) + '</div></div><span class="badge' + (a.installed ? ' on' : '') + '">' + (a.installed ? 'Installed' : 'Not installed yet') + '</span></div>';
+    });
+    if (d.default_app) rows.push('<div class="row"><div><b>CodWing (main app)</b><div class="meta">Client ID ' + esc(d.default_app.client_id) + (d.default_app.env_secret ? '' : ' · add its secret above (store: codwing-demo.myshopify.com) to use it') + '</div></div><span class="badge">Default</span></div>');
+    document.getElementById('list').innerHTML = rows.join('') || '<p class="help">No seller apps yet.</p>';
+  }).catch(function (e) { document.getElementById('list').innerHTML = '<p class="help err">' + esc(e.message) + '</p>'; });
+}
+document.getElementById('lf').addEventListener('submit', function (e) {
+  e.preventDefault(); var m = document.getElementById('lmsg'); m.textContent = 'Checking…';
+  fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: this.email.value, password: this.password.value }) })
+    .then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { m.textContent = d.error || 'Wrong email or password'; m.className = 'msg err'; return; }
+      T = d.token; try { sessionStorage.setItem('cw_partner', T); } catch (e2) {} m.textContent = ''; show();
+    });
+});
+document.getElementById('af').addEventListener('submit', function (e) {
+  e.preventDefault(); var f = this, m = document.getElementById('amsg'), b = document.getElementById('ab');
+  b.disabled = true; m.className = 'msg'; m.textContent = 'Saving…';
+  rpc('cw_app_save', { label: f.label.value, shop: f.shop.value, client_id: f.client_id.value, secret: f.secret.value }).then(function (d) {
+    b.disabled = false;
+    if (!d.ok) { m.className = 'msg err'; m.textContent = d.error; return; }
+    f.secret.value = ''; m.textContent = 'Saved. Now generate the install link for ' + (d.app.shop || 'the store') + '.'; load();
+  }).catch(function (e2) { b.disabled = false; m.className = 'msg err'; m.textContent = e2.message; });
+});
+show();
+</script>
+</body>
+</html>

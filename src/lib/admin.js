@@ -382,6 +382,17 @@ async function audienceRows(env, kind) {
 
 const ACTIONS = {
   async live(env) { return liveData(env); },
+  /* CodWing: one Shopify app per seller (lib/cw/apps.js). Secrets are pasted by the owner on app.codwing.com/partner. */
+  async cw_apps(env) {
+    const { APPS_DDL, listApps } = await import('./cw/apps.js');
+    for (const q of ['CREATE TABLE IF NOT EXISTS cw_shops (shop TEXT PRIMARY KEY, token_box TEXT, scopes TEXT, installed_at BIGINT, uninstalled_at BIGINT, settings TEXT, secrets_box TEXT, updated_at BIGINT)', ...APPS_DDL]) await env.DB.prepare(q).run();
+    return listApps(env);
+  },
+  async cw_app_save(env, b = {}) {
+    const { APPS_DDL, saveApp } = await import('./cw/apps.js');
+    for (const q of APPS_DDL) await env.DB.prepare(q).run().catch(() => {});
+    return { app: await saveApp(env, b) };
+  },
   /* Diagnostics: checkout failures ('fail' events) and step events per hour, for "why did conversion drop" */
   async checkout_fails(env, b = {}) {
     const hours = Math.min(96, Math.max(1, Number(b.hours) || 48)); const since = now() - hours * 3600;

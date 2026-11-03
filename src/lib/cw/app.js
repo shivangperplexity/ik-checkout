@@ -7,8 +7,9 @@
  *   GET  /api/cw/health
  * Tables live beside IK Checkout's in the same database, all prefixed cw_.
  */
-import { cwCfg, verifySessionToken, exchangeToken, verifyWebhook, seal, unseal, shopFromUrl, adminGraphql } from './shopify.js';
+import { verifySessionToken, exchangeToken, verifyWebhook, seal, unseal, shopFromUrl, adminGraphql } from './shopify.js';
 import { PAGE } from './page.js';
+import { APPS_DDL, vaultOf, appFor, appForShop, defaultApp, peekAud, saveApp, listApps } from './apps.js';
 import { STORE_DDL, handleStore, forget, sj, DEMO, seller } from './store.js';
 import { SHIP_DDL, unshippedOrders, ratesFor, pickCourier, book, labels, srPickups, shipReady, trackUrl } from './ship.js';
 import { followUpText, STEPS, onlineReady, waReady } from './pricing.js';
@@ -18,6 +19,7 @@ const DDL = [
   `CREATE TABLE IF NOT EXISTS cw_events (id SERIAL PRIMARY KEY, shop TEXT, topic TEXT, at BIGINT, body TEXT)`,
   ...STORE_DDL,
   ...SHIP_DDL,
+  ...APPS_DDL,
 ];
 let ddlDone;
 async function ready(env) {
@@ -82,18 +84,21 @@ async function getShop(env, shop) {
 
 /** Verify the session token; on a shop's first request (or after reinstall), get and store an offline token. */
 async function authed(req, env) {
-  const cfg = cwCfg(env);
   const m = /^Bearer\s+(.+)$/i.exec(req.headers.get('Authorization') || '');
   if (!m) throw Object.assign(new Error('no session'), { status: 401 });
+  await ready(env);
+  /* which CodWing app (one per seller): the token's audience; verified with that app's own secret */
+  const app = await appFor(env, peekAud(m[1]));
+  if (!app) throw Object.assign(new Error('unknown app'), { status: 401 });
+  const cfg = { key: app.key, secret: app.secret, vault: vaultOf(env) };
   let s;
   try { s = verifySessionToken(m[1], cfg); } catch (e) { throw Object.assign(new Error('session: ' + e.message), { status: 401 }); }
-  await ready(env);
   let row = await getShop(env, s.shop);
   if (!row || !row.token_box || row.uninstalled_at) {
     const t = await exchangeToken(s.shop, m[1], cfg);
-    await env.DB.prepare(`INSERT INTO cw_shops (shop, token_box, scopes, installed_at, uninstalled_at, settings, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)
-      ON CONFLICT (shop) DO UPDATE SET token_box = EXCLUDED.token_box, scopes = EXCLUDED.scopes, installed_at = EXCLUDED.installed_at, uninstalled_at = NULL, updated_at = EXCLUDED.updated_at`)
-      .bind(s.shop, seal(t.token, cfg.secret), t.scope, now(), JSON.stringify(defaults()), now()).run();
+    await env.DB.prepare(`INSERT INTO cw_shops (shop, token_box, scopes, installed_at, uninstalled_at, settings, updated_at, app_key) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+      ON CONFLICT (shop) DO UPDATE SET token_box = EXCLUDED.token_box, scopes = EXCLUDED.scopes, installed_at = EXCLUDED.installed_at, uninstalled_at = NULL, updated_at = EXCLUDED.updated_at, app_key = EXCLUDED.app_key`)
+      .bind(s.shop, seal(t.token, cfg.vault), t.scope, now(), JSON.stringify(defaults()), now(), app.key).run();
     /* app/uninstalled -> clear the token (Dev Dashboard apps have no webhook form; subscribe per shop) */
     adminGraphql(s.shop, t.token, `mutation { webhookSubscriptionCreate(topic: APP_UNINSTALLED, webhookSubscription: { uri: "https://app.codwing.com/api/cw/webhooks" }) { userErrors { message } } }`)
       .catch((e) => console.warn('cw webhook', s.shop, e.message));
@@ -108,7 +113,7 @@ async function authed(req, env) {
 
 function view(row, cfg) {
   const settings = { ...defaults(), ...JSON.parse(row.settings || '{}') };
-  let secrets = {}; try { secrets = row.secrets_box ? JSON.parse(unseal(row.secrets_box, cfg.secret)) : {}; } catch { /* key rotated: treat as unset */ }
+  let secrets = {}; try { secrets = row.secrets_box ? JSON.parse(unseal(row.secrets_box, cfg.vault)) : {}; } catch { /* key rotated: treat as unset */ }
   const set = {}; for (const [k, f] of Object.entries(FIELDS)) if (f.type === 'secret') set[k] = !!secrets[k];
   return { shop: row.shop, name: row.name || row.shop, domain: row.domain || 'https://' + row.shop, installed_at: row.installed_at, scopes: row.scopes, settings, secrets_set: set,
     ready: { online: onlineReady(settings, set), whatsapp: waReady(settings, set), pixel: !!settings.pixel_id, cod: settings.cod_on !== false, shipping: shipReady(settings, set) } };
@@ -156,14 +161,22 @@ async function stats(env, shop, row, days) {
 export async function handleCw(req, env) {
   const url = new URL(req.url);
   const path = url.pathname;
-  const cfg = cwCfg(env);
+  const vault = vaultOf(env);
+  const cfg = { vault };
   const name = path.slice('/api/cw/'.length);
-  if (path === '/api/cw/health') return json({ ok: true, configured: !!(cfg.key && cfg.secret), db: !!env.DB });
+  if (path === '/api/cw/health') return json({ ok: true, configured: !!(vault && defaultApp(env)), db: !!env.DB });
   if (path === '/api/cw/app' || path === '/api/cw/') {
     const shop = shopFromUrl(url.searchParams.get('shop'));
     const ancestors = shop ? `https://${shop} https://admin.shopify.com` : 'https://admin.shopify.com https://*.myshopify.com';
     const demo = url.searchParams.get('demo') === '1';
-    const html = (demo ? PAGE.replace(/<!--AB-->[\s\S]*?<!--\/AB-->/, '') : PAGE).replace('__API_KEY__', cfg.key);
+    let key = '';
+    if (!demo) {
+      if (env.DB) await ready(env).catch(() => {});
+      const want = String(url.searchParams.get('app') || '').replace(/[^a-f0-9]/gi, '');
+      const app = (want && await appFor(env, want)) || (shop && await appForShop(env, shop)) || defaultApp(env);
+      key = app?.key || '';
+    }
+    const html = (demo ? PAGE.replace(/<!--AB-->[\s\S]*?<!--\/AB-->/, '') : PAGE).replace('__API_KEY__', key);
     return new Response(html, { headers: {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
       'Content-Security-Policy': `frame-ancestors ${ancestors};`,
@@ -171,23 +184,25 @@ export async function handleCw(req, env) {
   }
   if (STORE_ROUTES.has(name)) {
     const isDemo = req.method === 'GET' || name === 'payu_return' ? url.searchParams.get('shop') === DEMO : true;
-    if ((!cfg.secret || !env.DB) && !(isDemo || name === 'pin')) return sj({ ok: false, error: 'not configured' }, 503);
+    if ((!vault || !env.DB) && !(isDemo || name === 'pin')) return sj({ ok: false, error: 'not configured' }, 503);
     try {
-      if (env.DB && cfg.secret) await ready(env);
-      return await handleStore(req, env, path, { secret: cfg.secret, view: (row) => view(row, cfg), origin: url.host.endsWith('codwing.com') ? url.origin : 'https://app.codwing.com' });
+      if (env.DB && vault) await ready(env);
+      return await handleStore(req, env, path, { secret: vault, view: (row) => view(row, cfg), origin: url.host.endsWith('codwing.com') ? url.origin : 'https://app.codwing.com' });
     } catch (e) { console.error('cw store', name, e.message); return sj({ ok: false, error: 'Something went wrong. Please try again.' }, 500); }
   }
   if (path === '/api/cw/webhooks' && req.method === 'POST') {
     const raw = await req.text();
-    if (!verifyWebhook(raw, req.headers.get('X-Shopify-Hmac-Sha256'), cfg.secret)) return new Response('unauthorized', { status: 401 });
     const topic = req.headers.get('X-Shopify-Topic') || '';
     const shop = shopFromUrl(req.headers.get('X-Shopify-Shop-Domain'));
     await ready(env);
+    const hmac = req.headers.get('X-Shopify-Hmac-Sha256');
+    const cands = [await appForShop(env, shop), defaultApp(env)].filter((a) => a && a.secret);
+    if (!cands.some((a) => verifyWebhook(raw, hmac, a.secret))) return new Response('unauthorized', { status: 401 });
     await env.DB.prepare('INSERT INTO cw_events (shop, topic, at, body) VALUES (?, ?, ?, ?)').bind(shop, topic, now(), raw.slice(0, 4000)).run();
     if (topic === 'app/uninstalled' && shop) { forget(shop); await env.DB.prepare('UPDATE cw_shops SET token_box = NULL, uninstalled_at = ?, updated_at = ? WHERE shop = ?').bind(now(), now(), shop).run(); }
     /* shop/redact arrives 48 h after uninstall: delete everything we hold for the shop */
     if (topic === 'shop/redact' && shop) {
-      for (const tb of ['cw_shops', 'cw_sessions', 'cw_orders', 'cw_otps']) await env.DB.prepare(`DELETE FROM ${tb} WHERE shop = ?`).bind(shop).run();
+      for (const tb of ['cw_shops', 'cw_sessions', 'cw_orders', 'cw_otps', 'cw_shipments']) await env.DB.prepare(`DELETE FROM ${tb} WHERE shop = ?`).bind(shop).run();
     }
     /* customers/redact: drop that buyer's saved checkout sessions and codes */
     if (topic === 'customers/redact' && shop) {
@@ -196,7 +211,7 @@ export async function handleCw(req, env) {
     }
     return new Response('ok');
   }
-  if (!cfg.key || !cfg.secret) return json({ ok: false, error: 'CodWing is not configured yet' }, 503);
+  if (!vault || !env.DB) return json({ ok: false, error: 'CodWing is not configured yet' }, 503);
   try {
     if (path === '/api/cw/me' && req.method === 'GET') {
       const a = await authed(req, env);
@@ -217,7 +232,7 @@ export async function handleCw(req, env) {
     if (path === '/api/cw/install' && req.method === 'POST') {
       const a = await authed(req, env);
       const src = `${SF_URL}?shop=${a.shop}`;
-      const token = unseal(a.row.token_box, a.cfg.secret);
+      const token = unseal(a.row.token_box, a.cfg.vault);
       try {
         const d = await adminGraphql(a.shop, token, '{ scriptTags(first: 20) { nodes { id src } } }');
         if (d.scriptTags.nodes.some((n) => n.src.startsWith(SF_URL))) return json({ ok: true, already: true, src });
@@ -232,7 +247,7 @@ export async function handleCw(req, env) {
     if (path === '/api/cw/wa_template' && req.method === 'POST') {
       const a = await authed(req, env);
       const v = view(a.row, a.cfg);
-      let secrets = {}; try { secrets = a.row.secrets_box ? JSON.parse(unseal(a.row.secrets_box, a.cfg.secret)) : {}; } catch { secrets = {}; }
+      let secrets = {}; try { secrets = a.row.secrets_box ? JSON.parse(unseal(a.row.secrets_box, a.cfg.vault)) : {}; } catch { secrets = {}; }
       if (!v.settings.wa_waba_id || !secrets.wa_token) return json({ ok: false, error: 'Add your WhatsApp Business Account ID and access token first, then save.' });
       const r = await fetch(`https://graph.facebook.com/v21.0/${v.settings.wa_waba_id}/message_templates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secrets.wa_token}` }, body: JSON.stringify(OTP_TEMPLATE_BODY(v.settings.wa_otp_template || 'codwing_otp')) });
       const j = await r.json().catch(() => ({}));
@@ -241,7 +256,7 @@ export async function handleCw(req, env) {
     }
     if (name.startsWith('ship_')) {
       const a = await authed(req, env);
-      const sel = await seller(env, a.shop, { secret: a.cfg.secret, view: (row) => view(row, a.cfg), fresh: true });
+      const sel = await seller(env, a.shop, { secret: a.cfg.vault, view: (row) => view(row, a.cfg), fresh: true });
       const b = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
       try {
         if (name === 'ship_pickups') return json({ ok: true, pickups: await srPickups(sel) });
@@ -283,9 +298,9 @@ export async function handleCw(req, env) {
       const a = await authed(req, env);
       const body = await req.json().catch(() => ({}));
       const { settings, secrets } = cleanSettings(body, JSON.parse(a.row.settings || '{}'));
-      let prev = {}; try { prev = a.row.secrets_box ? JSON.parse(unseal(a.row.secrets_box, a.cfg.secret)) : {}; } catch { prev = {}; }
+      let prev = {}; try { prev = a.row.secrets_box ? JSON.parse(unseal(a.row.secrets_box, a.cfg.vault)) : {}; } catch { prev = {}; }
       for (const k of body.clear || []) if (FIELDS[k]?.type === 'secret') delete prev[k];
-      const box = seal(JSON.stringify({ ...prev, ...secrets }), a.cfg.secret);
+      const box = seal(JSON.stringify({ ...prev, ...secrets }), a.cfg.vault);
       await env.DB.prepare('UPDATE cw_shops SET settings = ?, secrets_box = ?, updated_at = ? WHERE shop = ?').bind(JSON.stringify(settings), box, now(), a.shop).run();
       forget(a.shop);
       return json({ ok: true, ...view(await getShop(env, a.shop), a.cfg), sf_url: `${SF_URL}?shop=${a.shop}` });
