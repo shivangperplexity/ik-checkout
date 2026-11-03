@@ -2352,8 +2352,6 @@ export async function runAutomations(env) {
   try { const { deliveredSweep } = await import('./meta.js'); const r = await deliveredSweep(env); if (r.sent || r.failed) out.delivered = r; } catch (e) { console.error('delivered event', e); }
   /* ads autopilot (lib/ads-auto.js): night pause 23-06 IST, daily +₹50/100 on the best ad set, one strong reel → ad per day */
   try { const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const r = { night: await A.nightTick(f), scale: await A.scaleTick(f), reel: await A.reelTick(f) }; if (Object.values(r).some((x) => !x.skipped && !x.idle)) out.adsAuto = r; } catch (e) { console.error('ads auto', e.message); }
-  /* Blue Dart parcels not collected within 48 h: cancel and rebook on the next courier (lib/ship-watch.js) */
-  try { const W = await import('./ship-watch.js'); const r = await W.bluedartWatch(env); if (r.rebooked?.length || r.failed?.length) out.bluedartWatch = r; } catch (e) { console.error('bluedart watch', e.message); }
   /* once a day: refresh the Meta seed (delivered + prepaid) and exclusion (RTO + cancelled) customer lists */
   try {
     const { claim } = await import('./once.js');

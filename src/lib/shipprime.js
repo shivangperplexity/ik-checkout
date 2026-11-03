@@ -238,8 +238,8 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
   } catch (e) { console.error('smart alloc', e.message); }
   /* Blue Dart for COD (Nov 2026): 27% RTO against 55-59% on Xpressbees / Delhivery, about ₹40 more per parcel.
      Default: the states that pay (SP_BLUEDART_STATES, Settings shipping.bluedart_states) + the RJ/MP/UP test until
-     16 Nov (shipping.bluedart_test { states, until }). Off with shipping.bluedart_cod_off. Pickups are watched: a
-     parcel Blue Dart has not collected in 48 h is rebooked on the next courier (lib/ship-watch.js). */
+     16 Nov (shipping.bluedart_test { states, until }). Off with shipping.bluedart_cod_off. No automatic rebook on a
+     late pickup (owner, 3 Nov): a Blue Dart parcel stays with Blue Dart. */
   try {
     const st = String(row?.state_code || order.address?.province_code || '').toUpperCase();
     const bt = { states: 'RJ, MP, UP', until: Date.UTC(2026, 10, 16) / 1000, ...(s.bluedart_test || {}) };
