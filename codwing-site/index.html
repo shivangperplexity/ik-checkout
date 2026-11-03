@@ -92,9 +92,10 @@ section{padding-block:80px}
 .sec-head p{color:var(--muted);font-size:17px;margin:14px 0 0}
 .band{background:var(--sunk)}
 
-.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
-@media (max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:600px){.grid{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:20px}
+.grid>*{grid-column:span 2}.grid>:nth-child(n+4){grid-column:span 3}
+@media (max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid>*,.grid>:nth-child(n+4){grid-column:span 1}.grid>:last-child{grid-column:span 2}}
+@media (max-width:600px){.grid{grid-template-columns:1fr}.grid>*,.grid>:nth-child(n+4),.grid>:last-child{grid-column:span 1}}
 .feat{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:24px}
 .feat svg{width:28px;height:28px;stroke:var(--wing);fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .feat h3{font-size:19px;margin-top:16px}
@@ -237,11 +238,6 @@ footer a{color:var(--muted);text-decoration:none}footer a:hover{color:var(--wing
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-13.5 7.8L3 21l1.2-4.5A9 9 0 1 1 21 12z"/></svg>
         <h3>WhatsApp updates</h3>
         <p>Order confirmed, shipped, out for delivery and delivered, sent from your own WhatsApp Business number.</p>
-      </article>
-      <article class="feat">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
-        <h3>Ads that learn from real orders</h3>
-        <p>Server-side Meta events for confirmed and delivered orders, so your campaigns optimise for buyers who pay, not just clicks.</p>
       </article>
       <article class="feat">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
