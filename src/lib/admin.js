@@ -630,6 +630,7 @@ const ACTIONS = {
     if (b.ads_token !== undefined && !String(b.ads_token).startsWith('••')) m.ads_token = String(b.ads_token).replace(/^Bearer\s+/i, '').trim().slice(0, 1000);
     if (b.ads_max_daily !== undefined) m.ads_max_daily = Math.max(100, Math.min(100000, Math.round(+b.ads_max_daily || 1750)));
     if (b.ads_max_total !== undefined) m.ads_max_total = Math.max(100, Math.min(200000, Math.round(+b.ads_max_total || 1750)));
+    if (b.ads_ceiling !== undefined) m.ads_ceiling = Math.max(500, Math.min(500000, Math.round(+b.ads_ceiling || 5000))); /* autopilot: total/day never above this */
     if (b.ads_target_cpa !== undefined) m.ads_target_cpa = Math.max(1, Math.min(10000, Math.round(+b.ads_target_cpa || 80)));
     await putSetting(env, 'meta', m);
     return { ok: true, meta: { ...m, ads_token: m.ads_token ? '••••' + m.ads_token.slice(-4) : '' } };
