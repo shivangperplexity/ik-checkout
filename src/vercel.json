@@ -21,6 +21,14 @@
       "destination": "/api/x?a=cw&b=app"
     },
     {
+      "source": "/sf.js",
+      "destination": "/cw-sf.js"
+    },
+    {
+      "source": "/demo",
+      "destination": "/cw-demo.html"
+    },
+    {
       "source": "/admin",
       "destination": "/admin.html"
     },
@@ -56,6 +64,21 @@
       "source": "/collab",
       "destination": "https://www.inkkulture.in/pages/collab",
       "permanent": false
+    }
+  ],
+  "headers": [
+    {
+      "source": "/cw-sf.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodWing Demo Store</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="https://codwing.com/assets/favicon.png">
+<style>
+:root{--ink:#111;--muted:#666;--line:#e8e8e8;--bg:#fafafa}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+.note{background:#224ff2;color:#fff;text-align:center;font-size:13px;padding:8px 16px}
+.note a{color:#fff;font-weight:700}
+header{background:#fff;border-bottom:1px solid var(--line)}
+header .in{max-width:1080px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
+header b{font-size:20px;letter-spacing:-.02em}
+header a.cart{display:inline-flex;align-items:center;gap:6px;color:var(--ink);text-decoration:none;font-weight:600}
+main{max-width:1080px;margin:0 auto;padding:24px 16px 120px}
+h1{font-size:26px;margin:0 0 4px}
+p.sub{color:var(--muted);margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media(min-width:800px){.grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.card img{width:100%;aspect-ratio:1;display:block;background:#f2f2f2}
+.card .b{padding:10px 12px 12px;display:grid;gap:6px;flex:1}
+.card h2{font-size:14px;margin:0;font-weight:600}
+.price{font-weight:700}.price s{color:#999;font-weight:400;margin-left:6px;font-size:13px}
+.card form{margin-top:auto;display:grid;gap:6px}
+.card button{height:42px;border:0;border-radius:10px;background:var(--ink);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.card button.buy{background:#fff;color:var(--ink);border:1.5px solid var(--ink)}
+.cart-page{margin-top:28px;font-size:13px;color:var(--muted)}
+</style>
+<script>
+/* Demo only: a pretend Shopify cart kept in this browser, answering /cart.js, /cart/add.js, /cart/change.js, /cart/clear.js */
+(function () {
+  var P = {
+    1001: { title: 'Oversized Tee', variant: 'Black / M', price: 79900, compare: 99900, hue: 230 },
+    1002: { title: 'Everyday Hoodie', variant: 'Grey / L', price: 149900, compare: 199900, hue: 30 },
+    1003: { title: 'Canvas Tote Bag', variant: '', price: 49900, compare: 0, hue: 150 },
+    1004: { title: 'Cap', variant: 'Navy', price: 39900, compare: 59900, hue: 260 }
+  };
+  window.DEMO_P = P;
+  function pic(h, t) { return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><rect width="300" height="300" fill="hsl(' + h + ',45%,88%)"/><circle cx="150" cy="140" r="70" fill="hsl(' + h + ',55%,62%)"/><text x="150" y="262" font-family="system-ui,sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="hsl(' + h + ',45%,28%)">' + t + '</text></svg>'); }
+  window.DEMO_PIC = pic;
+  function load() { try { return JSON.parse(localStorage.getItem('demo_cart') || '{}'); } catch (e) { return {}; } }
+  function save(c) { try { localStorage.setItem('demo_cart', JSON.stringify(c)); } catch (e) {} }
+  function cart() {
+    var c = load(), items = Object.keys(c).filter(function (k) { return c[k] > 0 && P[k]; }).map(function (k) {
+      var p = P[k];
+      return { key: k + ':demo', id: Number(k), variant_id: Number(k), product_id: Number(k), quantity: c[k], product_title: p.title, variant_title: p.variant || 'Default Title', url: '#', image: pic(p.hue, p.title),
+        price: p.price, final_price: p.price, original_price: p.price, line_price: p.price * c[k], final_line_price: p.price * c[k], original_line_price: p.price * c[k] };
+    });
+    return { items: items, item_count: items.reduce(function (s, i) { return s + i.quantity; }, 0), total_price: items.reduce(function (s, i) { return s + i.final_line_price; }, 0), currency: 'INR' };
+  }
+  function res(o) { return Promise.resolve(new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } })); }
+  var real = window.fetch.bind(window);
+  window.fetch = function (u, o) {
+    var url = typeof u === 'string' ? u : (u && u.url) || '';
+    var path = url.replace(location.origin, '').split('?')[0];
+    if (path === '/cart.js') return res(cart());
+    if (path === '/cart/add.js' || path === '/cart/change.js' || path === '/cart/clear.js') {
+      var c = load(), b = o && o.body, data = {};
+      if (b instanceof FormData) { data.id = b.get('id'); data.quantity = Number(b.get('quantity') || 1); }
+      else if (typeof b === 'string') { try { data = JSON.parse(b); } catch (e) {} }
+      if (path === '/cart/clear.js') c = {};
+      else if (path === '/cart/add.js') { (data.items || [{ id: data.id, quantity: data.quantity || 1 }]).forEach(function (i) { var k = String(i.id); c[k] = (c[k] || 0) + Number(i.quantity || 1); }); }
+      else { c[String(data.id).split(':')[0]] = Number(data.quantity); }
+      save(c);
+      return res(cart());
+    }
+    return real(u, o);
+  };
+})();
+</script>
+<script src="/cw-sf.js?shop=demo.codwing.com" defer></script>
+</head>
+<body>
+<div class="note">This is a CodWing demo store. Try adding items and checking out: nothing is charged and no order is created. <a href="https://codwing.com">codwing.com</a></div>
+<header><div class="in"><b>Your Store</b><a class="cart" href="/cart">Cart</a></div></header>
+<main>
+  <h1>New arrivals</h1>
+  <p class="sub">Tap "Add to cart", then check out. Use any 10-digit number and PIN 110001.</p>
+  <div class="grid" id="grid"></div>
+  <p class="cart-page">On your store, CodWing replaces the cart drawer and the checkout button with this one-page checkout and tracks where every visitor stops.</p>
+</main>
+<script>
+document.getElementById('grid').innerHTML = Object.keys(DEMO_P).map(function (k) {
+  var p = DEMO_P[k];
+  var r = function (x) { return '₹' + (x / 100).toLocaleString('en-IN'); };
+  return '<div class="card"><img src="' + DEMO_PIC(p.hue, p.title) + '" alt=""><div class="b"><h2>' + p.title + '</h2><div class="price">' + r(p.price) + (p.compare ? '<s>' + r(p.compare) + '</s>' : '') + '</div>' +
+    '<form action="/cart/add" method="post"><input type="hidden" name="id" value="' + k + '"><button type="submit">Add to cart</button>' +
+    '<div class="shopify-payment-button"><button type="button" class="shopify-payment-button__button buy">Buy it now</button></div></form></div></div>';
+}).join('');
+</script>
+</body>
+</html>

@@ -43,3 +43,67 @@ test('cleanSettings: types, bounds, secrets split, states normalised', () => {
   assert.equal('junk' in settings, false);
   assert.equal(cleanSettings({ gateway: 'stripe' }).settings.gateway, 'none');
 });
+
+import { quote, charge, followUpText, stepNo } from './pricing.js';
+import { orderInput, rzpSignatureOk, publicCfg } from './store.js';
+
+const S = { gateway: 'razorpay', cod_on: true, prepaid_discount: 50, cod_fee: 29, partial_advance: 0, partial_states: '', cod_max: 0 };
+const L = [{ price: 79900, quantity: 1 }, { price: 49900, quantity: 2 }];
+
+test('quote: online discount, COD fee, COD limit', () => {
+  const q = quote(L, S, { online: true });
+  assert.equal(q.subtotal, 179700);
+  assert.deepEqual(q.online, { total: 174700, discount: 5000 });
+  assert.deepEqual(q.cod, { total: 182600, fee: 2900 });
+  assert.equal(q.partial, null);
+  assert.equal(quote(L, S, { online: false }).online, null, 'no gateway -> no online tile');
+  assert.equal(quote(L, { ...S, cod_max: 1000 }, { online: true }).cod, null, 'over the COD limit');
+  assert.equal(quote(L, { ...S, cod_on: false }, { online: true }).cod, null);
+  assert.equal(quote([{ price: 3000, quantity: 1 }], S, { online: true }).online.total, 0, 'discount never goes below zero');
+});
+test('quote: partial COD only where asked, and only with online payment', () => {
+  const P = { ...S, partial_advance: 99, partial_states: 'RJ,MP' };
+  const rj = quote(L, P, { online: true, state: 'Rajasthan' });
+  assert.deepEqual(rj.partial, { total: 182600, advance: 9900, rest: 172700, fee: 2900 });
+  assert.equal(rj.cod, null, 'partial replaces plain COD');
+  assert.ok(quote(L, P, { online: true, state: 'Delhi' }).cod, 'other states keep COD');
+  assert.ok(quote(L, P, { online: true, state: '' }).cod, 'no state yet: COD');
+  assert.ok(quote(L, { ...P, partial_states: '' }, { online: true, state: 'Delhi' }).partial, 'blank list = every state');
+  assert.ok(quote(L, P, { online: false, state: 'Rajasthan' }).cod, 'no gateway: cannot take an advance');
+});
+test('charge picks the amount to take now', () => {
+  const q = quote(L, { ...S, partial_advance: 99 }, { online: true, state: 'Goa' });
+  assert.deepEqual(charge(q, 'online'), { now: 174700, total: 174700, discount: 5000, fee: 0 });
+  assert.equal(charge(q, 'cod'), null);
+  assert.equal(charge(q, 'partial').now, 9900);
+});
+test('order input: real prices, discount code, COD fee line, paid transaction', () => {
+  const items = [{ gid: 'gid://shopify/ProductVariant/1', quantity: 2, price: 49900 }];
+  const buyer = { first: 'Asha', last: 'K', phone: '9876543210', address1: '12 MG Road', address2: '', city: 'Jaipur', state: 'Rajasthan', pincode: '302001', email: '' };
+  const on = orderInput({ items, buyer, method: 'online', c: { now: 94800, total: 94800, discount: 5000, fee: 0 }, payment: 'pay_1' });
+  assert.equal(on.financialStatus, 'PAID');
+  assert.equal(on.discountCode.itemFixedDiscountCode.amountSet.shopMoney.amount, '50.00');
+  assert.equal(on.transactions[0].amountSet.shopMoney.amount, '948.00');
+  assert.equal(on.shippingAddress.provinceCode, 'RJ');
+  const cod = orderInput({ items, buyer, method: 'cod', c: { now: 0, total: 102700, discount: 0, fee: 2900 }, payment: null });
+  assert.equal(cod.financialStatus, 'PENDING');
+  assert.equal(cod.shippingLines[0].priceSet.shopMoney.amount, '29.00');
+  assert.equal(cod.transactions, undefined);
+  assert.equal(cod.discountCode, undefined);
+});
+test('razorpay signature', () => {
+  const sig = crypto.createHmac('sha256', 'rk').update('order_1|pay_1').digest('hex');
+  assert.equal(rzpSignatureOk('order_1', 'pay_1', sig, 'rk'), true);
+  assert.equal(rzpSignatureOk('order_1', 'pay_2', sig, 'rk'), false);
+  assert.equal(rzpSignatureOk('order_1', 'pay_1', '', 'rk'), false);
+});
+test('follow-up text and steps', () => {
+  assert.equal(stepNo('order'), 7); assert.equal(stepNo('nope'), 0);
+  const t = followUpText({ name: 'Priya Sharma', items: [{ t: 'Tee' }, { t: 'Cap' }, { t: 'Bag' }], store: 'Your Store', link: 'https://x.in/?cwr=1' });
+  assert.match(t, /^Hi Priya! You left Tee and Cap and 1 more in your cart at Your Store\..*https:\/\/x\.in\/\?cwr=1$/);
+});
+test('public config never exposes secrets', () => {
+  const c = publicCfg({ name: 'X', settings: { ...S, razorpay_key_id: 'rzp_live_1', cod_otp: true, wa_phone_id: '1' }, set: { razorpay_key_secret: true, wa_token: true } });
+  assert.equal(c.online, true); assert.equal(c.otp, true);
+  assert.ok(!JSON.stringify(c).includes('rzp_live_1'));
+});
