@@ -214,13 +214,37 @@ export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
      checkout like referral credit), so COD buyers come back prepaid. Settings > checkout delivery_credit (rupees, 0 = off). */
   const dc = Math.round((Number(env.SETTINGS?.checkout?.delivery_credit ?? 50) || 0) * 100);
   if (dc > 0) {
+    /* every delivered COD order, however old (3 Nov: the owner asked for earlier deliveries too); one credit per order */
     const dl = (await env.DB.prepare(`SELECT o.order_id, o.phone FROM orders o JOIN shipments s ON s.order_id=o.order_id
-        WHERE s.stage='delivered' AND s.delivered_at>? AND o.method='cod' AND COALESCE(o.status,'')<>'cancelled'
-        AND NOT EXISTS (SELECT 1 FROM credits c WHERE c.ref_idem='dlv:' || o.order_id) LIMIT 50`).bind(t - 3 * 86400).all().catch(() => ({ results: [] }))).results;
+        WHERE s.stage='delivered' AND o.method='cod' AND COALESCE(o.status,'')<>'cancelled' AND o.phone IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM credits c WHERE c.ref_idem='dlv:' || o.order_id) ORDER BY s.delivered_at DESC LIMIT 100`).all().catch(() => ({ results: [] }))).results;
     for (const d of dl) {
       await env.DB.prepare('INSERT INTO credits (phone, amount_paise, left_paise, reason, ref_idem, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
         .bind(d.phone, dc, dc, 'COD order delivered', 'dlv:' + d.order_id, t, t + CREDIT_DAYS * 86400).run().catch(() => {});
       out.delivery_credit = (out.delivery_credit || 0) + 1;
+    }
+  }
+  /* tell people about delivery / gift credit on WhatsApp: once per credit, 9 am - 9 pm IST, gently (WhatsApp rate limits) */
+  const mm = Math.floor(((t + 19800) % 86400) / 60);
+  if (mm >= 9 * 60 && mm < 21 * 60) {
+    let ok = false;
+    try { const { metaTemplate } = await import('./whatsapp.js'); const tp = await metaTemplate(env, DLV_TEMPLATE); ok = tp?.status === 'APPROVED'; } catch { ok = false; }
+    out.dlv_template = ok ? 'approved' : 'waiting';
+    const hit = await env.DB.prepare(`SELECT COUNT(*) AS n FROM messages WHERE direction='out' AND status='failed' AND ts>? AND (error ILIKE '%rate limit%' OR error ILIKE '%131048%' OR error ILIKE '%131049%')`).bind(t - 3600).first().catch(() => null);
+    if (ok && !(Number(hit?.n) > 0)) {
+      /* one message per phone per run even when several credits wait; the others follow on later runs */
+      const due = (await env.DB.prepare(`SELECT c.id, c.phone, c.amount_paise, c.expires_at, (SELECT MAX(first_name) FROM orders o WHERE o.phone=c.phone) AS first_name
+          FROM credits c WHERE c.told_at IS NULL AND c.left_paise>0 AND c.expires_at>? AND (c.ref_idem LIKE 'dlv:%' OR c.ref_idem LIKE 'gift:%')
+          AND c.phone NOT IN (SELECT phone FROM wa_optout) ORDER BY c.created_at LIMIT 8`).bind(t).all().catch(() => ({ results: [] }))).results;
+      const seen = new Set();
+      for (const c of due) {
+        if (seen.has(c.phone)) continue; seen.add(c.phone);
+        const claim = await env.DB.prepare('UPDATE credits SET told_at=? WHERE id=? AND told_at IS NULL RETURNING id').bind(t, c.id).first();
+        if (!claim) continue;
+        const r = await fireTrigger(env, 'dlv_credit', { to: c.phone, vars: { name: String(c.first_name || '').split(/\s+/)[0] || 'there', amount: String(Math.round(c.amount_paise / 100)), till: dateIst(c.expires_at) } }).catch((e) => ({ ok: false, error: e.message }));
+        if (r?.ok) out.dlv_told = (out.dlv_told || 0) + 1;
+        else if (!r?.skipped) await env.DB.prepare('UPDATE credits SET told_at=NULL WHERE id=?').bind(c.id).run();
+      }
     }
   }
   /* invites: 9 am - 9 pm IST only */
@@ -266,7 +290,7 @@ export const dateIst = (t) => new Date((Number(t) + 19800) * 1000).toLocaleDateS
 /* ---------- WhatsApp templates ---------- */
 /** invites per cron run (every 5 min) and per 24 hours */
 export const INVITE_RUN = 2, INVITE_DAY = 25;
-export const INVITE_TEMPLATE = 'ik_refer_v2', CREDIT_TEMPLATE = 'ik_ref_credit_v2';
+export const INVITE_TEMPLATE = 'ik_refer_v2', CREDIT_TEMPLATE = 'ik_ref_credit_v2', DLV_TEMPLATE = 'ik_dlv_credit_v1';
 export function referralTemplates() {
   return [
     { name: INVITE_TEMPLATE, language: 'en', category: 'MARKETING',
@@ -279,6 +303,11 @@ export function referralTemplates() {
       components: [
         { type: 'BODY', text: 'Hi {{1}}, your friend just ordered from Ink Kulture with your code, so ₹{{2}} store credit has been added to your number.\n\nIt is valid till {{3}} and is applied automatically on your next order when you pay online at inkkulture.in.\n\nHappy tattooing! 🖤',
           example: { body_text: [['Riya', '100', '27 Dec 2026']] } },
+      ] },
+    { name: DLV_TEMPLATE, language: 'en', category: 'UTILITY', allow_category_change: true,
+      components: [
+        { type: 'BODY', text: 'Hi {{1}}, thank you for your Ink Kulture order! 🖤\n\nAs a thank-you, ₹{{2}} store credit has been added to this number. It is valid till {{3}} and is applied automatically on your next order when you pay online at inkkulture.in.\n\nNew designs are up: Buy 1 Get 1 Free on everything.',
+          example: { body_text: [['Riya', '50', '2 Jan 2027']] } },
       ] },
   ];
 }

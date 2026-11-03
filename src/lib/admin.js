@@ -1535,6 +1535,28 @@ const ACTIONS = {
     clearMetaCache();
     return { ok: true, ...r };
   },
+  /** Give a number store credit by hand (gift / test); told on WhatsApp by the credit sweep once the template is approved. */
+  async credit_gift(env, b) {
+    const R = await import('./referral.js');
+    const phone = String(b.phone || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+    if (!/^[6-9]\d{9}$/.test(phone)) throw new Error('phone: 10-digit Indian mobile');
+    const paise = Math.round((Number(b.rupees) || 0) * 100); if (!(paise >= 100 && paise <= 100000)) throw new Error('rupees: 1 to 1000');
+    const t = Math.floor(Date.now() / 1000), key = 'gift:' + phone + ':' + t;
+    await env.DB.prepare('INSERT INTO credits (phone, amount_paise, left_paise, reason, ref_idem, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(phone, paise, paise, String(b.reason || 'Gift from Ink Kulture').slice(0, 120), key, t, t + R.CREDIT_DAYS * 86400).run();
+    return { ok: true, phone, rupees: paise / 100, balance: await R.creditBalance(env, phone), expires: R.dateIst(t + R.CREDIT_DAYS * 86400) };
+  },
+  async credit_status(env) {
+    const t = Math.floor(Date.now() / 1000);
+    const q = async (sql) => (await env.DB.prepare(sql).bind(t).first()) || {};
+    const [dlv, untold, told] = await Promise.all([
+      q("SELECT COUNT(*) AS n, COUNT(DISTINCT phone) AS people, COALESCE(SUM(amount_paise),0)/100 AS rupees FROM credits WHERE ref_idem LIKE 'dlv:%' AND expires_at>?"),
+      q("SELECT COUNT(*) AS n FROM credits WHERE told_at IS NULL AND left_paise>0 AND expires_at>? AND (ref_idem LIKE 'dlv:%' OR ref_idem LIKE 'gift:%')"),
+      q("SELECT COUNT(*) AS n FROM credits WHERE told_at IS NOT NULL AND expires_at>?"),
+    ]);
+    let tpl = 'unknown'; try { const { metaTemplate } = await import('./whatsapp.js'); const R = await import('./referral.js'); tpl = (await metaTemplate(await withSettingsFresh(env), R.DLV_TEMPLATE))?.status || 'missing'; } catch (e) { tpl = 'error: ' + e.message; }
+    return { ok: true, delivery_credits: dlv, waiting_to_tell: Number(untold.n) || 0, told: Number(told.n) || 0, template: tpl };
+  },
   /** Refer and earn: submit the invite + credit-added templates (lib/referral.js) that are not in WhatsApp Manager yet. */
   async referral_templates(env, b) {
     const R = await import('./referral.js');

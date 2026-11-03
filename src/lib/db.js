@@ -158,6 +158,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS creator_vouchers (code TEXT PRIMARY KEY, creator_id INT, amount BIGINT, status TEXT, idem TEXT, held_at BIGINT, used_at BIGINT, created_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS credits (id SERIAL PRIMARY KEY, phone TEXT, amount_paise BIGINT, left_paise BIGINT, reason TEXT, ref_idem TEXT, created_at BIGINT, expires_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS credits_phone ON credits (phone)`,
+  /* when the customer was told on WhatsApp about this credit (lib/referral.js creditSweep) */
+  `ALTER TABLE credits ADD COLUMN IF NOT EXISTS told_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS credit_uses (idem TEXT PRIMARY KEY, phone TEXT, amount BIGINT, took TEXT, status TEXT, order_id TEXT, created_at BIGINT, used_at BIGINT)`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_save_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_commit_at BIGINT`,

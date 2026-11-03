@@ -112,3 +112,7 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
 - Scale: 10–12 IST once a day, best ad set (confirmed-purchase CPA, ≥3 purchases) +₹100 if CPA ≤ 1.2× target, +₹50 if ≤ 1.5×; caps follow; hard ceiling meta.ads_ceiling (₹5,000/day default).
 - Reels: 11–13 IST once a day, strongest recent reel (views ≥ 1.5× median of last 21 days, not already an ad) → ACTIVE ad in the best ad set; Meta rejections (music/policy) remembered. `ads_auto` action shows log; `{run:'reel'}` forces one.
 - Blue Dart: COD to MH/GJ/DL/PB/AP/GA (shipping.bluedart_states) + RJ/MP/UP test until 16 Nov → Blue Dart when it quotes (fixed: the old test set pick to a string, so no courier preference ever reached ShipPrime). No auto-rebook on late pickup (owner's call, 3 Nov).
+
+## Delivery credit messaging (3 Nov)
+- ₹50 "COD order delivered" credit now for every delivered COD order (backfilled, one per order) and told on WhatsApp once per credit via trigger `dlv_credit` / template `ik_dlv_credit_v1` (UTILITY; 9–21 IST, ≤8 per 5-min run, pauses on WhatsApp rate limits). credits.told_at.
+- `credit_gift {phone, rupees, reason}` adds a manual credit (ref_idem gift:…), told the same way. `credit_status` shows counts + template status.
