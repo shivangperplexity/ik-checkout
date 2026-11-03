@@ -186,7 +186,7 @@ function ratesOut(r) {
     saving_vs_dearest: r.options.length > 1 ? Math.round((Math.max(...r.options.map((o) => o.charge ?? 0)) - (r.pick?.charge ?? 0)) * 100) / 100 : 0,
   };
 }
-async function shipCtx(env, id) {
+export async function shipCtx(env, id) {
   const row = await env.DB.prepare('SELECT * FROM orders WHERE order_id=?').bind(String(id)).first();
   if (!row) throw new Error('Order not found');
   if (row.status === 'cancelled') throw new Error('This order is cancelled');
@@ -1900,6 +1900,13 @@ const ACTIONS = {
     const r = await A.graph(f, 'POST', `${c.account}/customconversions`, { name: 'Delivered', event_source_id: m.pixelId, custom_event_type: 'PURCHASE', rule: JSON.stringify({ and: [{ event: { eq: 'Delivered' } }, { or: [{ currency: { i_contains: 'INR' } }] }] }), description: 'Parcel delivered (server event from IK checkout)' });
     return { ok: true, id: r.id, created: true };
   },
+  async ads_auto(env, b) {
+    const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const m = f.SETTINGS?.meta || {};
+    if (b.run === 'reel') return { ok: true, ...(await A.reelTick(f, { force: true })) };
+    if (b.run === 'night') return { ok: true, ...(await A.nightTick(f)) };
+    if (b.run === 'reels_list') return { ok: true, reels: await A.recentReels(f) };
+    return { ok: true, cfg: A.autoCfg(f), hour_ist: A.istHour(), night: m.ads_night || null, log: (m.ads_auto || {}).log || [], reels: (m.ads_auto || {}).reels || {} };
+  },
   /** Any Marketing API read, or a POST (create / update). No DELETE: removals stay with the owner. */
   async ads_api(env, b) {
     const A = await import('./meta-ads.js');
@@ -2343,6 +2350,10 @@ export async function runAutomations(env) {
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
   try { const { deliveredSweep } = await import('./meta.js'); const r = await deliveredSweep(env); if (r.sent || r.failed) out.delivered = r; } catch (e) { console.error('delivered event', e); }
+  /* ads autopilot (lib/ads-auto.js): night pause 23-06 IST, daily +₹50/100 on the best ad set, one strong reel → ad per day */
+  try { const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const r = { night: await A.nightTick(f), scale: await A.scaleTick(f), reel: await A.reelTick(f) }; if (Object.values(r).some((x) => !x.skipped && !x.idle)) out.adsAuto = r; } catch (e) { console.error('ads auto', e.message); }
+  /* Blue Dart parcels not collected within 48 h: cancel and rebook on the next courier (lib/ship-watch.js) */
+  try { const W = await import('./ship-watch.js'); const r = await W.bluedartWatch(env); if (r.rebooked?.length || r.failed?.length) out.bluedartWatch = r; } catch (e) { console.error('bluedart watch', e.message); }
   /* once a day: refresh the Meta seed (delivered + prepaid) and exclusion (RTO + cancelled) customer lists */
   try {
     const { claim } = await import('./once.js');

@@ -108,6 +108,8 @@ export const SCHEMA = [
   /* Automatic NDR handling (lib/ndr-rules.js): one row per failed attempt (k = attempt number, or the day it was raised) */
   `CREATE TABLE IF NOT EXISTS ndr_auto (awb TEXT, k TEXT, order_id TEXT, order_name TEXT, attempt INT, category TEXT, reason TEXT, first_seen BIGINT, action TEXT, action_at BIGINT, note TEXT, error TEXT, PRIMARY KEY (awb, k))`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_reason TEXT`,
+  /* Blue Dart pickup watchdog (lib/ship-watch.js): when this parcel was cancelled and rebooked on another courier */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS bd_rebooked_at BIGINT`,
   /* when the refused-delivery question went out (lib/ndr-ask.js); a yes / no after it answers it */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS ndr_asked_at BIGINT`,
   /* NDR autopilot (lib/ndr-pilot.js): nudge sent / re-attempt announced per failed attempt; the one "before you cancel" message */

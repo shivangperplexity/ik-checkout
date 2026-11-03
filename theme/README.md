@@ -106,3 +106,9 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
 - Delivered server event (dv_<order id>) per delivered parcel → custom conversion "Delivered" (1883860485911181, purchase-type). Switch ad sets to it + value optimisation once ≥50/week.
 - Customer lists refreshed daily by cron: "IK - delivered + prepaid customers" (120252176487760354, seed) and "IK - RTO + cancelled (exclude)" (120252176490570354).
 - Lookalike 1% IN of the seed: 120252176492810354. Both active ad sets (Winning reels - Nov, sales1) target the LAL (Advantage+ expands) and exclude the RTO list; 13 states excluded (Assam, J&K, Tripura, MP, Jharkhand, Telangana, Bihar, Haryana, Arunachal, Manipur, Mizoram, Nagaland, Sikkim).
+
+## Ads autopilot + Blue Dart routing (3 Nov) — lib/ads-auto.js, lib/ship-watch.js
+- Night: all delivering ad sets/CBO campaigns paused 23:00–06:00 IST, resumed after (meta.ads_night_off to disable; ads_night_from/to).
+- Scale: 10–12 IST once a day, best ad set (confirmed-purchase CPA, ≥3 purchases) +₹100 if CPA ≤ 1.2× target, +₹50 if ≤ 1.5×; caps follow; hard ceiling meta.ads_ceiling (₹5,000/day default).
+- Reels: 11–13 IST once a day, strongest recent reel (views ≥ 1.5× median of last 21 days, not already an ad) → ACTIVE ad in the best ad set; Meta rejections (music/policy) remembered. `ads_auto` action shows log; `{run:'reel'}` forces one.
+- Blue Dart: COD to MH/GJ/DL/PB/AP/GA (shipping.bluedart_states) + RJ/MP/UP test until 16 Nov → Blue Dart when it quotes (fixed: the old test set pick to a string, so no courier preference ever reached ShipPrime). Watchdog: pickup_pending > 48 h → cancel + rebook Xpressbees (shipments.bd_rebooked_at).

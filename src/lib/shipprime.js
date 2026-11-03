@@ -34,6 +34,10 @@ export const SP_DEFAULT_PREFER = 'XPRESSBEES|DELHIVERY|SHADOWFAX|EKART|DTDC';
 const OLD_DEFAULT = 'BLUEDART|XPRESSBEES|DELHIVERY';
 /** The courier order from Settings (the first default, Blue Dart first, is read as the new one). */
 export const spPrefer = (s = {}) => (s.shipprime_prefer == null || s.shipprime_prefer === OLD_DEFAULT ? SP_DEFAULT_PREFER : s.shipprime_prefer);
+/* Blue Dart first for COD to the states that pay (Nov 2026: 27% RTO vs 57% on Xpressbees/Delhivery); pickups are
+   watched (lib/ship-watch.js) and a parcel Blue Dart has not collected in 48 h is rebooked on the next courier. */
+export const SP_BLUEDART_STATES = 'MH,GJ,DL,PB,AP,GA';
+export const spBluedartStates = (s = {}) => String(s.bluedart_states ?? SP_BLUEDART_STATES).split(/[,|\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
 
 export const spToken = (env) => String(env.SETTINGS?.shipping?.shipprime_token || env.SHIPPRIME_TOKEN || '').trim();
 export const spConnected = (env) => !!spToken(env);
@@ -232,16 +236,19 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
       if (alloc?.pick) pick = alloc.pick;
     }
   } catch (e) { console.error('smart alloc', e.message); }
-  /* Test, 1-15 Nov 2026: COD parcels to the states that send most back go Blue Dart (24% RTO in our data against
-     55-59% for Xpressbees / Delhivery; about ₹40 more per parcel). Settings shipping.bluedart_test { states, until } */
+  /* Blue Dart for COD (Nov 2026): 27% RTO against 55-59% on Xpressbees / Delhivery, about ₹40 more per parcel.
+     Default: the states that pay (SP_BLUEDART_STATES, Settings shipping.bluedart_states) + the RJ/MP/UP test until
+     16 Nov (shipping.bluedart_test { states, until }). Off with shipping.bluedart_cod_off. Pickups are watched: a
+     parcel Blue Dart has not collected in 48 h is rebooked on the next courier (lib/ship-watch.js). */
   try {
+    const st = String(row?.state_code || order.address?.province_code || '').toUpperCase();
     const bt = { states: 'RJ, MP, UP', until: Date.UTC(2026, 10, 16) / 1000, ...(s.bluedart_test || {}) };
-    const st = String(row?.state_code || '').toUpperCase();
-    if (base.cod && now() < Number(bt.until) && st && String(bt.states).toUpperCase().split(/[\s,;]+/).includes(st)) {
-      const bd = rates.find((r) => r.code === 'BLUEDART' && r.ok !== false && Number(r.charge) > 0);
-      if (bd) { pick = bd.code; alloc = { ...(alloc || {}), note: `Blue Dart test for COD to ${st} (₹${bd.charge})` }; }
+    const inTest = now() < Number(bt.until) && String(bt.states).toUpperCase().split(/[\s,;|]+/).includes(st);
+    if (base.cod && s.bluedart_cod_off !== true && st && (spBluedartStates(s).includes(st) || inTest)) {
+      const bd = rates.find((r) => /^BLUEDART$/i.test(r.code) && r.ok !== false && Number(r.charge) > 0);
+      if (bd) { pick = bd; alloc = { ...(alloc || {}), note: `Blue Dart for COD to ${st} (₹${bd.charge}; ${inTest && !spBluedartStates(s).includes(st) ? 'RTO test' : 'low-RTO state'})` }; }
     }
-  } catch (e) { console.error('bluedart test', e.message); }
+  } catch (e) { console.error('bluedart route', e.message); }
   return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint, alloc_note: alloc?.note || '', alloc_table: alloc?.table || null };
 }
 
