@@ -242,7 +242,8 @@ export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
   }
   /* tell people about delivery / gift credit on WhatsApp: once per credit, 9 am - 9 pm IST, gently (WhatsApp rate limits) */
   const mm = Math.floor(((t + 19800) % 86400) / 60);
-  if (mm >= 9 * 60 && mm < 21 * 60) {
+  const tellFrom = Number(env.SETTINGS?.checkout?.credit_tell_from ?? 9), tellTo = Number(env.SETTINGS?.checkout?.credit_tell_to ?? 21);
+  if (mm >= tellFrom * 60 && mm < tellTo * 60) {
     let ok = false;
     try { const { metaTemplate } = await import('./whatsapp.js'); const tp = await metaTemplate(env, DLV_TEMPLATE); ok = tp?.status === 'APPROVED'; } catch { ok = false; }
     out.dlv_template = ok ? 'approved' : 'waiting';

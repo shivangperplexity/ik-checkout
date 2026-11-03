@@ -1572,6 +1572,13 @@ const ACTIONS = {
     if (!o) throw new Error('order not found'); if (!['pending_payment', 'failed', 'cancelled'].includes(o.status)) throw new Error('order is ' + o.status + '; only unpaid / cancelled holds are released');
     return { ok: await R.releaseCredit(env, o.idem) };
   },
+  /** Hours (IST) in which waiting credit notices go out; owner 3 Nov: from 6 am. */
+  async credit_window(env, b) {
+    const f = await withSettingsFresh(env); const c = { ...(f.SETTINGS?.checkout || {}) };
+    if (b.from != null) c.credit_tell_from = Math.max(0, Math.min(23, Number(b.from)));
+    if (b.to != null) c.credit_tell_to = Math.max(1, Math.min(24, Number(b.to)));
+    await putSetting(env, 'checkout', c); return { ok: true, from: c.credit_tell_from ?? 9, to: c.credit_tell_to ?? 21 };
+  },
   async credit_status(env) {
     const t = Math.floor(Date.now() / 1000);
     const q = async (sql) => (await env.DB.prepare(sql).bind(t).first()) || {};
