@@ -21,7 +21,8 @@
     row('To pay', money(p.total), 'is-total');
     if (state.method === 'cod' && pcOn()) { row('Pay now', money(pcAdv())); row('Rest after delivery', money(p.total - pcAdv())); }
     var pq = state.quote.prepaid || {}, ri = state.refInfo;
-    if (state.method === 'cod' && ((pq.ref || 0) + (pq.credit || 0)) > 0) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">' + ((pq.ref ? 'Referral ₹' + pq.ref / 100 : '') + (pq.ref && pq.credit ? ' + ' : '') + (pq.credit ? 'store credit ₹' + pq.credit / 100 : '')) + ' off when you pay online</p>');
+    if (state.method === 'cod' && (pq.ref || 0) > 0) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">Referral ₹' + pq.ref / 100 + ' off when you pay online</p>');
+    if (ri && ri.credit > 0 && !ri.verified && ri.otp !== false) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">You have ₹' + Math.round(ri.credit / 100) + ' store credit · <button type="button" class="ikx-link" data-ikx-credit-claim>Use it</button></p>');
     if (ri && ri.note) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">' + esc(ri.note) + '</p>');
     var nudge = p.shipping && p.afterBogo > 0 ? '<p class="ikx-nudge">' + ICON.truck + 'Add ' + money(49900 - p.afterBogo) + ' more for FREE delivery</p>' : '';
     box.innerHTML = rows.join('') + nudge;
@@ -228,12 +229,14 @@
     var a = t.closest('[data-ikx-add]');
     if (a) { e.preventDefault(); if (!state.busy) { closeAsk(); addPick(a.getAttribute('data-ikx-add')); } return; }
     if (t.closest('[data-ikx-askx]')) { e.preventDefault(); closeAsk(); return; }
-    if (t.closest('[data-otp-x]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); return; }
+    if (t.closest('[data-otp-x]')) { e.preventDefault(); if (OTP && OTP.credit) { creditClose(); return; } otpClose(); state.busy = false; paintFoot(); return; }
+    if (t.closest('[data-ikx-credit-claim]')) { e.preventDefault(); var cp = form() ? formData().phone : ''; if (state.refInfo && /^[6-9]\d{9}$/.test(cp)) creditOpen(cp, state.refInfo.credit); return; }
+    if (t.closest('[data-credit-skip]')) { e.preventDefault(); creditClose(); return; }
     if (t.closest('[data-ikx-code-open]')) { e.preventDefault(); state.codeOpen = true; state.codeErr = ''; paintCode(); var ci = $('[data-ikx-code-in]', root); if (ci) ci.focus(); return; }
     if (t.closest('[data-ikx-code-go]')) { e.preventDefault(); var cv = ($('[data-ikx-code-in]', root) || {}).value || ''; if (document.activeElement) document.activeElement.blur(); if (cv.trim()) setCode(cv); return; }
     if (t.closest('[data-ikx-code-x]')) { e.preventDefault(); setCode(''); return; }
     if (t.closest('[data-otp-re]')) { e.preventDefault(); otpSend(true); return; }
-    if (t.closest('[data-otp-skip]')) { e.preventDefault(); if (!OTP || state.busy) return; var sd = OTP.d; state.otpSkip = true; otpClose(); tk('otp_skip'); placeOrder(sd, false, ''); return; }
+    if (t.closest('[data-otp-skip]')) { e.preventDefault(); if (!OTP || state.busy || OTP.credit) return; var sd = OTP.d; state.otpSkip = true; otpClose(); tk('otp_skip'); placeOrder(sd, false, ''); return; }
     if (t.closest('[data-otp-paste]')) { e.preventDefault(); otpPaste(); return; }
     if (t.closest('[data-otp-edit]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); var pf = form() && form().elements.phone; goCheckout(false); if (pf) setTimeout(function () { pf.focus(); pf.select && pf.select(); }, 350); return; }
     if (t.closest('[data-ikx-skip]')) { e.preventDefault(); tk('method', { method: state.method, data: { freeask: 'skip' } }); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
@@ -298,7 +301,8 @@
     var pcx = state.method === 'cod' && pcOn();
     /* Build 044: Cash on delivery (not part-paid) is verified with a 4-digit WhatsApp code first. The code box opens
        inside this tap (so the phone keyboard comes up) and the order is placed as soon as 4 digits are in. */
-    if (state.method === 'cod' && !pcx && state.quote.otp && !state.otpSkip) {
+    /* Build 058: the code typed to claim store credit already verified this number; no second code */
+    if (state.method === 'cod' && !pcx && state.quote.otp && !state.otpSkip && !(state.refInfo && state.refInfo.verified && state.refInfo.phone === d.phone)) {
       tk('submit', { phone: d.phone, name: d.name, method: state.method });
       track('AddPaymentInfo', { currency: 'INR', value: state.quote.cod.total / 100 });
       return otpOpen(d);
@@ -366,15 +370,17 @@
   function otpClose() { var o = root && $('.ikx-otpw', root); if (o) o.remove(); if (OTP) { clearInterval(OTP.timer); clearTimeout(OTP.watch); } OTP = null; }
   function otpErr(m) { var e = root && $('[data-otp-err]', root); if (e) e.textContent = m || ''; }
   function otpSentText() { return 'We sent a 4-digit code to WhatsApp <b>+91 ' + esc(otpPhone(OTP.d.phone)) + '</b>.'; }
-  function otpOpen(d) {
-    otpClose();
-    OTP = { d: d, left: 0, timer: null, watch: null, sent: false };
+  function otpOpen(d, opt) {
+    otpClose(); opt = opt || {};
+    OTP = { d: d, left: 0, timer: null, watch: null, sent: false, credit: opt.credit || 0 };
+    var kicker = OTP.credit ? 'Store credit' : 'Cash on Delivery', rs = OTP.credit ? '₹' + Math.round(OTP.credit / 100) : '';
     var o = el('div', { class: 'ikx-otpw', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Enter the OTP sent on WhatsApp',
       style: 'position:absolute;inset:0;z-index:60;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;box-sizing:border-box' },
       '<div style="position:relative;width:100%;max-width:420px;background:#fff;border-radius:18px;padding:22px 18px 18px;box-shadow:0 12px 32px rgba(16,24,40,.25);box-sizing:border-box">' +
         '<button type="button" class="ikx-x" data-otp-x aria-label="Close" style="position:absolute;top:10px;right:10px">' + ICON.close + '</button>' +
-        '<p style="margin:0 0 4px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#05603a">Cash on Delivery</p>' +
-        '<h3 data-otp-h style="margin:0 0 6px;font-size:19px;line-height:1.3;padding-right:32px">Sending a code to your WhatsApp…</h3>' +
+        '<p style="margin:0 0 4px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#05603a">' + kicker + '</p>' +
+        '<h3 data-otp-h style="margin:0 0 6px;font-size:19px;line-height:1.3;padding-right:32px">' + (OTP.credit ? 'Use your ' + rs + ' store credit' : 'Sending a code to your WhatsApp…') + '</h3>' +
+        (OTP.credit ? '<p class="ikx-m" style="margin:0 0 10px;font-size:13.5px;line-height:1.45">Enter the OTP we send on WhatsApp and ' + rs + ' comes off this order, Cash on delivery or online. No second code needed for the order.</p>' : '') +
         '<p class="ikx-m" data-otp-st style="margin:0 0 14px;font-size:14px;line-height:1.45"><i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking it reaches WhatsApp <b>+91 ' + esc(otpPhone(d.phone)) + '</b></p>' +
         '<input data-otp-in type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="4" aria-label="4-digit code" ' +
           'style="display:block;width:100%;box-sizing:border-box;height:60px;border:1.5px solid #d0d5dd;border-radius:12px;text-align:center;font:inherit;font-size:30px;font-weight:700;letter-spacing:.55em;padding:0 0 0 .55em;outline:none;background:#fff;color:#101828">' +
@@ -382,8 +388,9 @@
         '<div data-otp-more style="display:none"><p class="ikx-m" style="margin:4px 0 14px;font-size:12.5px;line-height:1.45">In WhatsApp tap <b>Copy code</b>, come back and tap the code above your keyboard (or Paste). Your order is placed as soon as the 4 digits are in.</p>' +
         '<div style="display:flex;gap:10px"><button type="button" class="ikx-btn ikx-btn--ghost" data-otp-paste style="flex:1;margin:0">Paste code</button>' +
         '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-re style="flex:1;margin:0" disabled>Resend in 30s</button></div></div>' +
-        '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-skip style="display:none;width:100%;margin:12px 0 0">Code not coming? Place order, confirm on WhatsApp</button>' +
-        '<button type="button" class="ikx-link" data-otp-edit style="display:block;margin:12px auto 0">Change mobile number</button>' +
+        (OTP.credit ? '<button type="button" class="ikx-link" data-credit-skip style="display:block;margin:12px auto 0">Skip, order without the credit</button>'
+          : '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-skip style="display:none;width:100%;margin:12px 0 0">Code not coming? Place order, confirm on WhatsApp</button>' +
+            '<button type="button" class="ikx-link" data-otp-edit style="display:block;margin:12px auto 0">Change mobile number</button>') +
       '</div>');
     $('.ikx-sheet', root).appendChild(o);
     var inp = $('[data-otp-in]', o);
@@ -413,7 +420,7 @@
       /* WhatsApp took it: ask for the code only once it says the message reached the phone */
       if (r.ok || r.wait) { if (again && r.ok) otpErr(''); return otpWatch(r.ok ? r.resend_in : r.wait, again); }
       /* WhatsApp could not send it (template not live yet, number not on WhatsApp...): place the order the old way */
-      if (r.fallback && !OTP.sent) { state.otpSkip = true; otpClose(); return placeOrder(d, false, ''); }
+      if (r.fallback && !OTP.sent) { if (OTP.credit) return creditClose(); state.otpSkip = true; otpClose(); return placeOrder(d, false, ''); }
       if (r.cod_off) { otpClose(); state.busy = false; return codGone(r.error); }
       otpErr(r.error || 'Could not send the code. Please try again.');
       if (re) { re.disabled = false; re.textContent = 'Resend code'; }
@@ -441,7 +448,7 @@
   function otpReady(resendIn) {
     if (!OTP) return; OTP.sent = true;
     var h = $('[data-otp-h]', root), st = $('[data-otp-st]', root), more = $('[data-otp-more]', root);
-    if (h) h.textContent = 'Enter the OTP sent on WhatsApp';
+    if (h) h.textContent = OTP.credit ? 'Use your ₹' + Math.round(OTP.credit / 100) + ' store credit' : 'Enter the OTP sent on WhatsApp';
     if (st) st.innerHTML = otpSentText();
     if (more) more.style.display = '';
     otpTimer(resendIn);
@@ -453,12 +460,34 @@
   function otpUndelivered(again) {
     if (!OTP) return;
     if (again && OTP.sent) { otpErr('The new code did not reach WhatsApp. Please use the code you got earlier.'); var re = $('[data-otp-re]', root); if (re) { re.disabled = false; re.textContent = 'Resend code'; } return; }
+    if (OTP.credit) { otpErr('The code is not reaching WhatsApp right now. You can order without the credit.'); return; }
     var d = OTP.d; state.otpSkip = true; otpClose(); placeOrder(d, false, '');
+  }
+  /* Build 058: claim store credit with the WhatsApp code. Same box as the COD code; on success the credit shows on
+     the bill (COD too) and the order needs no second code. */
+  function creditOpen(phone, paise) {
+    if (OTP || state.busy || !$('.ikx-sheet', root) || !form()) return false;
+    otpOpen({ phone: phone }, { credit: paise });
+    tk('credit_ask', { phone: phone, data: { credit: paise } });
+    return true;
+  }
+  function creditClose() { otpClose(); if (state.quote) { setQuote(state.quote, state.final); paintPay(); paintBill(); paintFoot(); } }
+  function creditGo(code) {
+    var d = OTP.d, inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
+    api('/api/credit/verify', { phone: d.phone, otp: code }).then(function (r) {
+      if (!OTP) return;
+      if (!r.ok) { if (r.otp_invalid) return otpError(r.error, r.expired); inp.disabled = false; return otpErr(r.error || 'Could not check the code. Please try again.'); }
+      state.refInfo = state.refInfo || {}; state.refInfo.verified = true; state.refInfo.phone = d.phone; state.refInfo.credit = r.credit || state.refInfo.credit || 0;
+      tk('credit_ok', { phone: d.phone, data: { credit: state.refInfo.credit } });
+      if (st) st.innerHTML = '<b style="color:#05603a">Done!</b> ₹' + Math.round(state.refInfo.credit / 100) + ' store credit is on your bill.';
+      setTimeout(creditClose, 900);
+    }).catch(function () { if (OTP) otpError('Network problem. Please check your connection and type the code again.'); });
   }
   function otpGo(code) {
     if (!OTP || state.busy) return;
     var inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
     inp.disabled = true; inp.blur();
+    if (OTP.credit) { if (st) st.innerHTML = '<i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking the code…'; return creditGo(code); }
     if (st) st.innerHTML = '<i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking the code and placing your order…';
     placeOrder(OTP.d, false, code);
   }

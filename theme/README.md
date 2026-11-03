@@ -116,3 +116,7 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
 ## Delivery credit messaging (3 Nov)
 - ₹50 "COD order delivered" credit now for every delivered COD order (backfilled, one per order) and told on WhatsApp once per credit via trigger `dlv_credit` / template `ik_dlv_credit_v1` (UTILITY; 9–21 IST, ≤8 per 5-min run, pauses on WhatsApp rate limits). credits.told_at.
 - `credit_gift {phone, rupees, reason}` adds a manual credit (ref_idem gift:…), told the same way. `credit_status` shows counts + template status.
+
+## Build 058: store credit on COD, claimed with the WhatsApp code (3 Nov 2026)
+- Parts 2 and 4. A number with store credit sees "Use your ₹50 store credit — enter the OTP" (same code box as COD). `/api/credit/verify` checks the code; verified numbers (cod_otps.verified_at ≤ 30 min) get credit on COD and online, and a COD order then needs no second code (server treats it as OTP-verified: confirmed, cod-otp-verified tag).
+- Credit is never applied to an unverified number (nobody can spend credit by typing someone else's number). COD credit is spent at placement and returned if the order is cancelled / RTO (referralSweep).

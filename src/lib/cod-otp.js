@@ -100,6 +100,14 @@ export async function otpDelivery(env, phone) {
 }
 
 /** Check a code. The right code stays valid until it expires (a retry after a network error must not need a new one). */
+/** Build 058: a number whose WhatsApp code was checked in the last VERIFIED_TTL seconds (store credit claimed, or a COD
+    order just placed) counts as verified: no second code for the same checkout. */
+export const VERIFIED_TTL = 30 * 60;
+export async function recentlyVerified(env, phone) {
+  if (!env.DB || !/^[6-9]\d{9}$/.test(String(phone || ''))) return false;
+  const r = await env.DB.prepare('SELECT verified_at FROM cod_otps WHERE phone=?').bind(String(phone)).first().catch(() => null);
+  return !!r?.verified_at && Number(r.verified_at) >= now() - VERIFIED_TTL;
+}
 export async function checkOtp(env, phone, code) {
   const c = String(code || '').replace(/\D/g, '');
   if (!/^\d{4}$/.test(c)) return { ok: false, error: 'Enter the 4-digit code' };

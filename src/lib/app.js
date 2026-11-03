@@ -4,14 +4,14 @@ import { cameFromAd } from './attribution.js';
 import { loadLines, splitSoldOut, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
-import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery } from './cod-otp.js';
+import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery, recentlyVerified } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings, codOn, codMode } from './settings.js';
 import { handleLogin, handleRpc, handleLabel, handleTrack, markSessionOrdered, afterOrderRisk, runAutomations } from './admin.js';
 import { shippingEstimate } from './shipping.js';
-import { quoteRef, friendOffer, creditBalance, forOrder, onPaid, normCode } from './referral.js';
+import { quoteRef, friendOffer, creditBalance, forOrder, onPaid, onCodPlaced, normCode } from './referral.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const rand = () => Math.random().toString(36).slice(2, 8);
@@ -197,14 +197,18 @@ async function handleOrder(req, env, ctx) {
     if (!v.ok) return json({ ok: false, otp_invalid: true, expired: !!v.expired, error: v.error });
     otpOk = true;
   }
+  /* Build 058: the code typed to claim store credit a moment ago is this number's proof; no second code for the order */
+  const verified = otpOk || await recentlyVerified(env, buyer.phone).catch(() => false);
+  if (method === 'cod' && !partial && !otpOk && verified) otpOk = true;
   const txnid = `IK${Date.now().toString(36)}${rand()}`.toUpperCase();
   const eventId = `ik_${txnid}`;
   const a = b.attribution || {};
-  /* Refer and earn (online payment only): the friend's ₹100 off and the buyer's own store credit */
+  /* Refer and earn: the friend's ₹100 off (online payment only) and the buyer's own store credit (any payment, once
+     the number is verified with the WhatsApp code: nobody can spend credit by typing someone else's number) */
   let refBits = null;
-  if (method === 'prepaid' && env.DB) {
+  if ((method === 'prepaid' || (method === 'cod' && !partial)) && env.DB) {
     try {
-      refBits = await forOrder(env, { idem, phone: buyer.phone, total: price.total, attribution: a });
+      refBits = await forOrder(env, { idem, phone: buyer.phone, total: price.total, attribution: a, allowRef: method === 'prepaid', allowCredit: verified });
       if (refBits.ref || refBits.credit) { price.ref = refBits.ref; price.credit = refBits.credit; price.total = refBits.total; }
     } catch (e) { console.error('referral', e.message); refBits = null; }
   }
@@ -270,6 +274,7 @@ async function handleOrder(req, env, ctx) {
   const order = await completeDraft(env, draft.id, true);
   await saveOrder(env, row, order, 'placed');
   if (otpOk) await env.DB.prepare('UPDATE orders SET confirmed_at=?, otp_at=? WHERE idem=?').bind(now(), now(), idem).run();
+  if (method === 'cod' && refBits?.credit) await onCodPlaced(env, { idem, order_id: order.legacyResourceId }).catch((e) => console.error('credit cod', e.message));
   ctx.waitUntil(afterCod(env, req, row, order));
   return json({ ok: true, method, orderName: order.name, statusUrl: order.statusPageUrl, eventId, value: Number(rupees(draft.total)), otp_verified: otpOk });
 }
@@ -565,8 +570,21 @@ export async function handle(req, env0, ctx) {
         else {
           const b = await req.json().catch(() => ({}));
           const phone = cleanPhone(b.phone), code = normCode(b.ref);
-          const [o, credit] = await Promise.all([code ? friendOffer(env, code, phone) : null, phone ? creditBalance(env, phone) : 0]);
-          res = json({ ok: true, ref: o?.ok ? o.amount : 0, ref_ok: !!o?.ok, name: o?.name || '', note: code && o && !o.ok ? o.why : '', credit });
+          const [o, credit, verified] = await Promise.all([code ? friendOffer(env, code, phone) : null, phone ? creditBalance(env, phone) : 0, phone ? recentlyVerified(env, phone) : false]);
+          res = json({ ok: true, ref: o?.ok ? o.amount : 0, ref_ok: !!o?.ok, name: o?.name || '', note: code && o && !o.ok ? o.why : '', credit, verified, otp: otpOn(env) });
+        }
+      }
+      /* Build 058: claim store credit with the WhatsApp code (the same code then covers the COD confirmation) */
+      else if (path === '/api/credit/verify' && req.method === 'POST') {
+        if (!(await rateLimit(env, 'crv:' + ((req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x'), 60))) res = json({ ok: false, error: 'Too many attempts' }, 429);
+        else {
+          const b = await req.json().catch(() => ({}));
+          const phone = cleanPhone(b.phone);
+          if (!phone) res = json({ ok: false, error: 'Enter a valid 10-digit mobile number' });
+          else {
+            const v = await checkOtp(env, phone, String(b.otp || ''));
+            res = v.ok ? json({ ok: true, credit: await creditBalance(env, phone) }) : json({ ok: false, otp_invalid: true, expired: !!v.expired, error: v.error });
+          }
         }
       }
       else if (path.startsWith('/api/pincode/')) res = await handlePincode(path.split('/').pop());

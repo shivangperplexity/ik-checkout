@@ -109,8 +109,8 @@ export async function quoteRef(env, q, attribution) {
  * Order (online payment): the friend's discount and the buyer's own credit, checked against the real number.
  * Holds the credit used (released if the payment never completes). Returns { ref, credit, total, offer, notes }.
  */
-export async function forOrder(env, { idem, phone, total, attribution }) {
-  const code = normCode(attribution?.ref);
+export async function forOrder(env, { idem, phone, total, attribution, allowRef = true, allowCredit = true }) {
+  const code = allowRef ? normCode(attribution?.ref) : '';
   let offer = code ? await friendOffer(env, code, phone).catch(() => null) : null;
   /* a creator voucher is used once: held for this order now, spent when it is paid (lib/creators.js sweep) */
   if (offer?.ok && offer.kind === 'voucher') {
@@ -118,7 +118,7 @@ export async function forOrder(env, { idem, phone, total, attribution }) {
     const h = await holdVoucher(env, offer.code, idem).catch(() => null);
     if (!h) offer = { ...offer, ok: false, amount: 0, why: 'This voucher was already used' };
   }
-  const bal = await creditBalance(env, phone).catch(() => 0);
+  const bal = allowCredit ? await creditBalance(env, phone).catch(() => 0) : 0;
   const a = applyTo(total, { ref: offer?.ok ? offer.amount : 0, credit: bal });
   if (a.credit > 0) await holdCredit(env, idem, phone, a.credit);
   if (offer?.ok && a.ref > 0 && offer.kind === 'referral') {
@@ -157,6 +157,11 @@ async function releaseCredit(env, idem) {
  * Payment done, order created: the buyer's held credit is spent, and the referrer gets their credit straight away
  * (the WhatsApp "credit added" goes out on the next cron run).
  */
+/** Cash on delivery order created with store credit on it (Build 058): the credit is spent now; it comes back if the
+    order is cancelled or the parcel returns (referralSweep). */
+export async function onCodPlaced(env, { idem, order_id }) {
+  await env.DB.prepare("UPDATE credit_uses SET status='used', order_id=?, used_at=? WHERE idem=? AND status='held'").bind(String(order_id || ''), now(), idem).run().catch(() => {});
+}
 export async function onPaid(env, { idem, order_id, order_name }) {
   await env.DB.prepare("UPDATE credit_uses SET status='used', order_id=?, used_at=? WHERE idem=? AND status='held'").bind(String(order_id || ''), now(), idem).run().catch(() => {});
   const r = await env.DB.prepare("UPDATE referrals SET status='placed', order_id=?, order_name=?, placed_at=? WHERE idem=? AND status='pending' RETURNING *").bind(String(order_id || ''), order_name || '', now(), idem).first().catch(() => null);
@@ -208,6 +213,17 @@ export async function referralSweep(env, { invites = INVITE_RUN } = {}) {
     await env.DB.prepare("UPDATE referrals SET status=CASE WHEN status='credited' THEN 'revoked' ELSE 'void' END, note=? WHERE idem=?")
       .bind((r.order_status === 'cancelled' ? 'order cancelled' : 'not delivered') + (left ? ', credit taken back' : ''), r.idem).run();
     out.void++;
+  }
+
+  /* credit spent on a COD order that was cancelled or came back: put it back (Build 058) */
+  const back = (await env.DB.prepare(`SELECT u.idem FROM credit_uses u JOIN orders o ON o.idem=u.idem LEFT JOIN shipments s ON s.order_id=o.order_id
+      WHERE u.status='used' AND o.method='cod' AND (o.status='cancelled' OR s.stage IN ('rto','lost')) LIMIT 50`).all().catch(() => ({ results: [] }))).results;
+  for (const b of back) {
+    const u = await env.DB.prepare("UPDATE credit_uses SET status='returned' WHERE idem=? AND status='used' RETURNING took").bind(b.idem).first().catch(() => null);
+    if (!u) continue;
+    let took = []; try { took = JSON.parse(u.took || '[]'); } catch { took = []; }
+    for (const [id, x] of took) await env.DB.prepare('UPDATE credits SET left_paise=left_paise+? WHERE id=?').bind(Number(x), id).run().catch(() => {});
+    out.credit_returned = (out.credit_returned || 0) + 1;
   }
 
   /* Nov 2026: every delivered Cash on Delivery order earns ₹50 off the next online payment (60 days, used automatically at

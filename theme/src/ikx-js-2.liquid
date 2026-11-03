@@ -99,12 +99,16 @@
   function refApply(q) {
     if (!q || !q.prepaid || q.estimate) return q;
     var p = q.prepaid, info = state.refInfo, base = p.total + (p.ref || 0) + (p.credit || 0);
-    var ref = info ? (info.ref || 0) : (p.ref || 0), credit = info ? (info.credit || 0) : 0, room = Math.max(0, base - 100);
+    /* Build 058: store credit needs the number verified with the WhatsApp code (creditOpen); then it works on
+       Cash on delivery too, not only online payment */
+    var ok = info && info.verified, ref = info ? (info.ref || 0) : (p.ref || 0), credit = ok ? (info.credit || 0) : 0, room = Math.max(0, base - 100);
     ref = Math.min(ref, room); credit = Math.min(credit, room - ref);
-    if (ref === (p.ref || 0) && credit === (p.credit || 0)) return q;
+    var c = q.cod, cbase = c ? c.total + (c.credit || 0) : 0, ccredit = c ? Math.min(credit, Math.max(0, cbase - 100)) : 0;
+    if (ref === (p.ref || 0) && credit === (p.credit || 0) && (!c || ccredit === (c.credit || 0))) return q;
     var n = {}, k; for (k in q) n[k] = q[k];
     n.prepaid = {}; for (k in p) n.prepaid[k] = p[k];
     n.prepaid.ref = ref; n.prepaid.credit = credit; n.prepaid.total = base - ref - credit;
+    if (c) { n.cod = {}; for (k in c) n.cod[k] = c[k]; n.cod.credit = ccredit; n.cod.total = cbase - ccredit; }
     return n;
   }
   function refCheck(phone) {
@@ -112,8 +116,10 @@
     state.refPhone = phone;
     api('/api/ref/me', { phone: phone, ref: REF }).then(function (r) {
       if (!r || !r.ok || state.refPhone !== phone) return;
-      state.refInfo = { ref: r.ref || 0, credit: r.credit || 0, note: r.note || '', name: r.name || '' };
+      state.refInfo = { ref: r.ref || 0, credit: r.credit || 0, note: r.note || '', name: r.name || '', verified: !!r.verified, otp: r.otp !== false, phone: phone };
       if (state.quote && !state.busy) { setQuote(state.quote, state.final); paintPay(); paintBill(); paintFoot(); }
+      /* credit on this number, not yet verified: offer to claim it (once per number) */
+      if (r.credit > 0 && !r.verified && r.otp !== false && state.creditAsked !== phone && typeof creditOpen === 'function' && creditOpen(phone, r.credit)) state.creditAsked = phone;
     }).catch(function () {});
   }
   function setQuote(q, final) {
