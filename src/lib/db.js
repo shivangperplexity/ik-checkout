@@ -212,6 +212,15 @@ export const SCHEMA = [
 
 let ready;
 let sqlClient;
+let fpCache = '';
+/** FNV-1a over the schema text: changes whenever a statement is added or edited. */
+export function schemaFingerprint() {
+  if (fpCache) return fpCache;
+  let h = 2166136261;
+  for (const c of SCHEMA.join('\n')) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  fpCache = SCHEMA.length + '-' + h.toString(36);
+  return fpCache;
+}
 
 export function makeDb(env) {
   const url = env.DATABASE_URL || env.POSTGRES_URL;
@@ -219,7 +228,16 @@ export function makeDb(env) {
   sqlClient ||= neon(url);
   const sql = sqlClient;
   const run = async (text, params) => {
-    ready ||= (async () => { for (const s of SCHEMA) await sql.query(s); })().catch((e) => { ready = null; throw e; });
+    /* Nov 2026: the ~150 statements above used to run on EVERY cold start (one HTTP round trip each, ~6-7 s), so
+       the first checkout / dashboard request on a fresh instance hung. Now they run only when the list changes:
+       a fingerprint of SCHEMA is kept in schema_meta and checked with one query. */
+    ready ||= (async () => {
+      const fp = schemaFingerprint();
+      try { const r = await sql.query('SELECT v FROM schema_meta WHERE k = $1', ['main']); if (r[0]?.v === fp) return; } catch { /* first run: table missing */ }
+      for (const s of SCHEMA) await sql.query(s);
+      await sql.query('CREATE TABLE IF NOT EXISTS schema_meta (k TEXT PRIMARY KEY, v TEXT, at BIGINT)');
+      await sql.query('INSERT INTO schema_meta (k, v, at) VALUES ($1, $2, $3) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, at = EXCLUDED.at', ['main', fp, Math.floor(Date.now() / 1000)]);
+    })().catch((e) => { ready = null; throw e; });
     await ready;
     let i = 0;
     return sql.query(text.replace(/\?/g, () => '$' + ++i), params);
