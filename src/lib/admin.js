@@ -1565,6 +1565,13 @@ const ACTIONS = {
     const orders = (await env.DB.prepare('SELECT idem, order_name, method, status, total_paise, created_at FROM orders WHERE phone=? ORDER BY created_at DESC LIMIT 10').bind(phone).all()).results;
     return { ok: true, phone, credits, uses, orders };
   },
+  /** Put back the credit held by an online checkout that was never paid (support / testing). */
+  async credit_release(env, b) {
+    const R = await import('./referral.js');
+    const o = await env.DB.prepare("SELECT idem, status FROM orders WHERE idem=?").bind(String(b.idem || '')).first();
+    if (!o) throw new Error('order not found'); if (!['pending_payment', 'failed', 'cancelled'].includes(o.status)) throw new Error('order is ' + o.status + '; only unpaid / cancelled holds are released');
+    return { ok: await R.releaseCredit(env, o.idem) };
+  },
   async credit_status(env) {
     const t = Math.floor(Date.now() / 1000);
     const q = async (sql) => (await env.DB.prepare(sql).bind(t).first()) || {};

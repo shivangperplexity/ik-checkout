@@ -145,7 +145,7 @@ async function holdCredit(env, idem, phone, amount) {
   await env.DB.prepare(`INSERT INTO credit_uses (idem, phone, amount, took, status, created_at) VALUES (?,?,?,?,'held',?)
       ON CONFLICT (idem) DO UPDATE SET amount=EXCLUDED.amount, took=EXCLUDED.took, status='held', created_at=EXCLUDED.created_at`).bind(idem, p, amount - need, JSON.stringify(took), now()).run();
 }
-async function releaseCredit(env, idem) {
+export async function releaseCredit(env, idem) {
   const u = await env.DB.prepare("UPDATE credit_uses SET status='released' WHERE idem=? AND status='held' RETURNING took").bind(idem).first();
   if (!u) return false;
   let took = []; try { took = JSON.parse(u.took || '[]'); } catch { took = []; }
