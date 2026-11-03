@@ -12,7 +12,9 @@ export const STEPS = ['visit', 'cart', 'checkout', 'phone', 'address', 'payment'
 export const stepNo = (name) => STEPS.indexOf(name) + 1; /* 0 = unknown */
 
 export function onlineReady(s, secretsSet) {
-  return s.gateway === 'razorpay' && !!s.razorpay_key_id && !!secretsSet.razorpay_key_secret;
+  if (s.gateway === 'razorpay') return !!s.razorpay_key_id && !!secretsSet.razorpay_key_secret;
+  if (s.gateway === 'payu') return !!s.payu_key && !!secretsSet.payu_salt;
+  return false;
 }
 
 export function waReady(s, secretsSet) {

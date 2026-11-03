@@ -92,7 +92,21 @@ input:focus,select:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 
 .bar-save .in{max-width:1040px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .msg{color:var(--muted);font-size:13px}
 .err{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:12px 14px;margin-bottom:14px;display:none}
-.pg[hidden]{display:none!important}
+.pg[hidden],.pp[hidden],#sf[hidden]{display:none!important}
+.ship-bar{position:sticky;top:0;z-index:3;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.ship-bar .msg{flex:1;min-width:140px}
+.so{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px 12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}
+.so:first-child{border-top:0}
+.so input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;accent-color:var(--wing)}
+.so .who{font-weight:700}.so .meta{color:var(--muted);font-size:12.5px}
+.so .act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+.rates{grid-column:2/4;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.rt{display:grid;grid-template-columns:minmax(0,1fr) 70px 70px auto;gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line);font-size:13px}
+.rt:first-child{border-top:0}.rt.is-pick{background:var(--wing-soft)}
+.rt b{font-weight:700}.rt .sc{color:var(--muted);font-size:12px}
+@media (max-width:560px){.so{grid-template-columns:28px minmax(0,1fr)}.so .act{grid-column:2;justify-content:flex-start}.rates{grid-column:1/3}.li{grid-template-columns:1fr}.li .act{justify-content:flex-start}}
+@media (max-width:560px){.rt{grid-template-columns:minmax(0,1fr) 60px auto}.rt .sc2{display:none}}
+.cod{color:var(--risk);font-weight:700}.pre{color:var(--go);font-weight:700}
 .demo{background:var(--indigo);color:#fff;border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px;display:none}
 .demo a{color:#fff;font-weight:700}
 </style>
@@ -109,6 +123,7 @@ input:focus,select:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 
     <button class="tab is-on" data-tab="home" role="tab">Overview</button>
     <button class="tab" data-tab="carts" role="tab">Abandoned carts <span class="n" id="abN" hidden></span></button>
     <button class="tab" data-tab="orders" role="tab">Orders</button>
+    <button class="tab" data-tab="ship" role="tab">Shipping <span class="n" id="shipN" hidden></span></button>
     <button class="tab" data-tab="settings" role="tab">Settings</button>
     <button class="tab" data-tab="install" role="tab">Install</button>
   </nav>
@@ -142,12 +157,55 @@ input:focus,select:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 
     <div class="card"><div class="top"><h2>Orders from CodWing checkout</h2></div><div class="list" id="orderList"></div></div>
   </section>
 
+  <section class="view" data-view="ship" hidden>
+    <div class="card" id="shipConnect">
+      <div class="top"><div><h2>Shipping account</h2><p class="help" style="margin:2px 0 0">Your own Shiprocket or ShipPrime account. Courier charges are billed by them, to you.</p></div><span style="display:flex;gap:8px;align-items:center"><button type="button" class="btn ghost sm" id="shipEdit" hidden>Change</button><span class="badge b-risk" id="shipState">Not connected</span></span></div>
+      <form id="sf" autocomplete="off">
+        <div class="grid">
+          <label class="f"><span class="lt">Ship with</span><select name="ship_provider" id="shipProv"><option value="none">Choose…</option><option value="shiprocket">Shiprocket</option><option value="shipprime">ShipPrime</option></select></label>
+          <label class="f"><span class="lt">Courier choice</span><select name="ship_rule"><option value="rto">Fewest returns (RTO) for COD</option><option value="cheapest">Cheapest</option><option value="fastest">Fastest</option></select></label>
+        </div>
+        <div class="grid pp" data-pp="shiprocket" hidden style="margin-top:14px">
+          <label class="f"><span class="lt">Shiprocket API user email</span><input name="sr_email" type="email" placeholder="api@yourstore.in"></label>
+          <label class="f"><span class="lt">API user password <span class="hint" data-set="sr_password"></span></span><input name="sr_password" type="password" placeholder="Leave blank to keep the saved one"></label>
+          <label class="f"><span class="lt">Pickup location <button type="button" class="btn ghost sm" id="loadPk" style="height:26px;margin-left:6px">Load from Shiprocket</button></span><select name="sr_pickup" id="srPickup"><option value="">Save login, then load</option></select></label>
+          <p class="help" style="margin:0;align-self:end">Shiprocket → Settings → API → Create an API user (a separate email, not your login).</p>
+        </div>
+        <div class="grid pp" data-pp="shipprime" hidden style="margin-top:14px">
+          <label class="f"><span class="lt">ShipPrime API token <span class="hint" data-set="sp_token"></span></span><input name="sp_token" type="password" placeholder="Leave blank to keep the saved one"></label>
+          <label class="f"><span class="lt">Pickup phone</span><input name="pickup_phone" inputmode="tel"></label>
+          <label class="f"><span class="lt">Pickup address</span><input name="pickup_address1"></label>
+          <label class="f"><span class="lt">Area / landmark</span><input name="pickup_address2"></label>
+          <label class="f"><span class="lt">City</span><input name="pickup_city"></label>
+          <label class="f"><span class="lt">State</span><input name="pickup_state"></label>
+          <label class="f"><span class="lt">Pickup PIN code</span><input name="pickup_pin" inputmode="numeric" maxlength="6"></label>
+        </div>
+        <div class="grid" style="margin-top:14px">
+          <label class="f"><span class="lt">Parcel weight (g)</span><input name="pkg_weight_g" type="number" min="10"></label>
+          <label class="f"><span class="lt">Extra weight per extra item (g)</span><input name="pkg_extra_g" type="number" min="0"></label>
+          <label class="f"><span class="lt">Box size L × B × H (cm)</span><span style="display:flex;gap:6px"><input name="pkg_l" type="number" min="1"><input name="pkg_b" type="number" min="1"><input name="pkg_h" type="number" min="1"></span></label>
+          <label class="f"><span class="lt">Pay up to ₹ more for a courier with fewer returns</span><input name="ship_max_extra" type="number" min="0"></label>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button type="button" class="btn" id="shipSave">Save shipping settings</button><span class="msg" id="shipMsg"></span></div>
+      </form>
+    </div>
+    <div class="ship-bar" id="shipBar">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px"><input type="checkbox" id="selAll" style="width:18px;height:18px;accent-color:var(--wing)"> All</label>
+      <span class="msg" id="selMsg">Select orders to ship</span>
+      <button class="btn sm" id="bShip" disabled>Ship selected</button>
+      <button class="btn ghost sm" id="bLabels" disabled>Labels</button>
+      <button class="btn ghost sm" id="bPacked" disabled>Mark packed</button>
+    </div>
+    <div class="card"><div class="top"><h2>Ready to ship</h2><button class="btn ghost sm" id="shipRefresh">Refresh</button></div><div id="shipList"><p class="empty">Loading orders…</p></div></div>
+    <div class="card"><div class="top"><h2>Shipped</h2><span class="hint">last 60</span></div><div id="shippedList"></div></div>
+  </section>
+
   <section class="view" data-view="settings" hidden>
   <form id="f" autocomplete="off">
   <section class="card">
     <h2>Checkout</h2>
     <div class="row"><div><b>Use CodWing checkout</b><span class="d">Cart drawer and checkout button open the CodWing one-page checkout.</span></div><label class="switch"><input type="checkbox" name="sheet_on"><i></i></label></div>
-    <div class="row"><div><b>Open the cart after "Add to cart"</b><span class="d">Shows the cart sheet right away, like a cart drawer.</span></div><label class="switch"><input type="checkbox" name="open_on_add"><i></i></label></div>
+    <div class="row"><div><b>Open the cart after "Add to cart"</b><span class="d">Off: the "View cart" button bounces and buyers keep shopping. On: the cart opens right away.</span></div><label class="switch"><input type="checkbox" name="open_on_add"><i></i></label></div>
     <div class="grid" style="margin-top:8px">
       <label class="f"><span class="lt">Button colour</span><input name="brand_color" type="color"></label>
     </div>
@@ -156,7 +214,7 @@ input:focus,select:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 
     <h2>Payment gateway</h2>
     <p class="help">Buyers pay straight into your own account. CodWing never holds your money.</p>
     <div class="grid">
-      <label class="f"><span class="lt">Gateway</span><select name="gateway" id="gateway"><option value="none">Not connected (cash on delivery only)</option><option value="razorpay">Razorpay</option><option value="payu">PayU (coming soon)</option></select></label>
+      <label class="f"><span class="lt">Gateway</span><select name="gateway" id="gateway"><option value="none">Not connected (cash on delivery only)</option><option value="razorpay">Razorpay</option><option value="payu">PayU</option></select></label>
     </div>
     <div class="grid pg" data-pg="razorpay" hidden style="margin-top:14px">
       <label class="f"><span class="lt">Razorpay Key ID</span><input name="razorpay_key_id" placeholder="rzp_live_…"></label>
@@ -166,6 +224,7 @@ input:focus,select:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 
       <label class="f"><span class="lt">PayU Merchant Key</span><input name="payu_key"></label>
       <label class="f"><span class="lt">PayU Salt <span class="hint" data-set="payu_salt"></span></span><input name="payu_salt" type="password" placeholder="Leave blank to keep the saved one"></label>
     </div>
+    <div class="row pg" data-pg="payu" hidden style="margin-top:6px"><div><b>PayU test mode</b><span class="d">Only for trying payments with PayU test keys. Keep off for real orders.</span></div><label class="switch"><input type="checkbox" name="payu_test"><i></i></label></div>
   </section>
   <section class="card">
     <h2>WhatsApp Business</h2>
@@ -221,10 +280,6 @@ input:focus,select:focus{outline:none;border-color:var(--wing);box-shadow:0 0 0 
       <div class="code" id="snippet"></div>
       <p class="help" style="margin-top:12px">To see your store without CodWing for a moment, add <b>?cw_off=1</b> to any page address.</p>
     </div>
-    <div class="card">
-      <h2>Shipping dashboard</h2>
-      <p class="help">Shiprocket and ShipPrime connection, label design, courier choice to cut RTO, bulk ship and packing updates are being added next. We set them up with you during onboarding.</p>
-    </div>
   </section>
 </div>
 
@@ -243,11 +298,11 @@ function toast(t, isErr) { try { shopify.toast.show(t, { isError: !!isErr }); } 
 function fail(t) { errBox.textContent = t; errBox.style.display = 'block'; }
 
 /* ---- sample data for ?demo=1 ---- */
-function demoData(path) {
+function demoData(path, body) {
   var t = Math.floor(Date.now() / 1000), k = DAYS === 1 ? 1 : DAYS === 7 ? 6.4 : 26;
   if (path.indexOf('/api/cw/me') === 0) return { ok: true, shop: 'yourstore.myshopify.com', name: 'Your Store', domain: 'https://yourstore.in', sf_url: 'https://app.codwing.com/sf.js?shop=yourstore.myshopify.com',
-    settings: { gateway: 'razorpay', razorpay_key_id: 'rzp_live_xxxxxxxx', cod_on: true, cod_otp: true, prepaid_discount: 50, cod_fee: 29, partial_advance: 99, partial_states: 'RJ,MP', cod_max: 0, sheet_on: true, open_on_add: true, brand_color: '#111111', wa_otp_template: 'codwing_otp', wa_phone_id: '1234567890', wa_waba_id: '9876543210', pixel_id: '', support_email: 'help@yourstore.in', support_phone: '' },
-    secrets_set: { razorpay_key_secret: true, wa_token: true, payu_salt: false, capi_token: false }, ready: { online: true, whatsapp: true, pixel: false, cod: true }, installed: true };
+    settings: { ship_provider: 'shiprocket', sr_email: 'api@yourstore.in', sr_pickup: 'Warehouse', ship_rule: 'rto', ship_max_extra: 15, pkg_weight_g: 300, pkg_extra_g: 50, pkg_l: 20, pkg_b: 15, pkg_h: 5, gateway: 'razorpay', razorpay_key_id: 'rzp_live_xxxxxxxx', cod_on: true, cod_otp: true, prepaid_discount: 50, cod_fee: 29, partial_advance: 99, partial_states: 'RJ,MP', cod_max: 0, sheet_on: true, open_on_add: false, brand_color: '#111111', wa_otp_template: 'codwing_otp', wa_phone_id: '1234567890', wa_waba_id: '9876543210', pixel_id: '', support_email: 'help@yourstore.in', support_phone: '' },
+    secrets_set: { razorpay_key_secret: true, wa_token: true, payu_salt: false, capi_token: false, sr_password: true, sp_token: false }, ready: { online: true, whatsapp: true, pixel: false, cod: true, shipping: true }, installed: true };
   if (path.indexOf('/api/cw/stats') === 0) {
     var n = [1240, 214, 151, 98, 77, 64, 41].map(function (x) { return Math.round(x * k); });
     var names = [['Priya S', 'Jaipur', 'Oversized Tee', 79900, 'payment'], ['Rahul', 'Indore', 'Everyday Hoodie', 149900, 'address'], ['Aisha K', 'Mumbai', 'Cap, Canvas Tote Bag', 89800, 'payment'], ['', 'Patna', 'Oversized Tee x2', 159800, 'phone'], ['Vikram', 'Pune', 'Everyday Hoodie', 149900, 'address']];
@@ -257,10 +312,20 @@ function demoData(path) {
       orders: { count: n[6], value: n[6] * 112000, by: { online: Math.round(n[6] * .46), cod: Math.round(n[6] * .41), partial: n[6] - Math.round(n[6] * .46) - Math.round(n[6] * .41) }, stuck: 0 },
       recent: [['#1048', 'online', 129800], ['#1047', 'cod', 82800], ['#1046', 'partial', 178800], ['#1045', 'online', 74900], ['#1044', 'cod', 52800]].map(function (o, i) { return { name: o[0], method: o[1], status: 'placed', total: o[2], paid: o[1] === 'online' ? o[2] : o[1] === 'partial' ? 9900 : 0, at: t - i * 3100 - 400, error: '' }; }) };
   }
+  if (path.indexOf('/api/cw/ship_list') === 0) {
+    var ppl = [['#1052', 'Priya Sharma', 'Jaipur', '302001', true, 82800, 'Oversized Tee'], ['#1051', 'Rahul Verma', 'Indore', '452001', true, 152800, 'Everyday Hoodie'], ['#1050', 'Aisha Khan', 'Mumbai', '400050', false, 89800, 'Cap, Canvas Tote Bag'], ['#1049', 'Vikram Rao', 'Pune', '411001', true, 52800, 'Canvas Tote Bag'], ['#1048', 'Neha Gupta', 'Delhi', '110017', false, 129800, 'Oversized Tee x2']];
+    return { ok: true, ready: true, provider: 'shiprocket', rule: 'rto', orders: ppl.map(function (o, i) { return { id: String(9000 + i), name: o[0], customer: o[1], phone: '98765432' + (10 + i), cod: o[4], collect: o[4] ? o[5] : 0, total: o[5], at: t - i * 5400, address: { city: o[2], pin: o[3], state: '' }, items: [{ title: o[6], quantity: 1 }], shipment: DEMO_SHIP[String(9000 + i)] || null }; }),
+      shipped: [{ order_id: '8990', order_name: '#1047', cod: true, collect: 82800, at: t - 86400, awb: '19041234567890', courier: 'Delhivery Surface', charge: 6100, label_url: '#', status: 'booked', packed: true, fulfilled: true, track: '#' }, { order_id: '8991', order_name: '#1046', cod: false, collect: 0, at: t - 90000, awb: '1340987654321', courier: 'Xpressbees Surface', charge: 5400, label_url: '#', status: 'booked', packed: false, fulfilled: true, track: '#' }] };
+  }
+  if (path.indexOf('/api/cw/ship_rates') === 0) return { ok: true, parcel: { weight_g: 300 }, pick: '2', why: 'Fewer returns to this PIN (\u20B97 more than cheapest)', rates: [{ id: '1', courier: 'Xpressbees Surface', charge: 54, days: 4, rto: 2.8, delivery: 3.9 }, { id: '2', courier: 'Delhivery Surface', charge: 61, days: 4, rto: 4.3, delivery: 4.4 }, { id: '3', courier: 'Ekart Logistics', charge: 63, days: 5, rto: 3.6, delivery: 4.0 }, { id: '4', courier: 'Blue Dart Air', charge: 118, days: 2, rto: 4.6, delivery: 4.7 }] };
+  if (path.indexOf('/api/cw/ship_book') === 0) { DEMO_SHIP[body.order_id] = { awb: '1904' + Math.floor(Math.random() * 1e10), courier: 'Delhivery Surface', charge: 6100, label_url: '#', status: 'booked', packed: false, fulfilled: true, track: '#' }; return { ok: true, shipment: DEMO_SHIP[body.order_id] }; }
+  if (path.indexOf('/api/cw/ship_labels') === 0) return { ok: true, labels: [] };
+  if (path.indexOf('/api/cw/ship_pickups') === 0) return { ok: true, pickups: [{ name: 'Warehouse', pin: '400001', city: 'Mumbai' }] };
   return { ok: true };
 }
+var DEMO_SHIP = {};
 function api(path, body) {
-  if (DEMO) return new Promise(function (ok) { setTimeout(function () { ok(body && path.indexOf('settings') > -1 ? Object.assign(demoData('/api/cw/me'), { settings: Object.assign(demoData('/api/cw/me').settings, body) }) : demoData(path)); }, 120); });
+  if (DEMO) return new Promise(function (ok) { setTimeout(function () { ok(body && path.indexOf('settings') > -1 ? Object.assign(demoData('/api/cw/me'), { settings: Object.assign(demoData('/api/cw/me').settings, body) }) : demoData(path, body || {})); }, 120); });
   return fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}).then(function (r) { return r.json(); });
 }
 
@@ -269,6 +334,7 @@ function show(tab) {
   document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('is-on', b.getAttribute('data-tab') === tab); });
   document.querySelectorAll('.view').forEach(function (v) { v.hidden = v.getAttribute('data-view') !== tab; });
   document.getElementById('saveBar').hidden = tab !== 'settings';
+  if (tab === 'ship' && !SHIP) loadShip();
   window.scrollTo(0, 0);
 }
 document.querySelector('.tabs').addEventListener('click', function (e) { var b = e.target.closest('.tab'); if (b) show(b.getAttribute('data-tab')); });
@@ -284,14 +350,20 @@ function fill(d) {
   Object.keys(s).forEach(function (k) { var el = f.elements[k]; if (!el) return; if (el.type === 'checkbox') el.checked = !!s[k]; else el.value = s[k] == null ? '' : s[k]; });
   document.querySelectorAll('[data-set]').forEach(function (el) { var on = d.secrets_set[el.getAttribute('data-set')]; el.textContent = on ? '· saved' : ''; el.className = 'hint' + (on ? ' set' : ''); });
   f.querySelectorAll('input[type=password]').forEach(function (el) { el.value = ''; });
+  var sf = document.getElementById('sf');
+  Object.keys(s).forEach(function (k) { var el = sf.elements[k]; if (!el || el.type === 'password') return; if (k === 'sr_pickup') { if (s[k] && !Array.prototype.some.call(el.options, function (o) { return o.value === s[k]; })) el.add(new Option(s[k], s[k])); } el.value = s[k] == null ? '' : s[k]; });
+  sf.querySelectorAll('input[type=password]').forEach(function (el) { el.value = ''; });
+  showPp();
+  var ss = document.getElementById('shipState'); ss.textContent = r.shipping ? 'Connected' + (s.ship_provider === 'shipprime' ? ' \u00B7 ShipPrime' : s.ship_provider === 'shiprocket' ? ' \u00B7 Shiprocket' : '') : 'Not connected'; ss.className = 'badge ' + (r.shipping ? 'b-go' : 'b-risk');
+  sf.hidden = !!r.shipping; document.getElementById('shipEdit').hidden = !r.shipping;
   showPg(); saveBtn.disabled = false;
   document.getElementById('snippet').textContent = '<script src="' + d.sf_url + '" defer><\\/script>';
   var steps = [
     { ok: !!(STATS && STATS.funnel && STATS.funnel[0].n) || !!d.installed, t: 'Add CodWing to your store', d: 'One click puts the checkout and tracking on your theme.', go: 'install', btn: 'Install' },
-    { ok: r.online, t: 'Connect Razorpay', d: 'Take UPI and card payments with your own Razorpay account.', go: 'settings', btn: 'Connect' },
+    { ok: r.online, t: 'Connect Razorpay or PayU', d: 'Take UPI and card payments with your own payment gateway account.', go: 'settings', btn: 'Connect' },
     { ok: r.whatsapp, t: 'Connect your WhatsApp number', d: 'For COD codes. Paste your Cloud API details; we can do it with you.', go: 'settings', btn: 'Connect' },
     { ok: r.pixel, t: 'Add your Meta pixel', d: 'Checkout and purchase events for your ads.', go: 'settings', btn: 'Add' },
-    { ok: false, t: 'Shipping: Shiprocket or ShipPrime', d: 'Coming next. We connect it with you during onboarding.', soon: true }
+    { ok: r.shipping, t: 'Connect Shiprocket or ShipPrime', d: 'Ship orders, print labels and pick couriers with fewer returns.', go: 'ship', btn: 'Connect' }
   ];
   var okN = steps.filter(function (x) { return x.ok; }).length;
   document.getElementById('setupCount').textContent = okN + ' of ' + steps.length + ' done';
@@ -367,6 +439,116 @@ function loadStats() { return api('/api/cw/stats?days=' + DAYS).then(function (d
     document.querySelectorAll('.chip').forEach(function (x) { x.classList.toggle('is-on', Number(x.getAttribute('data-d')) === DAYS); });
     loadStats();
   });
+});
+
+/* ---- shipping ---- */
+var SHIP = null, SEL = {};
+function showPp() { var v = document.getElementById('shipProv').value; document.querySelectorAll('.pp').forEach(function (el) { el.hidden = el.getAttribute('data-pp') !== v; }); }
+document.getElementById('shipProv').addEventListener('change', showPp);
+document.getElementById('shipEdit').addEventListener('click', function () { var sf = document.getElementById('sf'); sf.hidden = !sf.hidden; });
+document.getElementById('shipSave').addEventListener('click', function () {
+  var sf = document.getElementById('sf'), body = {}, m = document.getElementById('shipMsg');
+  Array.prototype.forEach.call(sf.elements, function (el) { if (el.name) body[el.name] = el.value; });
+  m.textContent = 'Saving…';
+  api('/api/cw/settings', body).then(function (d) { if (!d.ok) { m.textContent = d.error || 'Not saved'; return; } fill(d); m.textContent = d.ready && d.ready.shipping ? 'Saved. Connected.' : 'Saved. Fill the remaining fields to connect.'; SHIP = null; loadShip(); });
+});
+document.getElementById('loadPk').addEventListener('click', function () {
+  var m = document.getElementById('shipMsg'); m.textContent = 'Asking Shiprocket…';
+  api('/api/cw/ship_pickups').then(function (d) {
+    if (!d.ok) { m.textContent = d.error; return; }
+    var sel = document.getElementById('srPickup'), cur = sel.value; sel.innerHTML = '';
+    d.pickups.forEach(function (p) { sel.add(new Option(p.name + ' (' + p.city + ' ' + p.pin + ')', p.name)); });
+    if (cur) sel.value = cur; m.textContent = d.pickups.length + ' pickup location(s) found. Pick one and save.';
+  });
+});
+function loadShip() {
+  document.getElementById('shipList').innerHTML = '<p class="empty">Loading orders…</p>';
+  return api('/api/cw/ship_list').then(function (d) {
+    if (!d.ok) { document.getElementById('shipList').innerHTML = '<p class="empty">' + esc(d.error || 'Could not load orders') + '</p>'; return; }
+    SHIP = d; SEL = {}; paintShip();
+  });
+}
+function paintShip() {
+  var d = SHIP, open = d.orders.filter(function (o) { return !(o.shipment && o.shipment.awb); });
+  var n = document.getElementById('shipN'); n.hidden = !open.length; n.textContent = open.length;
+  document.getElementById('shipList').innerHTML = d.orders.length ? d.orders.map(function (o) {
+    var sh = o.shipment;
+    return '<div class="so" data-oid="' + o.id + '"><input type="checkbox" data-sel="' + o.id + '"' + (SEL[o.id] ? ' checked' : '') + ' aria-label="Select ' + esc(o.name) + '">' +
+      '<div><div class="who">' + esc(o.name) + ' \u00B7 ' + esc(o.customer || '') + '</div>' +
+      '<div class="meta">' + esc(o.address.city) + ' ' + esc(o.address.pin) + ' \u00B7 ' + (o.cod ? '<span class="cod">COD ' + rs(o.collect) + '</span>' : '<span class="pre">Prepaid ' + rs(o.total) + '</span>') + ' \u00B7 ' + ago(o.at) + '</div>' +
+      '<div class="meta">' + esc(o.items.map(function (i) { return i.title + (i.quantity > 1 ? ' \u00D7' + i.quantity : ''); }).join(', ')) + '</div>' +
+      (sh && sh.awb ? '<div class="meta" style="color:var(--go);font-weight:700">' + esc(sh.courier) + ' \u00B7 AWB ' + esc(sh.awb) + '</div>' : sh && sh.error ? '<div class="meta" style="color:var(--bad)">' + esc(sh.error) + '</div>' : '') +
+      '<div class="msg" data-res="' + o.id + '"></div></div>' +
+      '<div class="act">' + (sh && sh.awb ? (sh.label_url ? '<a class="btn ghost sm" href="' + esc(sh.label_url) + '" target="_blank" rel="noopener">Label</a>' : '') + '<span class="badge b-go">Shipped</span>' : '<button class="btn ghost sm" data-rates="' + o.id + '">Couriers</button><button class="btn sm" data-ship="' + o.id + '">Ship</button>') + '</div>' +
+      '<div class="rates" data-rt="' + o.id + '" hidden></div></div>';
+  }).join('') : '<p class="empty">' + (d.ready ? 'No unshipped orders. Nice.' : 'Connect a shipping account above to start shipping.') + '</p>';
+  document.getElementById('shippedList').innerHTML = d.shipped.length ? d.shipped.map(function (r) {
+    return '<div class="li"><div><div class="who">' + esc(r.order_name) + ' \u00B7 ' + esc(r.courier) + '</div><div class="meta">AWB ' + esc(r.awb) + ' \u00B7 ' + (r.cod ? 'COD ' + rs(r.collect) : 'Prepaid') + ' \u00B7 ' + ago(r.at) + (r.fulfilled ? '' : ' \u00B7 <b style="color:var(--risk)">not marked fulfilled in Shopify</b>') + '</div></div>' +
+      '<div class="act">' + (r.label_url ? '<a class="btn ghost sm" href="' + esc(r.label_url) + '" target="_blank" rel="noopener">Label</a>' : '') + (r.track ? '<a class="btn ghost sm" href="' + esc(r.track) + '" target="_blank" rel="noopener">Track</a>' : '') +
+      '<button class="btn sm ' + (r.packed ? 'ghost' : '') + '" data-pack="' + r.order_id + '" data-on="' + (r.packed ? '0' : '1') + '">' + (r.packed ? 'Packed \u2713' : 'Mark packed') + '</button></div></div>';
+  }).join('') : '<p class="empty">Shipped orders show here with their label and tracking.</p>';
+  selMsg();
+}
+function selIds() { return Object.keys(SEL).filter(function (k) { return SEL[k]; }); }
+function selMsg() {
+  var ids = selIds(), m = document.getElementById('selMsg');
+  m.textContent = ids.length ? ids.length + ' selected' : 'Select orders to ship';
+  ['bShip', 'bLabels', 'bPacked'].forEach(function (b) { document.getElementById(b).disabled = !ids.length; });
+}
+function shipOne(id, courier) {
+  var res = document.querySelector('[data-res="' + id + '"]'); if (res) res.textContent = 'Booking…';
+  return api('/api/cw/ship_book', { order_id: id, courier_id: courier || '' }).then(function (r) {
+    var o = SHIP.orders.filter(function (x) { return x.id === id; })[0];
+    if (r.ok) { if (o) o.shipment = { awb: r.shipment.awb, courier: r.shipment.courier, label_url: r.shipment.label_url, status: 'booked' }; }
+    else if (o) o.shipment = { error: r.error };
+    return r;
+  });
+}
+document.getElementById('shipList').addEventListener('click', function (e) {
+  var c = e.target.closest('[data-sel]'); if (c) { SEL[c.getAttribute('data-sel')] = c.checked; selMsg(); return; }
+  var s1 = e.target.closest('[data-ship]'); if (s1) { s1.disabled = true; shipOne(s1.getAttribute('data-ship')).then(function (r) { paintShip(); toast(r.ok ? 'Shipped with ' + r.shipment.courier : r.error, !r.ok); }); return; }
+  var rb = e.target.closest('[data-rates]');
+  if (rb) {
+    var id = rb.getAttribute('data-rates'), box = document.querySelector('[data-rt="' + id + '"]');
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false; box.innerHTML = '<div class="rt"><span class="meta">Checking couriers…</span></div>';
+    api('/api/cw/ship_rates', { order_id: id }).then(function (d) {
+      if (!d.ok) { box.innerHTML = '<div class="rt"><span class="meta">' + esc(d.error) + '</span></div>'; return; }
+      if (!d.rates.length) { box.innerHTML = '<div class="rt"><span class="meta">No courier delivers to this PIN code.</span></div>'; return; }
+      box.innerHTML = '<div class="rt" style="background:#f6f7fd"><span class="meta"><b>Suggested:</b> ' + esc(d.why) + '</span><span class="sc">Returns</span><span class="sc sc2">Delivery</span><span></span></div>' + d.rates.map(function (r) {
+        var st = function (v) { return v == null ? '\u2013' : v.toFixed(1) + '/5'; };
+        return '<div class="rt' + (r.id === d.pick ? ' is-pick' : '') + '"><span><b>' + esc(r.courier) + '</b><br><span class="sc">\u20B9' + Math.round(r.charge) + (r.days ? ' \u00B7 ' + r.days + ' days' : '') + '</span></span><span class="sc">' + st(r.rto) + '</span><span class="sc sc2">' + st(r.delivery) + '</span><button class="btn sm' + (r.id === d.pick ? '' : ' ghost') + '" data-ship-with="' + esc(r.id) + '" data-for="' + id + '">Ship</button></div>';
+      }).join('');
+    });
+    return;
+  }
+  var sw = e.target.closest('[data-ship-with]'); if (sw) { sw.disabled = true; shipOne(sw.getAttribute('data-for'), sw.getAttribute('data-ship-with')).then(function (r) { paintShip(); toast(r.ok ? 'Shipped with ' + r.shipment.courier : r.error, !r.ok); }); }
+});
+document.getElementById('shippedList').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-pack]'); if (!b) return;
+  var on = b.getAttribute('data-on') === '1', id = b.getAttribute('data-pack');
+  api('/api/cw/ship_pack', { order_ids: [id], packed: on }).then(function () { SHIP.shipped.forEach(function (r) { if (r.order_id === id) r.packed = on; }); paintShip(); });
+});
+document.getElementById('selAll').addEventListener('change', function () { var on = this.checked; SHIP.orders.forEach(function (o) { SEL[o.id] = on && !(o.shipment && o.shipment.awb); }); paintShip(); });
+document.getElementById('shipRefresh').addEventListener('click', loadShip);
+document.getElementById('bShip').addEventListener('click', function () {
+  var ids = selIds().filter(function (id) { var o = SHIP.orders.filter(function (x) { return x.id === id; })[0]; return o && !(o.shipment && o.shipment.awb); });
+  if (!ids.length) return toast('Those orders are already shipped');
+  var b = this, done = 0, bad = 0; b.disabled = true;
+  (function next(i) {
+    if (i >= ids.length) { b.disabled = false; SEL = {}; paintShip(); document.getElementById('selMsg').textContent = done + ' shipped' + (bad ? ', ' + bad + ' failed (see the red notes)' : ''); return; }
+    document.getElementById('selMsg').textContent = 'Shipping ' + (i + 1) + ' of ' + ids.length + '…';
+    shipOne(ids[i]).then(function (r) { if (r.ok) done++; else bad++; next(i + 1); });
+  })(0);
+});
+document.getElementById('bLabels').addEventListener('click', function () {
+  api('/api/cw/ship_labels', { order_ids: selIds() }).then(function (d) {
+    if (!d.ok || !d.labels.length) return toast(d.error || 'No labels yet: ship the orders first', true);
+    d.labels.forEach(function (l) { window.open(l.url, '_blank'); });
+  });
+});
+document.getElementById('bPacked').addEventListener('click', function () {
+  var ids = selIds(); api('/api/cw/ship_pack', { order_ids: ids, packed: true }).then(function () { toast(ids.length + ' marked packed'); SEL = {}; loadShip(); });
 });
 
 if (DEMO) document.getElementById('demoNote').style.display = 'block';

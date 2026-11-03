@@ -8,6 +8,8 @@
  *   POST /api/cw/otp              WhatsApp code for cash on delivery (seller's own WhatsApp number)
  *   POST /api/cw/order            COD -> Shopify order now; online / partial -> Razorpay order to pay
  *   POST /api/cw/paid             Razorpay success -> signature check -> Shopify order (paid / partly paid)
+ *   POST /api/cw/payu_return      PayU sends the buyer back here (success or failure): hash + status check -> Shopify
+ *                                 order -> back to the store (?cw_done=<order> or ?cw_fail=1)
  *   GET  /api/cw/restore?shop=&sid=  the saved cart and details behind a WhatsApp follow-up link
  * shop "demo.codwing.com" is the public demo (app.codwing.com/demo): prices come from the page, nothing is stored.
  */
@@ -15,6 +17,7 @@ import crypto from 'node:crypto';
 import { unseal, adminGraphql, shopFromUrl } from './shopify.js';
 import { quote, charge, onlineReady, waReady, stepNo } from './pricing.js';
 import { cleanPhone, stateCode } from '../util.js';
+import { buildPayuForm, verifyResponse as payuVerify, verifyPayment as payuStatus } from '../payu.js';
 
 export const DEMO = 'demo.codwing.com';
 export const STORE_DDL = [
@@ -54,11 +57,13 @@ export function forget(shop) { cache.delete(shop); }
 
 export function demoSeller() {
   return { shop: DEMO, demo: true, domain: 'https://app.codwing.com/demo', name: 'Your Store',
-    settings: { gateway: 'razorpay', razorpay_key_id: 'rzp_test_demo', cod_on: true, cod_otp: true, prepaid_discount: 50, cod_fee: 29, partial_advance: 0, partial_states: '', cod_max: 0, brand_color: '#111111', sheet_on: true, open_on_add: true, wa_phone_id: 'demo' },
+    settings: { gateway: 'razorpay', razorpay_key_id: 'rzp_test_demo', cod_on: true, cod_otp: true, prepaid_discount: 50, cod_fee: 29, partial_advance: 0, partial_states: '', cod_max: 0, brand_color: '#111111', sheet_on: true, open_on_add: false, wa_phone_id: 'demo' },
     set: { razorpay_key_secret: true, wa_token: true }, secrets: {} };
 }
 
 async function body(req) { try { return JSON.parse(await req.text()); } catch { return {}; } }
+const payuEnv = (sel) => ({ PAYU_KEY: sel.settings.payu_key, PAYU_SALT: sel.secrets.payu_salt, PAYU_ENV: sel.settings.payu_test ? 'test' : '' });
+const back = (url) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Returning to the store</title><meta http-equiv="refresh" content="0;url=${url.replace(/"/g, '&quot;')}"><p style="font:16px system-ui;padding:24px">Returning to the store… <a href="${url.replace(/"/g, '&quot;')}">Continue</a></p>`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 
 /** Real prices for the cart lines. Sold-out lines are returned separately so the rest can still be ordered. */
 async function priceLines(sel, lines) {
@@ -83,7 +88,7 @@ async function priceLines(sel, lines) {
 export function publicCfg(sel) {
   const s = sel.settings;
   return {
-    ok: true, on: s.sheet_on !== false, open_on_add: s.open_on_add !== false, color: s.brand_color || '#111111', name: sel.name,
+    ok: true, on: s.sheet_on !== false, open_on_add: s.open_on_add === true, color: s.brand_color || '#111111', name: sel.name,
     online: onlineReady(s, sel.set), otp: !!s.cod_otp && waReady(s, sel.set), cod: s.cod_on !== false,
     prepaid_discount: s.prepaid_discount || 0, cod_fee: s.cod_fee || 0, support_phone: s.support_phone || '',
   };
@@ -136,7 +141,7 @@ export function rzpSignatureOk(orderId, paymentId, signature, secret) {
 }
 
 /** The Shopify order: lines at their real prices, the prepaid discount as a code, the COD fee as a shipping line. */
-export function orderInput({ items, buyer, method, c, payment, src }) {
+export function orderInput({ items, buyer, method, c, payment, src, gateway = 'Razorpay' }) {
   const addr = { firstName: buyer.first, lastName: buyer.last || '', address1: buyer.address1, address2: buyer.address2 || '', city: buyer.city, provinceCode: stateCode(buyer.state) || undefined, zip: buyer.pincode, countryCode: 'IN', phone: '+91' + buyer.phone };
   const o = {
     lineItems: items.map((l) => ({ variantId: l.gid, quantity: l.quantity, priceSet: money(l.price) })),
@@ -147,7 +152,7 @@ export function orderInput({ items, buyer, method, c, payment, src }) {
     financialStatus: method === 'online' ? 'PAID' : method === 'partial' ? 'PARTIALLY_PAID' : 'PENDING',
   };
   if (c.discount > 0) o.discountCode = { itemFixedDiscountCode: { code: 'PREPAID', amountSet: money(c.discount) } };
-  if (payment) o.transactions = [{ kind: 'SALE', status: 'SUCCESS', gateway: 'Razorpay', authorizationCode: payment, amountSet: money(c.now) }];
+  if (payment) o.transactions = [{ kind: 'SALE', status: 'SUCCESS', gateway, authorizationCode: payment, amountSet: money(c.now) }];
   return o;
 }
 
@@ -176,8 +181,10 @@ export async function handleStore(req, env, path, ctx) {
   const url = new URL(req.url);
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...CORS, 'Access-Control-Max-Age': '86400' } });
   const name = path.slice('/api/cw/'.length);
-  const b = req.method === 'POST' ? await body(req) : {};
-  const shopIn = req.method === 'POST' ? b.shop : url.searchParams.get('shop');
+  const isPayu = name === 'payu_return';
+  const form = isPayu ? await req.formData().catch(() => null) : null;
+  const b = req.method === 'POST' && !isPayu ? await body(req) : {};
+  const shopIn = req.method === 'POST' && !isPayu ? b.shop : url.searchParams.get('shop');
   const sel = shopIn === DEMO ? demoSeller() : await seller(env, shopIn, ctx);
 
   if (name === 'pin') {
@@ -295,11 +302,52 @@ export async function handleStore(req, env, path, ctx) {
         return sj({ ok: false, error: 'We could not place the order. Please try again.' });
       }
     }
+    if (s.gateway === 'payu') {
+      const t0 = now();
+      const ins = await env.DB.prepare('INSERT INTO cw_orders (shop, sid, method, status, total, paid, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?) RETURNING id')
+        .bind(sel.shop, sid, method, 'awaiting_payment', c.total, JSON.stringify(payload), t0, t0).first();
+      const txnid = 'CW' + ins.id + 'T' + t0.toString(36).toUpperCase();
+      await env.DB.prepare('UPDATE cw_orders SET rzp_order = ? WHERE id = ?').bind(txnid, ins.id).run();
+      const ret = `${ctx.origin}/api/cw/payu_return?shop=${encodeURIComponent(sel.shop)}`;
+      const pf = await buildPayuForm(payuEnv(sel), { txnid, amount: rupees(c.now), productinfo: 'Order from ' + sel.name.slice(0, 60), firstname: buyer.first, email: buyer.email || `${buyer.phone}@buyer.codwing.com`, phone: buyer.phone, surl: ret, furl: ret, udf1: sel.shop });
+      return sj({ ok: true, pay: { payu: pf, amount: c.now } });
+    }
     const ro = await rzp(sel, '/orders', { amount: c.now, currency: 'INR', receipt: 'cw' + t, notes: { shop: sel.shop, phone: buyer.phone } }).catch((e) => ({ error: e.message }));
     if (ro.error) { console.error('cw rzp', sel.shop, ro.error); return sj({ ok: false, error: 'Online payment is not available right now. Try cash on delivery.' }); }
     await env.DB.prepare('INSERT INTO cw_orders (shop, sid, method, status, total, paid, rzp_order, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)')
       .bind(sel.shop, sid, method, 'awaiting_payment', c.total, ro.id, JSON.stringify(payload), t, t).run();
     return sj({ ok: true, pay: { key: s.razorpay_key_id, order_id: ro.id, amount: c.now, name: sel.name, prefill: { name: (buyer.first + ' ' + buyer.last).trim(), contact: '+91' + buyer.phone, email: buyer.email || undefined } } });
+  }
+
+  if (isPayu) {
+    const store = (sel.domain || 'https://' + sel.shop).replace(/\/$/, '');
+    const r = form ? await payuVerify(payuEnv(sel), form) : null;
+    if (!r) return back(`${store}/?cw_fail=1`);
+    const row = await env.DB.prepare('SELECT * FROM cw_orders WHERE shop = ? AND rzp_order = ?').bind(sel.shop, String(r.txnid)).first();
+    if (!row) return back(`${store}/?cw_fail=1`);
+    if (row.order_name) return back(`${store}/?cw_done=${encodeURIComponent(row.order_name)}`);
+    const p = JSON.parse(row.payload);
+    const st = String(r.status || '').toLowerCase();
+    /* the browser can replay an old success form, so ask PayU itself before making the order */
+    const v = st === 'success' ? await payuStatus(payuEnv(sel), String(r.txnid)).catch(() => null) : null;
+    const amountOk = v && Math.round(Number(v.amount) * 100) === p.c.now;
+    if (!v || v.status !== 'success' || !amountOk) {
+      await env.DB.prepare('UPDATE cw_orders SET status = ?, error = ?, updated_at = ? WHERE id = ?').bind('payment_failed', String(r.error_Message || r.field9 || st).slice(0, 300), now(), row.id).run();
+      return back(`${store}/?cw_fail=1`);
+    }
+    const pid = String(r.mihpayid || r.txnid);
+    try {
+      const o = await createOrder(sel, orderInput({ ...p, payment: pid, gateway: 'PayU' }), p.buyer);
+      await env.DB.prepare('UPDATE cw_orders SET status = ?, paid = ?, rzp_payment = ?, order_id = ?, order_name = ?, updated_at = ? WHERE id = ?')
+        .bind('placed', p.c.now, pid, o.id, o.name, now(), row.id).run();
+      await markSession(env, sel.shop, row.sid, { step: 7, order_name: o.name });
+      return back(`${store}/?cw_done=${encodeURIComponent(o.name)}`);
+    } catch (e) {
+      await env.DB.prepare('UPDATE cw_orders SET status = ?, paid = ?, rzp_payment = ?, error = ?, updated_at = ? WHERE id = ?')
+        .bind('paid_no_order', p.c.now, pid, String(e.message).slice(0, 500), now(), row.id).run();
+      console.error('cw payu order', sel.shop, e.message);
+      return back(`${store}/?cw_done=paid`);
+    }
   }
 
   if (name === 'paid') {

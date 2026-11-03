@@ -107,3 +107,30 @@ test('public config never exposes secrets', () => {
   assert.equal(c.online, true); assert.equal(c.otp, true);
   assert.ok(!JSON.stringify(c).includes('rzp_live_1'));
 });
+
+import { pickCourier, parcelOf, shipReady, shapeOrder } from './ship.js';
+import { onlineReady } from './pricing.js';
+
+test('courier pick: fewer returns for COD within the extra limit, cheapest otherwise', () => {
+  const R = [{ id: 'x', courier: 'X', charge: 54, rto: 2.8, delivery: 3.9, days: 4 }, { id: 'd', courier: 'D', charge: 61, rto: 4.3, delivery: 4.4, days: 4 }, { id: 'b', courier: 'B', charge: 118, rto: 4.9, delivery: 4.8, days: 2 }];
+  assert.equal(pickCourier(R, { cod: true, rule: 'rto', maxExtra: 15 }).pick.id, 'd');
+  assert.match(pickCourier(R, { cod: true, rule: 'rto', maxExtra: 15 }).why, /Fewer returns.*₹7 more/);
+  assert.equal(pickCourier(R, { cod: true, rule: 'rto', maxExtra: 5 }).pick.id, 'x', 'too expensive');
+  assert.equal(pickCourier(R, { cod: false, rule: 'cheapest' }).pick.id, 'x');
+  assert.equal(pickCourier(R, { rule: 'fastest' }).pick.id, 'b');
+  assert.equal(pickCourier(R.map((r) => ({ ...r, rto: null })), { cod: true }).pick.id, 'x', 'no scores: cheapest');
+  assert.equal(pickCourier([{ id: 'n', charge: 40, ok: false }], {}).pick, null);
+});
+test('parcel and shipping readiness', () => {
+  assert.deepEqual(parcelOf({ pkg_weight_g: 300, pkg_extra_g: 50 }, [{ quantity: 3 }]), { weight_g: 400, weight_kg: 0.4, length: 20, breadth: 15, height: 5 });
+  assert.equal(shipReady({ ship_provider: 'shiprocket', sr_email: 'a@b.c', sr_pickup: 'Home' }, { sr_password: true }), true);
+  assert.equal(shipReady({ ship_provider: 'shiprocket', sr_email: 'a@b.c' }, { sr_password: true }), false, 'needs a pickup');
+  assert.equal(shipReady({ ship_provider: 'shipprime', pickup_pin: '400001', pickup_address1: 'x', pickup_phone: '+91 98765 43210' }, { sp_token: true }), true);
+  assert.equal(onlineReady({ gateway: 'payu', payu_key: 'k' }, { payu_salt: true }), true);
+  assert.equal(onlineReady({ gateway: 'payu', payu_key: 'k' }, {}), false);
+});
+test('Shopify order -> COD amount to collect', () => {
+  const o = shapeOrder({ id: 'gid://shopify/Order/55', name: '#1001', createdAt: '2026-11-03T10:00:00Z', totalPriceSet: { shopMoney: { amount: '828.00' } }, totalOutstandingSet: { shopMoney: { amount: '729.00' } },
+    shippingAddress: { firstName: 'A', lastName: 'B', address1: 'x', city: 'Jaipur', province: 'Rajasthan', provinceCode: 'RJ', zip: '302 001', phone: '+919876543210' }, lineItems: { nodes: [{ title: 'Tee', quantity: 1, originalUnitPriceSet: { shopMoney: { amount: '799.00' } } }] } });
+  assert.equal(o.id, '55'); assert.equal(o.cod, true); assert.equal(o.collect, 72900); assert.equal(o.address.pin, '302001'); assert.equal(o.phone, '9876543210');
+});

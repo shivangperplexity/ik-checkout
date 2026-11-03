@@ -9,13 +9,15 @@
  */
 import { cwCfg, verifySessionToken, exchangeToken, verifyWebhook, seal, unseal, shopFromUrl, adminGraphql } from './shopify.js';
 import { PAGE } from './page.js';
-import { STORE_DDL, handleStore, forget, sj, DEMO } from './store.js';
+import { STORE_DDL, handleStore, forget, sj, DEMO, seller } from './store.js';
+import { SHIP_DDL, unshippedOrders, ratesFor, pickCourier, book, labels, srPickups, shipReady, trackUrl } from './ship.js';
 import { followUpText, STEPS, onlineReady, waReady } from './pricing.js';
 
 const DDL = [
   `CREATE TABLE IF NOT EXISTS cw_shops (shop TEXT PRIMARY KEY, token_box TEXT, scopes TEXT, installed_at BIGINT, uninstalled_at BIGINT, settings TEXT, secrets_box TEXT, updated_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS cw_events (id SERIAL PRIMARY KEY, shop TEXT, topic TEXT, at BIGINT, body TEXT)`,
   ...STORE_DDL,
+  ...SHIP_DDL,
 ];
 let ddlDone;
 async function ready(env) {
@@ -30,7 +32,7 @@ const json = (o, status = 200, h = {}) => new Response(JSON.stringify(o), { stat
 export const FIELDS = {
   gateway: { type: 'enum', values: ['none', 'razorpay', 'payu'], def: 'none' },
   razorpay_key_id: { type: 'text' }, razorpay_key_secret: { type: 'secret' },
-  payu_key: { type: 'text' }, payu_salt: { type: 'secret' },
+  payu_key: { type: 'text' }, payu_salt: { type: 'secret' }, payu_test: { type: 'bool', def: false },
   wa_phone_id: { type: 'text' }, wa_waba_id: { type: 'text' }, wa_token: { type: 'secret' },
   pixel_id: { type: 'text' }, capi_token: { type: 'secret' },
   cod_on: { type: 'bool', def: true },
@@ -41,10 +43,17 @@ export const FIELDS = {
   cod_max: { type: 'int', min: 0, max: 100000, def: 0 },
   cod_fee: { type: 'int', min: 0, max: 500, def: 0 },
   sheet_on: { type: 'bool', def: true },
-  open_on_add: { type: 'bool', def: true },
+  open_on_add: { type: 'bool', def: false },
   brand_color: { type: 'text', def: '#111111' },
   wa_otp_template: { type: 'text', def: 'codwing_otp' },
   support_email: { type: 'text' }, support_phone: { type: 'text' },
+  ship_provider: { type: 'enum', values: ['none', 'shiprocket', 'shipprime'], def: 'none' },
+  sr_email: { type: 'text' }, sr_password: { type: 'secret' }, sr_pickup: { type: 'text' }, sp_token: { type: 'secret' },
+  pickup_phone: { type: 'text' }, pickup_address1: { type: 'text' }, pickup_address2: { type: 'text' }, pickup_city: { type: 'text' }, pickup_state: { type: 'text' }, pickup_pin: { type: 'text' },
+  pkg_weight_g: { type: 'int', min: 10, max: 30000, def: 300 }, pkg_extra_g: { type: 'int', min: 0, max: 5000, def: 0 },
+  pkg_l: { type: 'int', min: 1, max: 200, def: 20 }, pkg_b: { type: 'int', min: 1, max: 200, def: 15 }, pkg_h: { type: 'int', min: 1, max: 200, def: 5 },
+  ship_rule: { type: 'enum', values: ['rto', 'cheapest', 'fastest'], def: 'rto' },
+  ship_max_extra: { type: 'int', min: 0, max: 500, def: 15 },
 };
 
 /** Pure: clean a posted settings object. Returns { settings, secrets } with only known fields. */
@@ -99,10 +108,10 @@ function view(row, cfg) {
   let secrets = {}; try { secrets = row.secrets_box ? JSON.parse(unseal(row.secrets_box, cfg.secret)) : {}; } catch { /* key rotated: treat as unset */ }
   const set = {}; for (const [k, f] of Object.entries(FIELDS)) if (f.type === 'secret') set[k] = !!secrets[k];
   return { shop: row.shop, name: row.name || row.shop, domain: row.domain || 'https://' + row.shop, installed_at: row.installed_at, scopes: row.scopes, settings, secrets_set: set,
-    ready: { online: onlineReady(settings, set), whatsapp: waReady(settings, set), pixel: !!settings.pixel_id, cod: settings.cod_on !== false } };
+    ready: { online: onlineReady(settings, set), whatsapp: waReady(settings, set), pixel: !!settings.pixel_id, cod: settings.cod_on !== false, shipping: shipReady(settings, set) } };
 }
 
-const STORE_ROUTES = new Set(['cfg', 'track', 'pin', 'quote', 'otp', 'order', 'paid', 'restore']);
+const STORE_ROUTES = new Set(['cfg', 'track', 'pin', 'quote', 'otp', 'order', 'paid', 'restore', 'payu_return']);
 const SF_URL = 'https://app.codwing.com/sf.js';
 
 export const OTP_TEMPLATE_BODY = (name) => ({
@@ -158,11 +167,11 @@ export async function handleCw(req, env) {
     } });
   }
   if (STORE_ROUTES.has(name)) {
-    const isDemo = req.method === 'GET' ? url.searchParams.get('shop') === DEMO : true;
+    const isDemo = req.method === 'GET' || name === 'payu_return' ? url.searchParams.get('shop') === DEMO : true;
     if ((!cfg.secret || !env.DB) && !(isDemo || name === 'pin')) return sj({ ok: false, error: 'not configured' }, 503);
     try {
       if (env.DB && cfg.secret) await ready(env);
-      return await handleStore(req, env, path, { secret: cfg.secret, view: (row) => view(row, cfg) });
+      return await handleStore(req, env, path, { secret: cfg.secret, view: (row) => view(row, cfg), origin: url.host.endsWith('codwing.com') ? url.origin : 'https://app.codwing.com' });
     } catch (e) { console.error('cw store', name, e.message); return sj({ ok: false, error: 'Something went wrong. Please try again.' }, 500); }
   }
   if (path === '/api/cw/webhooks' && req.method === 'POST') {
@@ -226,6 +235,46 @@ export async function handleCw(req, env) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) return json({ ok: false, error: /already exists|duplicate/i.test(j.error?.message || '') ? 'The code template already exists in your WhatsApp account.' : 'WhatsApp said: ' + (j.error?.error_user_msg || j.error?.message || 'error ' + r.status) });
       return json({ ok: true, status: j.status || 'PENDING' });
+    }
+    if (name.startsWith('ship_')) {
+      const a = await authed(req, env);
+      const sel = await seller(env, a.shop, { secret: a.cfg.secret, view: (row) => view(row, a.cfg), fresh: true });
+      const b = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
+      try {
+        if (name === 'ship_pickups') return json({ ok: true, pickups: await srPickups(sel) });
+        if (name === 'ship_list') {
+          const ready = shipReady(sel.settings, sel.set);
+          const orders = await unshippedOrders(sel).catch((e) => { throw new Error('Could not read orders from Shopify: ' + e.message); });
+          const recs = (await env.DB.prepare('SELECT * FROM cw_shipments WHERE shop = ? ORDER BY updated_at DESC LIMIT 200').bind(a.shop).all()).results;
+          const byId = Object.fromEntries(recs.map((r) => [String(r.order_id), r]));
+          const pub = (r) => r && { awb: r.awb, courier: r.courier, charge: Number(r.charge), label_url: r.label_url, status: r.status, packed: !!r.packed_at, fulfilled: !!r.fulfilled, track: trackUrl(r), error: r.error || '' };
+          return json({ ok: true, ready, provider: sel.settings.ship_provider, rule: sel.settings.ship_rule || 'rto',
+            orders: orders.map((o) => ({ ...o, gid: undefined, shipment: pub(byId[o.id]) })),
+            shipped: recs.filter((r) => r.awb).slice(0, 60).map((r) => ({ order_id: r.order_id, order_name: r.order_name, cod: Number(r.cod_amount) > 0, collect: Number(r.cod_amount), at: Number(r.created_at), ...pub(r) })) });
+        }
+        if (name === 'ship_rates') {
+          const all = await unshippedOrders(sel);
+          const o = all.find((x) => x.id === String(b.order_id));
+          if (!o) return json({ ok: false, error: 'Order not found or already shipped' });
+          const { parcel, rates } = await ratesFor(sel, o);
+          const p = pickCourier(rates, { cod: o.cod, rule: sel.settings.ship_rule || 'rto', maxExtra: Number(sel.settings.ship_max_extra ?? 15) });
+          return json({ ok: true, parcel, rates: rates.sort((x, y) => x.charge - y.charge), pick: p.pick?.id || null, why: p.why });
+        }
+        if (name === 'ship_book') {
+          if (!shipReady(sel.settings, sel.set)) return json({ ok: false, error: 'Connect Shiprocket or ShipPrime first.' });
+          const r = await book(env, sel, String(b.order_id || ''), { courierId: b.courier_id || '' });
+          return json({ ok: true, ...r });
+        }
+        if (name === 'ship_labels') return json({ ok: true, labels: await labels(env, sel, (b.order_ids || []).slice(0, 100)) });
+        if (name === 'ship_pack') {
+          for (const id of (b.order_ids || []).slice(0, 200)) await env.DB.prepare('UPDATE cw_shipments SET packed_at = ?, updated_at = ? WHERE shop = ? AND order_id = ?').bind(b.packed === false ? null : now(), now(), a.shop, String(id)).run();
+          return json({ ok: true });
+        }
+      } catch (e) {
+        console.warn('cw ship', name, a.shop, e.message);
+        if (name === 'ship_book' && b.order_id) await env.DB.prepare('UPDATE cw_shipments SET error = ?, updated_at = ? WHERE shop = ? AND order_id = ?').bind(String(e.message).slice(0, 300), now(), a.shop, String(b.order_id)).run().catch(() => {});
+        return json({ ok: false, error: String(e.message || e).slice(0, 300) });
+      }
     }
     if (path === '/api/cw/settings' && req.method === 'POST') {
       const a = await authed(req, env);

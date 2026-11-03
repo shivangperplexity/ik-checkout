@@ -88,7 +88,7 @@
       getCart().then(function (c) {
         if (c.item_count > 0) tk('cart', { cart: cartLite(c) });
         if (root && isOpen()) render();
-        else if (added && CFG && CFG.on && CFG.open_on_add) openSheet('cart');
+        else if (added && CFG && CFG.on) { if (CFG.open_on_add) openSheet('cart'); else bump(); }
       }).catch(function () {});
     }, 120);
   }
@@ -201,6 +201,20 @@
     pill.hidden = !n || isOpen() || /\/(cart|checkouts?)(\/|$)/.test(location.pathname);
     pill.innerHTML = ICON.bag + '<span>View cart</span><i>' + n + '</i><span class="cwx-pill__go">' + (CART ? money(CART.total_price) : '') + ICON.arrow + '</span>';
     pill.setAttribute('aria-label', 'View cart, ' + n + ' item' + (n === 1 ? '' : 's'));
+  }
+
+  /* "Added" feedback without opening anything: the pill bounces and says so, the button says so for a moment */
+  var bumpT = null;
+  function bump(btn) {
+    paintPill();
+    if (pill && !pill.hidden) {
+      pill.classList.remove('is-bump'); void pill.offsetWidth; pill.classList.add('is-bump');
+      var lab = $('span', pill); if (lab) { lab.textContent = 'Added \u2713 View cart'; clearTimeout(bumpT); bumpT = setTimeout(paintPill, 1800); }
+    }
+    if (btn && btn.tagName === 'BUTTON' && !btn.__cwTxt) {
+      btn.__cwTxt = btn.innerHTML; btn.innerHTML = 'Added \u2713';
+      setTimeout(function () { btn.innerHTML = btn.__cwTxt; btn.__cwTxt = null; }, 1500);
+    }
   }
 
   /* ---------- sheet ---------- */
@@ -509,6 +523,13 @@
   }
   function loadScript(src) { return new Promise(function (ok, bad) { if ($('script[src="' + src + '"]')) return ok(); var s = el('script', { src: src }); s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
   function pay(p, d, sl) {
+    if (p.payu) {
+      busyOverlay('Opening PayU\u2026');
+      var pf = el('form', { method: 'POST', action: p.payu.action });
+      Object.keys(p.payu.fields).forEach(function (k) { var i = el('input', { type: 'hidden', name: k }); i.value = p.payu.fields[k]; pf.appendChild(i); });
+      document.body.appendChild(pf); HTMLFormElement.prototype.submit.call(pf);
+      return;
+    }
     if (p.demo) { busyOverlay('Demo: payment successful…'); setTimeout(function () { api('paid', {}).then(function (j) { finish(j.order, d); }); }, 900); return; }
     loadScript('https://checkout.razorpay.com/v1/checkout.js').then(function () {
       hideOverlay();
@@ -578,14 +599,17 @@
       if (!CFG || !CFG.on) return;
       var f = e.target; if (!f || !f.action || f.closest('.cwx-root')) return;
       if (/\/cart\/?$/.test(f.action) && e.submitter && e.submitter.name === 'checkout') { e.preventDefault(); e.stopImmediatePropagation(); openSheet('checkout', e.submitter); return; }
-      if (!CFG.open_on_add || !/\/cart\/add/.test(f.action)) return;
+      if (!/\/cart\/add/.test(f.action)) return;
       e.preventDefault(); e.stopImmediatePropagation();
       var fd = new FormData(f); if (!fd.get('quantity')) fd.set('quantity', '1');
       var btn = e.submitter || $('[type="submit"]', f); if (btn) btn.setAttribute('aria-busy', 'true');
       nativeFetch(R + 'cart/add.js', { method: 'POST', body: fd, headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (r) {
         if (btn) btn.removeAttribute('aria-busy');
         if (!r.ok) return r.json().then(function (j) { alert(j.description || 'This item could not be added.'); });
-        return getCart().then(function (c) { tk('cart', { cart: cartLite(c) }); openSheet('cart', btn); if (pill) { pill.classList.remove('is-bump'); void pill.offsetWidth; pill.classList.add('is-bump'); } });
+        return getCart().then(function (c) {
+          tk('cart', { cart: cartLite(c) });
+          if (CFG.open_on_add) openSheet('cart', btn); else bump(btn);
+        });
       }).catch(function () { if (btn) btn.removeAttribute('aria-busy'); HTMLFormElement.prototype.submit.call(f); });
     }, true);
     if (/\/cart\/?$/.test(location.pathname) && qs.get('cw_off') !== '1') getCart().then(function (c) { if (c.item_count) openSheet('cart'); });
@@ -606,6 +630,17 @@
     }).catch(function () {});
   }
 
+  /* Back from PayU: ?cw_done=<order name> shows the thank-you screen; ?cw_fail=1 reopens checkout with the error */
+  function payuBack() {
+    var ok = qs.get('cw_done'), bad = qs.get('cw_fail');
+    if (!ok && !bad) return false;
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    var d = store('cw_buyer') || { first_name: '', phone: '' };
+    if (ok) { method = 'online'; shell(); root.classList.add('is-open'); document.documentElement.style.overflow = 'hidden'; finish(ok === 'paid' ? { name: '' } : { name: ok }, d, ok === 'paid' ? 'Payment received. Your order is being confirmed.' : ''); }
+    else getCart().then(function (c) { if (c.item_count) openSheet('checkout').then(function () { showErr('Payment not finished. Try again, or pick cash on delivery.'); }); });
+    return true;
+  }
+
   /* ---------- start ---------- */
   tk('visit');
   api('cfg').then(function (c) {
@@ -615,7 +650,7 @@
     css(CFG.color || '#111111');
     hookStore();
     getCart().catch(function () {});
-    restore();
+    if (!payuBack()) restore();
   }).catch(function () {});
   window.CodWing = { open: function () { return openSheet('cart'); }, checkout: function () { return openSheet('checkout'); } };
 })();
