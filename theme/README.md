@@ -101,3 +101,8 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
 - `blog_record {handle, topic, angle, audience}` logs a post published via the Shopify connector (body read from /blogs/news.atom); existing handle → updates topic/angle/audience.
 - Writer prompt: link whitelist (collections only), no team members in personal stories, no invented specs/safety/medical claims, no minors. Audience/angle rotate least-used over last 20 posts.
 - 10 posts published 3 Nov via connector (app still lacks write_content; add scope → engine runs 12/day itself).
+
+## Meta quality signals (3 Nov)
+- Delivered server event (dv_<order id>) per delivered parcel → custom conversion "Delivered" (1883860485911181, purchase-type). Switch ad sets to it + value optimisation once ≥50/week.
+- Customer lists refreshed daily by cron: "IK - delivered + prepaid customers" (120252176487760354, seed) and "IK - RTO + cancelled (exclude)" (120252176490570354).
+- Lookalike 1% IN of the seed: 120252176492810354. Both active ad sets (Winning reels - Nov, sales1) target the LAL (Advantage+ expands) and exclude the RTO list; 13 states excluded (Assam, J&K, Tripura, MP, Jharkhand, Telangana, Bihar, Haryana, Arunachal, Manipur, Mizoram, Nagaland, Sikkim).

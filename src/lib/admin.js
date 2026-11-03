@@ -2343,6 +2343,14 @@ export async function runAutomations(env) {
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
   try { const { deliveredSweep } = await import('./meta.js'); const r = await deliveredSweep(env); if (r.sent || r.failed) out.delivered = r; } catch (e) { console.error('delivered event', e); }
+  /* once a day: refresh the Meta seed (delivered + prepaid) and exclusion (RTO + cancelled) customer lists */
+  try {
+    const { claim } = await import('./once.js');
+    if (await claim(env, 'aud:daily', 86400 - 600)) {
+      const A = await import('./meta-ads.js'); const f = await withSettingsFresh(env);
+      out.audiences = { delivered: await A.uploadAudience(f, 'IK - delivered + prepaid customers', await audienceRows(env, 'delivered')), rto: await A.uploadAudience(f, 'IK - RTO + cancelled (exclude)', await audienceRows(env, 'rto')) };
+    }
+  } catch (e) { console.error('audience refresh', e.message); }
   try { const { blogTick } = await import('./blog.js'); const r = await blogTick(env); if (r.published || r.error) out.blog = r; } catch (e) { console.error('blog', e.message); }
   try { const { autoReattempt } = await import('./sp-ndr.js'); const r = await autoReattempt(env); if (r.reopened?.length || r.failed?.length) out.spNdr = r; } catch (e) { console.error('sp ndr', e); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
