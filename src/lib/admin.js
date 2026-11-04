@@ -427,8 +427,8 @@ const ACTIONS = {
     let payu = [];
     if (b.payu) {
       const { verifyPayment } = await import('./payu.js');
-      const pend = await q("SELECT txnid, created_at, phone, status FROM orders WHERE method='prepaid' AND created_at>?::bigint ORDER BY created_at DESC LIMIT 10", since);
-      payu = await Promise.all(pend.map(async (p) => ({ at: t(p.created_at), phone: mask(p.phone), ours: p.status, payu: await verifyPayment(env, p.txnid).then((v) => v || 'not found').catch((e) => 'err ' + e.message) })));
+      const pend = await q(`SELECT txnid, created_at, phone, status FROM orders WHERE (method='prepaid' OR COALESCE(advance_paise,0)>0) AND created_at>?::bigint ${b.payu_days ? "AND status IN ('pending_payment','failed')" : ''} ORDER BY created_at DESC LIMIT 80`, b.payu_days ? now() - Math.min(14, Number(b.payu_days)) * 86400 : since);
+      payu = await Promise.all(pend.map(async (p) => ({ at: new Date((Number(p.created_at) + IST) * 1000).toISOString().slice(5, 16), phone: mask(p.phone), ours: p.status, payu: await verifyPayment(env, p.txnid).then((v) => v || 'not found').catch((e) => 'err ' + e.message) })));
     }
     return { ok: true, hours, prepaid: prepaid.map((r) => ({ day: new Date(Number(r.d) * 86400000).toISOString().slice(0, 10), status: r.status, n: Number(r.n) })), payu,
       sessions: sess.map((x) => ({ sid: String(x.sid).slice(0, 8), phone: mask(x.phone), method: x.method, step: x.step, max: x.max_step, ordered: x.ordered, order: x.order_name, src: x.source, events: (by[x.sid] || []).slice(-25) })),
