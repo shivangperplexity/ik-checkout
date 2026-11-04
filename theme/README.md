@@ -121,6 +121,17 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
 - Parts 2 and 4. A number with store credit sees "Use your ₹50 store credit — enter the OTP" (same code box as COD). `/api/credit/verify` checks the code; verified numbers (cod_otps.verified_at ≤ 30 min) get credit on COD and online, and a COD order then needs no second code (server treats it as OTP-verified: confirmed, cod-otp-verified tag).
 - Credit is never applied to an unverified number (nobody can spend credit by typing someone else's number). COD credit is spent at placement and returned if the order is cancelled / RTO (referralSweep).
 
+## Build 060: UPI → COD in one tap, retry fix (4 Nov 2026)
+
+- PayU's own records for the last week: almost every UPI app attempt ends "Transaction was marked as dropped"; about 2 a
+  day go through. Buyers come back from GPay/PhonePe within seconds and sit on the "Approve in GPay" screen. That screen
+  now has **"UPI not working? Cash on delivery"** (when COD is on and it isn't a partial-COD advance): it stops the UPI
+  wait, selects COD and shows the cart, so they place the order with the usual WhatsApp OTP. Logged as
+  `method {upi_to_cod}`.
+- Build 059's click catcher also took the UPI screens' own "Try again" buttons (`data-ikx-retry`): after a UPI timeout
+  the sheet stayed locked. 059's buttons now use `data-ikx-reload`; `data-ikx-retry` is back to the UPI screens.
+- Retry events are logged with their reason (`fail {error: "retry:quote"}`) instead of an empty `{}`.
+
 ## Build 059: never fall back to Shopify's checkout (Nov 2026)
 Built on Build 057 (MAIN at the time; Build 058 was not published). Parts 1 and 3 only (identical in 057 and 058).
 Orders placed in Shopify's own checkout skip the WhatsApp OTP, the COD fee and tracking (#2039, #2071). When the cart or

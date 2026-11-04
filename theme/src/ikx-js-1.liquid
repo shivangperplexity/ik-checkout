@@ -60,19 +60,21 @@
   function native() { ikRetry('cart'); }
   function ikRetry(why) {
     ikRetryN++;
-    try { tk('fail', { error: 'retry:' + why, n: ikRetryN }); } catch (e) {}
+    try { tk('fail', { data: { error: 'retry:' + why, n: ikRetryN } }); } catch (e) {}
     if (!root) return;
     try { overlay('Loading your price…'); } catch (e) {}
     refresh().then(function () { try { hideOverlay(); } catch (e) {} }, function () {
       try { hideOverlay(); } catch (e) {}
-      try { screen('<h3>Couldn’t load your cart</h3><p>Your connection looks slow. Please try again.</p><button type="button" class="ikx-btn" data-ikx-retry>Try again</button>'); } catch (e) {}
+      try { screen('<h3>Couldn’t load your cart</h3><p>Your connection looks slow. Please try again.</p><button type="button" class="ikx-btn" data-ikx-reload>Try again</button>'); } catch (e) {}
     });
   }
   document.addEventListener('click', function (e) {
     var t = e.target && e.target.closest ? e.target : null; if (!t) return;
-    var b = t.closest('[data-ikx-retry]') || t.closest('.ikx-root a.ikx-btn');
+    /* Build 060: only our own buttons (data-ikx-reload) and old Shopify-checkout links. [data-ikx-retry] belongs to the
+       UPI screens, which reset the payment state themselves (059 caught those too and left the sheet locked). */
+    var b = t.closest('[data-ikx-reload]') || t.closest('.ikx-root a.ikx-btn');
     if (!b) return;
-    if (!b.hasAttribute('data-ikx-retry') && !/\/checkout(\?|#|$)/.test(b.getAttribute('href') || '')) return;
+    if (!b.hasAttribute('data-ikx-reload') && !/\/checkout(\?|#|$)/.test(b.getAttribute('href') || '')) return;
     e.preventDefault(); e.stopPropagation();
     ikRetry('button');
   }, true);
@@ -81,7 +83,7 @@
     new MutationObserver(function () {
       var a = document.querySelector('.ikx-root .ikx-foot a.ikx-btn[href$="/checkout"]');
       if (!a || a.getAttribute('data-ikx-fixed')) return;
-      a.setAttribute('data-ikx-fixed', '1'); a.setAttribute('data-ikx-retry', ''); a.setAttribute('href', '#');
+      a.setAttribute('data-ikx-fixed', '1'); a.setAttribute('data-ikx-reload', ''); a.setAttribute('href', '#');
       a.textContent = 'Loading price… tap to try again';
       if (ikRetryN < 3) { clearTimeout(ikRetryT); ikRetryT = setTimeout(function () { ikRetry('quote'); }, 2000 * Math.pow(2, ikRetryN)); }
     }).observe(document.documentElement, { childList: true, subtree: true });
