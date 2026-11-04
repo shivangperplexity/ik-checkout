@@ -432,7 +432,7 @@ async function sendCta(env, row, q, link, minutes, until = '') {
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j.error?.message || 'HTTP ' + res.status);
-  await logMsg(env, { direction: 'out', phone: row.phone, trigger: 'cod_to_prepaid', template: 'in-chat pay button', status: 'sent', wamid: j.messages?.[0]?.id || '', orderName: row.order_name, preview: body });
+  await logMsg(env, { direction: 'out', phone: row.phone, trigger: 'cod_to_prepaid', template: 'in-chat pay button', status: 'sent', wamid: j.messages?.[0]?.id || '', orderName: row.order_name, preview: `${body}\n\n[ Pay ${inr(q.payable)} now ] button → ${link}` });
   return { ok: true };
 }
 
