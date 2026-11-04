@@ -94,11 +94,17 @@ export async function createDraft(env, { lines, price, method, buyer, tags, attr
   const utm = (attributes || []).filter((x) => /^utm_|^landing$|^fbclid$/.test(x.key)).map((x) => `${x.key}=${x.value}`).join('\n');
   if (utm) input.note = `Attribution\n${utm}`.slice(0, 5000);
   if (discount > 0) input.appliedDiscount = { title: title || 'Discount', description: title, value: Number(rupees(discount)), valueType: 'FIXED_AMOUNT' };
-  const d = await gql(
-    env,
-    `mutation($input:DraftOrderInput!){ draftOrderCreate(input:$input){ draftOrder{ id name totalPriceSet{ shopMoney{ amount } } } userErrors{ field message } } }`,
-    { input },
-  );
+  const q = `mutation($input:DraftOrderInput!){ draftOrderCreate(input:$input){ draftOrder{ id name totalPriceSet{ shopMoney{ amount } } } userErrors{ field message } } }`;
+  let d = await gql(env, q, { input });
+  /* Nov 2026: a typo'd email ("...@gmial.con") made Shopify refuse the whole order ("Email contains an invalid domain
+     name") and the buyer saw "Something went wrong" 13 times. The email is optional: drop it and place the order. */
+  const errs = d?.draftOrderCreate?.userErrors || [];
+  if (input.email && errs.length && errs.every((e) => /email/i.test((e.field || []).join('.') + ' ' + e.message))) {
+    console.warn('draftOrderCreate: email refused, retrying without it', input.email, errs.map((e) => e.message).join('; '));
+    delete input.email;
+    input.note = ((input.note ? input.note + '\n\n' : '') + 'Email given at checkout (refused by Shopify): ' + String(buyer.email).slice(0, 120)).slice(0, 5000);
+    d = await gql(env, q, { input });
+  }
   userErr(d, 'draftOrderCreate');
   const dr = d.draftOrderCreate.draftOrder;
   return { id: dr.id, name: dr.name, total: toPaise(dr.totalPriceSet.shopMoney.amount) };
