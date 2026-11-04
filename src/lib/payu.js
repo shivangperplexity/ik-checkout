@@ -48,5 +48,5 @@ export async function verifyPayment(env, txnid) {
   const j = await res.json().catch(() => null);
   const t = j?.transaction_details?.[txnid];
   if (!t || t.status === 'Not Found') return null;
-  return { status: String(t.status || '').toLowerCase(), amount: String(t.amt ?? t.amount ?? '') };
+  return { status: String(t.status || '').toLowerCase(), amount: String(t.amt ?? t.amount ?? ''), reason: String(t.error_Message || t.field9 || '').slice(0, 160), mode: String(t.mode || t.bankcode || '') };
 }
