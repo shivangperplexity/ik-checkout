@@ -621,6 +621,43 @@ export async function runCron(env0, via = 'vercel') {
   }
   await env.DB.prepare('DELETE FROM leads WHERE updated_at<?').bind(now() - 30 * 86400).run();
   await env.DB.prepare('DELETE FROM rl WHERE hr<?').bind(Math.floor(Date.now() / 3600000) - 24).run();
+  const payu = await payuSweep(env).catch((e) => ({ error: String(e.message || e) }));
   const auto = await runAutomations(env);
-  return { flagged: results.length, ...auto };
+  return { flagged: results.length, payu, ...auto };
+}
+
+/** Build 060 (4 Nov 2026): PayU tells us about a UPI payment only through the shopper's page (the status poll or the
+ * return). A shopper who pays in GPay and never comes back to the browser left a paid attempt with no order. Every
+ * cron run asks PayU about recent unpaid attempts: paid → the order is created as usual; refused for 2 h+ → 'failed'. */
+export async function payuSweep(env, { maxAge = 48 * 3600, minAge = 6 * 60, limit = 25 } = {}) {
+  if (!env.DB || !env.PAYU_KEY) return { skipped: true };
+  const t = now();
+  const rows = (await env.DB.prepare("SELECT * FROM orders WHERE status='pending_payment' AND (method='prepaid' OR COALESCE(advance_paise,0)>0) AND txnid IS NOT NULL AND draft_id IS NOT NULL AND created_at>? AND created_at<? ORDER BY created_at DESC LIMIT ?")
+    .bind(t - maxAge, t - minAge, limit).all()).results;
+  const out = { checked: 0, paid: [], failed: 0 };
+  const later = [];
+  const ctx = { waitUntil: (p) => later.push(Promise.resolve(p).catch((e) => console.error('payu sweep after', e))) };
+  for (const row of rows) {
+    const v = await verifyPayment(env, row.txnid).catch(() => null);
+    out.checked++;
+    if (!v) continue;
+    if (v.status === 'success' && v.amount === rupees(payable(row))) {
+      /* they ordered again after this attempt (often COD after "UPI didn't work"): don't make a second order, flag it */
+      const again = await env.DB.prepare("SELECT order_name FROM orders WHERE phone=? AND created_at>? AND order_name IS NOT NULL AND status NOT IN ('pending_payment','failed','completing','cancelled') LIMIT 1").bind(row.phone, row.created_at).first().catch(() => null);
+      if (again) {
+        await env.DB.prepare("UPDATE orders SET status='paid_needs_attention', partial_reason=COALESCE(partial_reason,'') || ? WHERE txnid=? AND status='pending_payment'").bind(' | paid by UPI, also ordered ' + again.order_name, row.txnid).run();
+        (out.review ||= []).push({ txnid: row.txnid, also: again.order_name, rs: Number(row.total_paise) / 100 });
+        continue;
+      }
+      const req = new Request('https://ik-checkout.vercel.app/api/cron', { headers: { 'x-forwarded-for': row.client_ip || '', 'User-Agent': row.client_ua || '' } });
+      const done = await completePaid(env, ctx, req, row);
+      console.log('payu sweep: paid attempt turned into an order', row.txnid, done.ok ? done.order_name : 'review');
+      if (done.ok) out.paid.push(done.order_name);
+    } else if (['failure', 'failed', 'bounced', 'usercancelled', 'dropped'].includes(v.status) && t - Number(row.created_at) > 2 * 3600) {
+      await env.DB.prepare("UPDATE orders SET status='failed' WHERE txnid=? AND status='pending_payment'").bind(row.txnid).run();
+      out.failed++;
+    }
+  }
+  await Promise.all(later);
+  return out;
 }

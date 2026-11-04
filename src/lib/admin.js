@@ -411,6 +411,19 @@ const ACTIONS = {
     return { ok: true, hours, fail_count: fails.length, by_message: Object.entries(byMsg).sort((a, b2) => b2[1] - a[1]), recent: fails.slice(0, 40).map((f) => ({ at: new Date((Number(f.ts) + IST) * 1000).toISOString().slice(5, 16), data: f.data })), steps: b.steps ? steps : undefined, orders, otps, stuck, partials };
   },
   /* Diagnostics: every checkout session that got past the cart in the last hours, event by event (phones shown as last 4) */
+  /* Paid UPI attempts that never became orders (the cron does the last 48 h; this can look further back) */
+  async payu_sweep(env, b = {}) {
+    const { payuSweep } = await import('./app.js');
+    return { ok: true, ...(await payuSweep(env, { maxAge: Math.min(14, Number(b.days) || 2) * 86400, limit: Math.min(150, Number(b.limit) || 40) })) };
+  },
+  /* What PayU's UPI intent looks like (a ₹1 probe attempt that is never paid): which parameters the UPI app receives */
+  async upi_probe(env) {
+    const { buildPayuForm, upiIntent } = await import('./payu.js');
+    const txnid = 'probe' + Date.now();
+    const payu = await buildPayuForm(env, { txnid, amount: '1.00', productinfo: 'Ink Kulture probe', firstname: 'Probe', email: 'orders@inkkulture.in', phone: '9999999999', surl: `${env.WORKER_URL}/api/payu/return`, furl: `${env.WORKER_URL}/api/payu/return` });
+    try { const u = await upiIntent(env, payu.fields, '', 'Mozilla/5.0 (Linux; Android 14) Mobile'); const q = Object.fromEntries(new URL(u.uri.replace('upi://pay?', 'https://x/?')).searchParams); return { ok: true, params: Object.keys(q), pa: q.pa, pn: q.pn, mc: q.mc, mode: q.mode, purpose: q.purpose, has_sign: !!q.sign, tr: q.tr, tn: q.tn, am: q.am }; }
+    catch (e) { return { ok: false, error: String(e.message).slice(0, 400) }; }
+  },
   async journey(env, b = {}) {
     const hours = Math.min(24, Math.max(1, Number(b.hours) || 3)); const since = now() - hours * 3600;
     const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results).catch((e) => [{ error: String(e.message) }]);
