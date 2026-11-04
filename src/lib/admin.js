@@ -1880,6 +1880,8 @@ const ACTIONS = {
     const csv = ['phone,fn,ln,ct,st,zip,country', ...rows.map((r) => [r.phone, r.fn, r.ln, r.ct, r.st, r.zip, 'IN'].map(esc).join(','))].join('\n');
     return { ok: true, rows: rows.length, csv };
   },
+  /* Delivered COD parcels one by one (AWB, delivery day, cash due), for matching against a courier's payout file */
+  async cod_delivered(env, b) { const R = await import('./remittance.js'); const IST2 = 19800; return { ok: true, rows: (await R.deliveredCod(env, { days: Math.min(180, Number(b?.days) || 30) })).filter((r) => !b?.provider || r.provider === b.provider).map((r) => ({ ...r, day: new Date((r.delivered_at + IST2) * 1000).toISOString().slice(0, 16) })) }; },
   async cod_remittance(env, b) { const R = await import('./remittance.js'); return { ok: true, ...(await R.remittance(await withSettingsFresh(env), { days: Math.min(180, Math.max(7, Number(b?.days) || 60)) })) }; },
   /** Finds Shiprocket's COD remittance endpoint: tries read-only GETs and reports status + top-level keys only. */
   async sr_remit_probe(env, b) {
