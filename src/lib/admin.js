@@ -410,6 +410,23 @@ const ACTIONS = {
     const byMsg = {}; for (const f of fails) { let m = ''; try { const d = JSON.parse(f.data || '{}'); m = String(d.error || d.msg || d.reason || f.data).slice(0, 120); } catch { m = String(f.data).slice(0, 120); } byMsg[m] = (byMsg[m] || 0) + 1; }
     return { ok: true, hours, fail_count: fails.length, by_message: Object.entries(byMsg).sort((a, b2) => b2[1] - a[1]), recent: fails.slice(0, 40).map((f) => ({ at: new Date((Number(f.ts) + IST) * 1000).toISOString().slice(5, 16), data: f.data })), steps: b.steps ? steps : undefined, orders, otps, stuck, partials };
   },
+  /* Diagnostics: every checkout session that got past the cart in the last hours, event by event (phones shown as last 4) */
+  async journey(env, b = {}) {
+    const hours = Math.min(24, Math.max(1, Number(b.hours) || 3)); const since = now() - hours * 3600;
+    const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results).catch((e) => [{ error: String(e.message) }]);
+    const t = (x) => new Date((Number(x) + IST) * 1000).toISOString().slice(11, 19);
+    const mask = (p) => (p ? '…' + String(p).slice(-4) : '');
+    const ev = await q("SELECT ts, sid, type, data FROM events WHERE ts>?::bigint AND type NOT IN ('ping','view') ORDER BY ts ASC LIMIT 1500", since);
+    const by = {};
+    for (const e of ev) { (by[e.sid] ||= []).push(t(e.ts) + ' ' + e.type + (e.data && e.data !== '{}' && !/^\{"cart"/.test(e.data) ? ' ' + String(e.data).slice(0, 140) : '')); }
+    const sess = await q("SELECT sid, phone, method, step, max_step, ordered, order_name, source FROM sessions WHERE last_seen>?::bigint AND max_step>=2 ORDER BY last_seen DESC LIMIT 60", since);
+    const orders = await q("SELECT created_at, method, status, order_name, phone, total_paise FROM orders WHERE created_at>?::bigint ORDER BY created_at DESC LIMIT 60", since);
+    const otps = await q("SELECT phone, sent_at, verified_at, drank, tries FROM cod_otps WHERE sent_at>?::bigint ORDER BY sent_at DESC LIMIT 60", since).catch(() => []);
+    return { ok: true, hours,
+      sessions: sess.map((x) => ({ sid: String(x.sid).slice(0, 8), phone: mask(x.phone), method: x.method, step: x.step, max: x.max_step, ordered: x.ordered, order: x.order_name, src: x.source, events: (by[x.sid] || []).slice(-25) })),
+      orders: orders.map((o) => ({ at: t(o.created_at), method: o.method, status: o.status, name: o.order_name, phone: mask(o.phone), rs: Math.round(Number(o.total_paise) / 100) })),
+      otps: Array.isArray(otps) ? otps.map((o) => ({ phone: mask(o.phone), sent: t(o.sent_at), verified: o.verified_at ? t(o.verified_at) : null, drank: o.drank, tries: o.tries })) : otps };
+  },
   async analytics(env, b) { return analytics(env, Math.min(90, Math.max(1, +b.days || 7))); },
   async orders(env, b) {
     const [all, booked] = await Promise.all([recentOrders(env, 90), bookedMap(env).catch(() => ({}))]);
