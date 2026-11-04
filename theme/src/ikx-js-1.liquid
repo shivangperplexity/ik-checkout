@@ -52,7 +52,40 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function img(u, w) { if (!u) return ''; return u + (u.indexOf('?') > -1 ? '&' : '?') + 'width=' + (w || 160); }
   function uuid() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random(); }
-  function native() { location.href = R + 'checkout'; }
+  /* Build 059 (4 Nov 2026): never send a buyer to Shopify's own checkout. Orders placed there skip the WhatsApp OTP,
+     the COD fee and our tracking (#2039, #2071). When the cart or the price can't load we retry instead: the fallback
+     button now says "Try again", the price is fetched again on its own up to 3 times, and every retry is logged
+     (fail events "retry:...") so the dashboard shows how often it happens. */
+  var ikRetryN = 0, ikRetryT = null;
+  function native() { ikRetry('cart'); }
+  function ikRetry(why) {
+    ikRetryN++;
+    try { tk('fail', { error: 'retry:' + why, n: ikRetryN }); } catch (e) {}
+    if (!root) return;
+    try { overlay('Loading your price…'); } catch (e) {}
+    refresh().then(function () { try { hideOverlay(); } catch (e) {} }, function () {
+      try { hideOverlay(); } catch (e) {}
+      try { screen('<h3>Couldn’t load your cart</h3><p>Your connection looks slow. Please try again.</p><button type="button" class="ikx-btn" data-ikx-retry>Try again</button>'); } catch (e) {}
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target : null; if (!t) return;
+    var b = t.closest('[data-ikx-retry]') || t.closest('.ikx-root a.ikx-btn');
+    if (!b) return;
+    if (!b.hasAttribute('data-ikx-retry') && !/\/checkout(\?|#|$)/.test(b.getAttribute('href') || '')) return;
+    e.preventDefault(); e.stopPropagation();
+    ikRetry('button');
+  }, true);
+  /* relabel the old "Checkout on Shopify" fallback and retry by itself (2 s, 4 s, 8 s) */
+  try {
+    new MutationObserver(function () {
+      var a = document.querySelector('.ikx-root .ikx-foot a.ikx-btn[href$="/checkout"]');
+      if (!a || a.getAttribute('data-ikx-fixed')) return;
+      a.setAttribute('data-ikx-fixed', '1'); a.setAttribute('data-ikx-retry', ''); a.setAttribute('href', '#');
+      a.textContent = 'Loading price… tap to try again';
+      if (ikRetryN < 3) { clearTimeout(ikRetryT); ikRetryT = setTimeout(function () { ikRetry('quote'); }, 2000 * Math.pow(2, ikRetryN)); }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) {}
   function api(path, body, method) {
     return fetch(API + path, { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, keepalive: true }).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
   }

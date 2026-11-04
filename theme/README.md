@@ -120,3 +120,11 @@ face is not installed, Poppins Bold Italic stands in). Scrim off: the banners ca
 ## Build 058: store credit on COD, claimed with the WhatsApp code (3 Nov 2026)
 - Parts 2 and 4. A number with store credit sees "Use your ₹50 store credit — enter the OTP" (same code box as COD). `/api/credit/verify` checks the code; verified numbers (cod_otps.verified_at ≤ 30 min) get credit on COD and online, and a COD order then needs no second code (server treats it as OTP-verified: confirmed, cod-otp-verified tag).
 - Credit is never applied to an unverified number (nobody can spend credit by typing someone else's number). COD credit is spent at placement and returned if the order is cancelled / RTO (referralSweep).
+
+## Build 059: never fall back to Shopify's checkout (Nov 2026)
+Built on Build 057 (MAIN at the time; Build 058 was not published). Parts 1 and 3 only (identical in 057 and 058).
+Orders placed in Shopify's own checkout skip the WhatsApp OTP, the COD fee and tracking (#2039, #2071). When the cart or
+the price can't load, part 1 now retries instead: `native()` retries, the old "Checkout on Shopify · ₹X" button is
+relabelled "Loading price… tap to try again" (MutationObserver), the price is refetched on its own at 2 / 4 / 8 s, and
+every retry is logged as a `fail` event `retry:<why>`. Part 3: the "pay on Shopify's checkout" note now says
+"Getting your price… one moment". Tested headless with a quote API that always fails: no navigation to /checkout.

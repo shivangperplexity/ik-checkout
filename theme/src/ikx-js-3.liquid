@@ -250,7 +250,7 @@
   function paintPay() {
     var box = $('.ikx-pay', root); if (!box) return;
     if (!state.quote) {
-      box.innerHTML = '<p class="ikx-m">Our quick checkout is busy right now. You can still pay safely on Shopify’s checkout.</p>';
+      box.innerHTML = '<p class="ikx-m">Getting your price… one moment. If it takes long, tap Try again below.</p>';
       return;
     }
     if (methods().indexOf(state.method) < 0) state.method = 'upi';
