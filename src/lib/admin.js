@@ -422,7 +422,15 @@ const ACTIONS = {
     const sess = await q("SELECT sid, phone, method, step, max_step, ordered, order_name, source FROM sessions WHERE last_seen>?::bigint AND max_step>=2 ORDER BY last_seen DESC LIMIT 60", since);
     const orders = await q("SELECT created_at, method, status, order_name, phone, total_paise FROM orders WHERE created_at>?::bigint ORDER BY created_at DESC LIMIT 60", since);
     const otps = await q("SELECT phone, sent_at, verified_at, drank, tries FROM cod_otps WHERE sent_at>?::bigint ORDER BY sent_at DESC LIMIT 60", since).catch(() => []);
-    return { ok: true, hours,
+    /* prepaid health: per IST day, and PayU's own answer for the latest unpaid attempts */
+    const prepaid = await q(`SELECT ((created_at+${IST})/86400) d, status, COUNT(*) n FROM orders WHERE method='prepaid' AND created_at>?::bigint GROUP BY 1,2 ORDER BY 1`, now() - 7 * 86400);
+    let payu = [];
+    if (b.payu) {
+      const { verifyPayment } = await import('./payu.js');
+      const pend = await q("SELECT txnid, created_at, phone, status FROM orders WHERE method='prepaid' AND created_at>?::bigint ORDER BY created_at DESC LIMIT 10", since);
+      payu = await Promise.all(pend.map(async (p) => ({ at: t(p.created_at), phone: mask(p.phone), ours: p.status, payu: await verifyPayment(env, p.txnid).then((v) => v || 'not found').catch((e) => 'err ' + e.message) })));
+    }
+    return { ok: true, hours, prepaid: prepaid.map((r) => ({ day: new Date(Number(r.d) * 86400000).toISOString().slice(0, 10), status: r.status, n: Number(r.n) })), payu,
       sessions: sess.map((x) => ({ sid: String(x.sid).slice(0, 8), phone: mask(x.phone), method: x.method, step: x.step, max: x.max_step, ordered: x.ordered, order: x.order_name, src: x.source, events: (by[x.sid] || []).slice(-25) })),
       orders: orders.map((o) => ({ at: t(o.created_at), method: o.method, status: o.status, name: o.order_name, phone: mask(o.phone), rs: Math.round(Number(o.total_paise) / 100) })),
       otps: Array.isArray(otps) ? otps.map((o) => ({ phone: mask(o.phone), sent: t(o.sent_at), verified: o.verified_at ? t(o.verified_at) : null, drank: o.drank, tries: o.tries })) : otps };
