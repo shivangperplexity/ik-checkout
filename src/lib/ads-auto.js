@@ -170,7 +170,7 @@ export async function loserTick(env, { force = false } = {}) {
 /* ---------------- Rebalance (owner, 5 Nov 2026: "the good ads should get more of the money") ----------------
  * Budget-neutral, once a day after the scale step, on the last 3 days (confirmed purchases where Meta has them):
  *  - ad sets: move ₹100-200/day from the ad set with the worst CPA to the one with the best, total unchanged.
- *    Only when the best has ≥ 3 purchases, the worst costs ≥ 1.5× the best and more than the target, and the worst
+ *    Only when the best has ≥ 3 purchases, the worst costs ≥ 1.4× the best (and ₹15+ more per purchase), and the worst
  *    keeps at least ₹300/day. Never above the per-ad-set cap.
  *  - ads: inside an ad set, an ad that spent ≥ ₹400 in 3 days at ≥ 2.5× the ad set's best ad CPA (and ≥ 2× target),
  *    or ≥ ₹400 with no purchase while a sibling sells, is paused so Meta spends that ad set's money on the sibling.
@@ -189,7 +189,9 @@ export function pickShift(rows, { target = 80, step = 200, minStep = 100, floor 
   /* worst: highest CPA; an ad set that spent 2× target with nothing counts as infinitely bad */
   const worst = scored.filter((x) => x.s.id !== best.s.id).map((x) => ({ ...x, eff: x.cpa ?? (Number(x.s.spend) >= 2 * target ? Infinity : null) }))
     .filter((x) => x.eff !== null).sort((a, b) => b.eff - a.eff)[0];
-  if (!worst || !(worst.eff >= 1.5 * best.cpa && worst.eff > target)) return null;
+  /* clearly worse: 1.4x the best CPA and at least ₹15 more per purchase (no need to be above target: the owner wants
+     the money on the best ad set even when every ad set is profitable) */
+  if (!worst || !(worst.eff >= 1.4 * best.cpa && worst.eff >= best.cpa + 15)) return null;
   const amt = Math.min(step, Number(worst.s.daily) - floor, cap - Number(best.s.daily));
   if (amt < minStep) return null;
   const r = (n) => Math.round(n);
