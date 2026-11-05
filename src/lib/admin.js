@@ -881,6 +881,14 @@ const ACTIONS = {
     if (ph.length !== 10) throw new Error('phone');
     return { ok: true, rows: (await env.DB.prepare("SELECT id, ts, direction, trigger, template, status, order_name, wamid, error FROM messages WHERE RIGHT(phone,10)=? AND ts>? ORDER BY id").bind(ph, Math.floor(Date.now() / 1000) - 7 * 86400).all()).results };
   },
+  /* Outgoing WhatsApp failures by trigger and error code (last N days) */
+  async msg_fails(env, b = {}) {
+    const days = Math.min(30, Math.max(1, Number(b.days) || 7));
+    const rows = (await env.DB.prepare(`SELECT trigger, template, COALESCE(NULLIF(substring(error from '([0-9]{5,6})'), ''), left(COALESCE(error,''), 40)) code, status, COUNT(*) n FROM messages WHERE direction='out' AND ts>? GROUP BY 1,2,3,4 ORDER BY 5 DESC`).bind(now() - days * 86400).all()).results;
+    const by = {};
+    for (const r of rows) { const k = r.trigger + ' | ' + r.template; const x = (by[k] ||= { sent: 0, failed: {} }); if (r.status === 'failed') x.failed[r.code || '?'] = (x.failed[r.code || '?'] || 0) + Number(r.n); else x.sent += Number(r.n); }
+    return { ok: true, days, by };
+  },
   async messages(env) {
     return { messages: (await env.DB.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 150').all()).results };
   },
