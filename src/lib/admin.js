@@ -424,6 +424,27 @@ const ACTIONS = {
     try { const u = await upiIntent(env, payu.fields, '', 'Mozilla/5.0 (Linux; Android 14) Mobile'); const q = Object.fromEntries(new URL(u.uri.replace('upi://pay?', 'https://x/?')).searchParams); return { ok: true, params: Object.keys(q), pa: q.pa, pn: q.pn, mc: q.mc, mode: q.mode, purpose: q.purpose, has_sign: !!q.sign, tr: q.tr, tn: q.tn, am: q.am }; }
     catch (e) { return { ok: false, error: String(e.message).slice(0, 400) }; }
   },
+  /* Same-hours funnel for the last N days (IST days, cut at the current hour so today compares fairly), by method */
+  async funnel_days(env, b = {}) {
+    const days = Math.min(14, Math.max(2, Number(b.days) || 4));
+    const t = now(), hNow = new Date((t + IST) * 1000).getUTCHours(), cut = b.full ? 24 : hNow + 1;
+    const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results).catch((e) => [{ error: String(e.message) }]);
+    const rows = await q(`SELECT ((first_seen+${IST})/86400) d, COALESCE(method,'-') m, max_step s, ordered o, COUNT(*) n FROM sessions WHERE first_seen>?::bigint AND ((first_seen+${IST})%86400)/3600 < ? GROUP BY 1,2,3,4`, t - days * 86400, cut);
+    const otp = await q(`SELECT ((sent_at+${IST})/86400) d, COUNT(*) sent, SUM(CASE WHEN verified_at IS NOT NULL THEN 1 ELSE 0 END) ok FROM cod_otps WHERE sent_at>?::bigint AND ((sent_at+${IST})%86400)/3600 < ? GROUP BY 1`, t - days * 86400, cut);
+    const ords = await q(`SELECT ((created_at+${IST})/86400) d, method, status, COUNT(*) n FROM orders WHERE created_at>?::bigint AND ((created_at+${IST})%86400)/3600 < ? GROUP BY 1,2,3`, t - days * 86400, cut);
+    const out = {};
+    for (const r of rows) {
+      if (r.error) return { ok: false, error: r.error };
+      const day = new Date(Number(r.d) * 86400000).toISOString().slice(0, 10), x = (out[day] ||= { sessions: 0, reached: {}, cod: { pay: 0, submit: 0, done: 0 }, online: { pay: 0, submit: 0, done: 0 } });
+      const n = Number(r.n), st = Number(r.s); x.sessions += n;
+      STEPS.forEach((name, i) => { if (st >= i) x.reached[name] = (x.reached[name] || 0) + n; });
+      const k = r.m === 'cod' ? 'cod' : r.m === '-' ? null : 'online';
+      if (k) { if (st >= 5) x[k].pay += n; if (st >= 6) x[k].submit += n; if (Number(r.o)) x[k].done += n; }
+    }
+    for (const r of otp) { const day = new Date(Number(r.d) * 86400000).toISOString().slice(0, 10); if (out[day]) out[day].otp = { sent: Number(r.sent), verified: Number(r.ok) }; }
+    for (const r of ords) { const day = new Date(Number(r.d) * 86400000).toISOString().slice(0, 10); if (out[day]) (out[day].orders ||= {})[r.method + ':' + r.status] = Number(r.n); }
+    return { ok: true, until_hour: cut, days: out };
+  },
   async journey(env, b = {}) {
     const hours = Math.min(24, Math.max(1, Number(b.hours) || 3)); const since = now() - hours * 3600;
     const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results).catch((e) => [{ error: String(e.message) }]);
