@@ -166,3 +166,79 @@ export async function loserTick(env, { force = false } = {}) {
   if (pick.length) await putSetting(env, 'meta', { ...meta, ads_auto: { ...(meta.ads_auto || {}), log: [{ at: nowSec(), kind: 'loser', paused: pick }, ...((meta.ads_auto || {}).log || [])].slice(0, 60) } });
   return { paused: pick };
 }
+
+/* ---------------- Rebalance (owner, 5 Nov 2026: "the good ads should get more of the money") ----------------
+ * Budget-neutral, once a day after the scale step, on the last 3 days (confirmed purchases where Meta has them):
+ *  - ad sets: move ₹100-200/day from the ad set with the worst CPA to the one with the best, total unchanged.
+ *    Only when the best has ≥ 3 purchases, the worst costs ≥ 1.5× the best and more than the target, and the worst
+ *    keeps at least ₹300/day. Never above the per-ad-set cap.
+ *  - ads: inside an ad set, an ad that spent ≥ ₹400 in 3 days at ≥ 2.5× the ad set's best ad CPA (and ≥ 2× target),
+ *    or ≥ ₹400 with no purchase while a sibling sells, is paused so Meta spends that ad set's money on the sibling.
+ *    Never the last live ad of an ad set.
+ */
+const purchasesOf = (x) => Math.max(Number(x.custom?.[CONFIRMED]) || 0, Number(x.purchases) || 0);
+const cpaOf = (x) => { const p = purchasesOf(x); return p ? Number(x.spend) / p : null; };
+
+/** Pure: the budget move between ad sets, or null. rows = ad sets (overview shape) for one window. */
+export function pickShift(rows, { target = 80, step = 200, minStep = 100, floor = 300, cap = 1750 } = {}) {
+  const live = rows.filter((s) => s.status === 'ACTIVE' && Number(s.daily) > 0 && Number(s.spend) > 0);
+  if (live.length < 2) return null;
+  const scored = live.map((s) => ({ s, p: purchasesOf(s), cpa: cpaOf(s) }));
+  const best = scored.filter((x) => x.p >= 3 && x.cpa !== null).sort((a, b) => a.cpa - b.cpa)[0];
+  if (!best) return null;
+  /* worst: highest CPA; an ad set that spent 2× target with nothing counts as infinitely bad */
+  const worst = scored.filter((x) => x.s.id !== best.s.id).map((x) => ({ ...x, eff: x.cpa ?? (Number(x.s.spend) >= 2 * target ? Infinity : null) }))
+    .filter((x) => x.eff !== null).sort((a, b) => b.eff - a.eff)[0];
+  if (!worst || !(worst.eff >= 1.5 * best.cpa && worst.eff > target)) return null;
+  const amt = Math.min(step, Number(worst.s.daily) - floor, cap - Number(best.s.daily));
+  if (amt < minStep) return null;
+  const r = (n) => Math.round(n);
+  return { from: { id: worst.s.id, name: worst.s.name, cpa: worst.cpa === null ? null : r(worst.cpa), daily: Number(worst.s.daily), to: Number(worst.s.daily) - amt },
+    to: { id: best.s.id, name: best.s.name, cpa: r(best.cpa), daily: Number(best.s.daily), to: Number(best.s.daily) + amt }, amount: amt };
+}
+
+/** Pure: ads to pause inside their ad sets. adsets = overview ad sets with .ads (same window). */
+export function pickLaggards(adsets, { target = 80, minSpend = 400, ratio = 2.5 } = {}) {
+  const out = [];
+  for (const s of adsets) {
+    const ads = (s.ads || []).filter((a) => a.status === 'ACTIVE');
+    if (ads.length < 2) continue;
+    const sellers = ads.filter((a) => purchasesOf(a) > 0).map((a) => cpaOf(a)).sort((a, b) => a - b);
+    if (!sellers.length) continue;
+    const bestCpa = sellers[0];
+    let live = ads.length;
+    for (const a of [...ads].sort((x, y) => Number(y.spend) - Number(x.spend))) {
+      if (live <= 1) break;
+      if (Number(a.spend) < minSpend) continue;
+      const c = cpaOf(a);
+      const bad = c === null ? true : (c >= ratio * bestCpa && c >= 2 * target);
+      if (bad && c !== bestCpa) { out.push({ id: a.id, name: a.name, adset: s.name, spend: Math.round(a.spend), cpa: c === null ? null : Math.round(c), best: Math.round(bestCpa) }); live--; }
+    }
+  }
+  return out;
+}
+
+export async function rebalanceTick(env, { force = false, dry = false } = {}) {
+  const m = env.SETTINGS?.meta || {};
+  if (m.ads_rebalance_off === true && !force) return { skipped: 'off' };
+  const h = istHour(); if (!force && (h < 12 || h >= 14)) return { skipped: 'hour' };
+  if (!force && !dry && !(await claim(env, 'ads:rebalance', 20 * 3600))) return { skipped: 'slot' };
+  const a = adsCfg(env);
+  const d3 = await overview(env, { preset: 'last_3d' });
+  const sets = d3.campaigns.flatMap((k) => k.adsets);
+  const shift = pickShift(sets, { target: a.target, cap: a.maxDaily });
+  const laggards = pickLaggards(sets.filter((s) => s.status === 'ACTIVE'), { target: a.target });
+  if (dry) return { dry: true, shift, laggards };
+  const done = { shift: null, paused: [] };
+  if (shift) {
+    /* lower first, then raise: the account total never goes above what it was */
+    await graph(env, 'POST', shift.from.id, { daily_budget: shift.from.to * 100 });
+    await graph(env, 'POST', shift.to.id, { daily_budget: shift.to.to * 100 });
+    done.shift = shift;
+  }
+  for (const x of laggards) { try { await graph(env, 'POST', x.id, { status: 'PAUSED' }); done.paused.push(x); } catch (e) { console.error('rebalance pause', x.id, e.message); } }
+  const fresh = env.SETTINGS?.meta || {};
+  if (done.shift || done.paused.length) await putSetting(env, 'meta', { ...fresh, ads_auto: { ...(fresh.ads_auto || {}), log: [{ at: nowSec(), kind: 'rebalance', ...done }, ...((fresh.ads_auto || {}).log || [])].slice(0, 60) } });
+  else await putSetting(env, 'meta', { ...fresh, ads_auto: { ...(fresh.ads_auto || {}), log: [{ at: nowSec(), kind: 'rebalance', skipped: 'nothing clearly worse' }, ...((fresh.ads_auto || {}).log || [])].slice(0, 60) } });
+  return done;
+}
