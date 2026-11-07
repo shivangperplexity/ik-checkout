@@ -80,3 +80,16 @@ test('request pickup (with a date): one call per shipment, Shiprocket\'s answer 
     assert.ok(w.calls[0].includes('"pickup_date":["2026-10-16"]'));
   } finally { w.done(); }
 });
+
+test('staleOfd: ShipPrime OFD from an earlier IST day, or after a Manage NDR failure, is an NDR', async () => {
+  const { staleOfd } = await import('./ship-status.js');
+  const t = Date.UTC(2026, 10, 8, 0, 0) / 1000;            /* 8 Nov 05:30 IST */
+  const y = Date.UTC(2026, 10, 7, 5, 0) / 1000;            /* 7 Nov 10:30 IST */
+  const sp = { provider: 'shipprime' };
+  assert.equal(staleOfd(sp, { stage: 'ofd', lastTs: y }, t), true);                       /* yesterday's OFD */
+  assert.equal(staleOfd(sp, { stage: 'ofd', lastTs: t - 600 }, t), false);                /* today's OFD */
+  assert.equal(staleOfd({ ...sp, sp_ndr_at: t - 300 }, { stage: 'ofd', lastTs: t - 600 }, t), true);   /* NDR after the OFD scan */
+  assert.equal(staleOfd({ ...sp, sp_ndr_at: t - 3600 }, { stage: 'ofd', lastTs: t - 600 }, t), false); /* re-attempt: newer OFD */
+  assert.equal(staleOfd({ provider: 'shiprocket' }, { stage: 'ofd', lastTs: y }, t), false);
+  assert.equal(staleOfd(sp, { stage: 'transit', lastTs: y }, t), false);
+});

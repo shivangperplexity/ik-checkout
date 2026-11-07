@@ -1898,7 +1898,7 @@ const ACTIONS = {
       customer: r.ndr_by && r.ndr_by !== 'auto' && r.ndr_by !== 'team' ? r.ndr_choice : '',
     }));
     let sp_dash = null;
-    try { const S = await import('./sp-ndr.js'); if (S.dashCfg(f).token) { const rows = await S.ndrOrders(f, { days: 30 }); sp_dash = { open: rows.filter((o) => o.status === 'UNDELIVERED' && !o.action_taken).map((o) => `${o.order} ${o.courier} · ${o.reason} · attempts ${o.attempts}`), run: await S.autoReattempt(f, { force: true }) }; } } catch (e) { sp_dash = { error: e.message }; }
+    try { const S = await import('./sp-ndr.js'); if (S.dashCfg(f).token) { const rows = await S.ndrOrders(f, { days: 30 }); sp_dash = { open: rows.filter(S.isOpenNdr).map((o) => `${o.order} ${o.courier} · ${o.reason} · attempts ${o.attempts}`), run: await S.autoReattempt(f, { force: true }) }; } } catch (e) { sp_dash = { error: e.message }; }
     return { ok: true, at: now(), sr_open: list.length, sr_escalate, sr_failed, sp, sp_dash };
   },
   async track_link(env, b) { const C = await import('./self-cancel.js'); return { ok: true, url: await C.trackLink(env, String(b.id || '')) }; },
@@ -1982,7 +1982,7 @@ const ACTIONS = {
     const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
     if (!c.token) return { ok: true, connected: false };
     const exp = S.tokenExpiry(c.token);
-    try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, open: rows.filter((o) => o.status === 'UNDELIVERED' && !o.action_taken).length, rows }; }
+    try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, open: rows.filter(S.isOpenNdr).length, rows }; }
     catch (e) { return { ok: true, connected: false, auto: c.auto, expires: exp, error: e.message }; }
   },
   async sp_ndr_rto_list(env) { const S = await import('./sp-ndr.js'); return { ok: true, rows: await S.ndrOrders(await withSettingsFresh(env), { type: 'RTO', days: 60 }) }; },

@@ -45,6 +45,20 @@ async function srStatus(env, rec, raw = null) {
   return null;
 }
 
+const istDay = (ts) => new Date((ts + 19800) * 1000).toISOString().slice(0, 10);
+/**
+ * A ShipPrime parcel that tracking still calls "out for delivery" but that did not get delivered. ShipPrime leaves a
+ * failed Delhivery attempt at OUT_FOR_DELIVERY, so: (a) its Manage NDR list reported a failed attempt at or after the
+ * latest tracking event (lib/sp-ndr.js syncNdrStages), or (b) the out-for-delivery scan is from an earlier IST day
+ * (couriers deliver or fail the same day). A re-attempt brings a newer OFD event, which shows as OFD again. Pure.
+ */
+export function staleOfd(rec, s, t = Math.floor(Date.now() / 1000)) {
+  if (s.stage !== 'ofd' || rec.provider !== 'shipprime') return false;
+  const last = Number(s.lastTs) || 0, ndrAt = Number(rec.sp_ndr_at) || 0;
+  if (ndrAt && ndrAt >= last - 60) return true;
+  return !!last && istDay(last) < istDay(t);
+}
+
 /** Refresh one shipment row; returns the new stage. Also keeps things consistent if it was cancelled inside Shiprocket. */
 export async function refreshShipment(env, rec, raw = null) {
   const s = await srStatus(env, rec, raw);
@@ -53,7 +67,8 @@ export async function refreshShipment(env, rec, raw = null) {
     await env.DB.prepare('UPDATE shipments SET tracked_at=? WHERE order_id=?').bind(t, String(rec.order_id)).run();
     return rec.stage || 'pickup_pending';
   }
-  const stage = s.stage, picked = s.picked;
+  const stage = staleOfd(rec, s, t) ? 'ndr' : s.stage, picked = s.picked;
+  if (stage !== s.stage) s.text = `Not delivered${rec.sp_ndr_reason ? ' - ' + rec.sp_ndr_reason : ''} (courier still shows Out for delivery)`;
   await env.DB.prepare(`UPDATE shipments SET stage=?, sr_status=?, tracked_at=?, edd=COALESCE(NULLIF(?::text,''), edd),
       picked_at=CASE WHEN ?::boolean AND picked_at IS NULL THEN ?::bigint ELSE picked_at END,
       delivered_at=CASE WHEN ?::text='delivered' AND delivered_at IS NULL THEN ?::bigint ELSE delivered_at END,

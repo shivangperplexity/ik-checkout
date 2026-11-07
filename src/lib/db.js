@@ -201,6 +201,9 @@ export const SCHEMA = [
   /* delivery attempts before RTO, from the courier's scans (lib/sr-scan.js attemptsOf) */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS attempts INT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS attempt_notes TEXT`,
+  /* ShipPrime keeps a failed Delhivery attempt at OUT_FOR_DELIVERY; its Manage NDR list says it failed (lib/sp-ndr.js) */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_ndr_at BIGINT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_ndr_reason TEXT`,
   /* Dashboard assistant conversation (lib/assistant.js) */
   `CREATE TABLE IF NOT EXISTS assistant_msgs (id SERIAL PRIMARY KEY, ts BIGINT, role TEXT, content TEXT)`,
   /* Reviews (lib/reviews.js): one ask per delivered order, the reviews, their photos (JPEG base64) */

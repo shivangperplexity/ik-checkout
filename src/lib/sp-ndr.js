@@ -87,6 +87,32 @@ export async function ndrOrders(env, { type = 'FAILED_DELIVERY', days = 30, pend
   }));
 }
 
+/**
+ * An NDR still waiting for our action. ShipPrime lists a failed Xpressbees attempt as UNDELIVERED, but leaves a failed
+ * Delhivery attempt at OUT_FOR_DELIVERY with the NDR reason filled in, so both count. Pure.
+ */
+export const isOpenNdr = (o) => !o.action_taken && (o.status === 'UNDELIVERED' || (o.status === 'OUT_FOR_DELIVERY' && !!String(o.reason || '').trim()));
+
+/** '2026-11-07T10:21:22.52+05:30' -> epoch seconds, or 0 */
+const ts = (v) => { const t = Date.parse(String(v || '')); return Number.isNaN(t) ? 0 : Math.floor(t / 1000); };
+
+/**
+ * Mark failed attempts as NDR on our side: open NDRs from the list whose parcel we still show as out for delivery /
+ * in transit become 'ndr', and the attempt time + reason are kept so a tracking refresh that still reads
+ * OUT_FOR_DELIVERY does not flip them back (lib/ship-status.js). Returns how many rows changed.
+ */
+export async function syncNdrStages(env, rows) {
+  let n = 0;
+  for (const o of rows.filter(isOpenNdr)) {
+    if (!o.awb) continue;
+    const r = await env.DB.prepare(`UPDATE shipments SET stage='ndr', sp_ndr_at=?, sp_ndr_reason=?, attempt_notes=COALESCE(NULLIF(attempt_notes,''), ?)
+        WHERE awb=? AND provider='shipprime' AND COALESCE(stage,'') IN ('ofd','transit','ndr') AND COALESCE(status,'')<>'cancelled' RETURNING order_id`)
+      .bind(ts(o.updated) || now(), String(o.reason).slice(0, 160), String(o.reason).slice(0, 400), o.awb).all().catch(() => null);
+    if (r?.results?.length) n++;
+  }
+  return n;
+}
+
 export const reattempt = (env, spId) => dash(env, 'POST', '/self-ship/ndr/actions/reattempt', { order_id: Number(spId), shop_id: Number(dashCfg(env).shop) });
 export const markRto = (env, spId) => dash(env, 'POST', '/self-ship/ndr/actions/mark-rto', { order_id: Number(spId), shop_id: Number(dashCfg(env).shop) });
 export const history = (env, spId) => dash(env, 'GET', `/self-ship/ndr/actions/${encodeURIComponent(spId)}?shop_id=${encodeURIComponent(dashCfg(env).shop)}`);
@@ -111,13 +137,16 @@ export async function byAwb(env, awb) {
 export async function autoReattempt(env, { force = false, dry = false } = {}) {
   const c = dashCfg(env);
   if (!c.token) return { skipped: 'no token' };
-  if (!c.auto && !force) return { skipped: 'off' };
   const m = (() => { const d = new Date((now() + 19800) * 1000); return d.getUTCHours() * 60 + d.getUTCMinutes(); })();
-  if (!force && (m < 8 * 60 || m >= 23 * 60)) return { skipped: 'outside 8 am - 11 pm' };
   const { claim, release } = await import('./once.js');
   if (!force && !(await claim(env, 'spndr:run:' + Math.floor(now() / 1800), 1800))) return { skipped: 'ran this half hour' };
-  const list = (await ndrOrders(env, { days: 30 })).filter((o) => o.status === 'UNDELIVERED' && !o.action_taken);
-  const out = { open: list.length, reopened: [], skipped: [], failed: [] };
+  const rows = await ndrOrders(env, { days: 30 });
+  /* keep the Shipments tab honest round the clock, even when auto re-attempt is off or it is night */
+  const synced = await syncNdrStages(env, rows).catch((e) => { console.error('sp ndr sync', e.message); return 0; });
+  if (!c.auto && !force) return { skipped: 'off', synced };
+  if (!force && (m < 8 * 60 || m >= 23 * 60)) return { skipped: 'outside 8 am - 11 pm', synced };
+  const list = rows.filter(isOpenNdr);
+  const out = { open: list.length, synced, reopened: [], skipped: [], failed: [] };
   if (!list.length) return out;
   const awbs = list.map((o) => o.awb).filter(Boolean);
   const ours = awbs.length ? Object.fromEntries((await env.DB.prepare(`SELECT s.awb, s.order_name, s.ndr_choice, s.ndr_by, s.ndr_choice_at, o.status AS order_status

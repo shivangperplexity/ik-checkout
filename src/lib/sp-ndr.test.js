@@ -49,3 +49,11 @@ test('sp-ndr: list body matches the dashboard, re-open only pending + not cancel
     assert.equal(again.reopened.length, 0);
   } finally { globalThis.fetch = old; }
 });
+
+test('isOpenNdr: Delhivery failures stay OUT_FOR_DELIVERY in ShipPrime but carry a reason', async () => {
+  const { isOpenNdr } = await import('./sp-ndr.js');
+  assert.equal(isOpenNdr({ status: 'UNDELIVERED', reason: 'Customer not available', action_taken: false }), true);
+  assert.equal(isOpenNdr({ status: 'OUT_FOR_DELIVERY', reason: 'Consignee Unavailable', action_taken: false }), true);
+  assert.equal(isOpenNdr({ status: 'OUT_FOR_DELIVERY', reason: '', action_taken: false }), false);
+  assert.equal(isOpenNdr({ status: 'OUT_FOR_DELIVERY', reason: 'Consignee Unavailable', action_taken: true }), false);
+});
