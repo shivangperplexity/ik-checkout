@@ -3,7 +3,7 @@
 // The original Shopify code is unchanged in ./shopify.orig.js.
 import './address-guard.js';
 export * from './shopify.orig.js';
-import { gql } from './shopify.orig.js';
+import { gql, variantNodes } from './shopify.orig.js';
 import { toPaise } from './pricing.js';
 
 const GRAMS = { GRAMS: 1, KILOGRAMS: 1000, OUNCES: 28.3495, POUNDS: 453.592 };
@@ -164,13 +164,13 @@ export async function createPartialOrder(env, { draftId, advancePaise, txnid }) 
  * and the checkout fell back to "Checkout on Shopify" for the whole cart. Split those lines out first: the caller
  * prices the rest and tells the shopper which designs were dropped. { raw: available cart lines, soldOut: [{ variant_id, title }] }
  */
-export async function splitSoldOut(env, cartLines) {
+export async function splitSoldOut(env, cartLines, opts = {}) {
   if (!cartLines.length) return { raw: cartLines, soldOut: [] };
-  const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on ProductVariant { id availableForSale product { title } } } }`,
-    { ids: cartLines.map((l) => `gid://shopify/ProductVariant/${l.variant_id}`) });
+  /* same lookup loadLines makes next (lib/shopify.orig.js variantNodes): with { cache: true } the quote asks Shopify once */
+  const nodes = await variantNodes(env, cartLines.map((l) => l.variant_id), opts);
   const raw = [], soldOut = [];
   cartLines.forEach((l, i) => {
-    const v = d.nodes[i];
+    const v = nodes[i];
     if (v && v.availableForSale === false) soldOut.push({ variant_id: String(l.variant_id), title: v.product?.title || '' });
     else raw.push(l);
   });

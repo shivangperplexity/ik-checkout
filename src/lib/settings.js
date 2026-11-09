@@ -99,9 +99,22 @@ const DEFAULTS = {
 };
 
 let cache = { at: 0, s: null };
+/* Nov 2026 speed: every request (checkout price, admin) waited on this query once the 15 s cache ran out. Now a warm
+   instance answers from memory and refreshes in the background (stale-while-revalidate, at most 5 min old; saves on
+   this instance clear it at once). A cold instance, or fresh=true, still waits for the database. */
+let refreshing = null, gen = 0;
 export async function getSettings(env, fresh) {
   if (!env.DB) return structuredClone(DEFAULTS);
-  if (!fresh && cache.s && Date.now() - cache.at < 15000) return cache.s;
+  const age = Date.now() - cache.at;
+  if (!fresh && cache.s && age < 15000) return cache.s;
+  if (!fresh && cache.s && age < 300000) {
+    if (!refreshing) refreshing = loadSettings(env).catch((e) => { console.error('settings refresh', e.message); }).finally(() => { refreshing = null; });
+    return cache.s;
+  }
+  return loadSettings(env);
+}
+async function loadSettings(env) {
+  const g = gen; /* a save while this read was in flight wins: don't put the older read back in the cache */
   const rows = (await env.DB.prepare('SELECT k,v FROM settings').all()).results;
   const s = structuredClone(DEFAULTS);
   for (const r of rows) { try { s[r.k] = JSON.parse(r.v); } catch { /* ignore */ } }
@@ -114,12 +127,12 @@ export async function getSettings(env, fresh) {
   s.convert = { ...DEFAULTS.convert, ...(s.convert || {}) };
   s.apply = { ...DEFAULTS.apply, ...(s.apply || {}) };
   s.checkout = { ...DEFAULTS.checkout, ...(s.checkout || {}) };
-  cache = { at: Date.now(), s };
+  if (g === gen) cache = { at: Date.now(), s };
   return s;
 }
 export async function putSetting(env, k, v) {
   await env.DB.prepare('INSERT INTO settings (k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').bind(k, JSON.stringify(v)).run();
-  cache = { at: 0, s: null };
+  gen++; cache = { at: 0, s: null };
 }
 
 /** env with WA_* filled from dashboard settings (dashboard wins when set). */

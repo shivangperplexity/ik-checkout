@@ -2461,7 +2461,15 @@ export async function handleRpc(req, env) {
   const b = await req.json().catch(() => ({}));
   const fn = ACTIONS[b.action];
   if (!fn) return json({ ok: false, error: 'unknown action' }, 400);
-  try { return json({ ok: true, ...(await fn(env, b)) }); } catch (e) { return json({ ok: false, error: String(e.message || e) }, 200); }
+  /* timing: the browser sees it (Server-Timing), and slow actions are logged so the dashboard's slow spots show up */
+  const t0 = Date.now();
+  const done = (res) => {
+    const ms = Date.now() - t0;
+    try { res.headers.set('Server-Timing', `rpc;desc="${b.action}";dur=${ms}`); } catch { /* immutable headers */ }
+    if (ms > 1500) console.warn('slow rpc', b.action, ms + 'ms');
+    return res;
+  };
+  try { return done(json({ ok: true, ...(await fn(env, b)) })); } catch (e) { return done(json({ ok: false, error: String(e.message || e) }, 200)); }
 }
 
 /** POST /api/admin/label {id} -> that order's label as a PDF (binary, so it is not an RPC action). The browser joins many into one file. */

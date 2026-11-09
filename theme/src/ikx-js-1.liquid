@@ -88,8 +88,12 @@
       if (ikRetryN < 3) { clearTimeout(ikRetryT); ikRetryT = setTimeout(function () { ikRetry('quote'); }, 2000 * Math.pow(2, ikRetryN)); }
     }).observe(document.documentElement, { childList: true, subtree: true });
   } catch (e) {}
-  function api(path, body, method) {
-    return fetch(API + path, { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, keepalive: true }).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
+  /* Build 062: an optional deadline (ms). A request that hangs is cut off so the caller can retry at once, instead of
+     the sheet sitting on "Loading price…" until the browser gives up. */
+  function api(path, body, method, ms) {
+    var ctl = ms && window.AbortController ? new AbortController() : null, tm = ctl ? setTimeout(function () { ctl.abort(); }, ms) : 0;
+    return fetch(API + path, { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, keepalive: true, signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.json().then(function (j) { clearTimeout(tm); j._status = r.status; return j; }); }, function (e) { clearTimeout(tm); throw e; });
   }
   /* Meta pixel for IK checkout events. Shopify's Facebook app runs its pixel in a sandbox, so window.fbq is not on the
      page: load it here for the dataset the server sends to (quote.px), same event IDs, so Meta keeps one of each. */
@@ -230,7 +234,10 @@
     var sig = sigOf(lines) + (REF ? '|' + REF : ''), hit = QC[sig];
     if (hit && hit.q && Date.now() - hit.t < 600000) return Promise.resolve(hit.q);
     if (hit && hit.p) return hit.p;
-    var p = api('/api/quote', { lines: lines, attribution: attrNow(), pv: 2 }).then(function (q) {
+    /* Build 062: 9 s deadline; a timeout or network error is retried once straight away (12 s), before the slower
+       "Try again" path (ikRetry) ever shows */
+    var qb = { lines: lines, attribution: attrNow(), pv: 2 };
+    var p = api('/api/quote', qb, 'POST', 9000).catch(function () { return api('/api/quote', qb, 'POST', 12000); }).then(function (q) {
       if (!q.ok) { var qe = new Error('quote failed'); qe.q = q; throw qe; }
       QC[sig] = { q: q, t: Date.now() }; saveQC(); return q;
     }).catch(function (e) { delete QC[sig]; throw e; });

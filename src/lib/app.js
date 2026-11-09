@@ -51,9 +51,9 @@ const attrsIn = (b) => (b && b.attribution && typeof b.attribution === 'object' 
 
 async function handleQuote(req, env) {
   const body = await req.json();
-  const { raw, soldOut } = await splitSoldOut(env, cartLines(body));
+  const { raw, soldOut } = await splitSoldOut(env, cartLines(body), { cache: true });
   if (!raw.length) return json({ ok: false, sold_out: soldOut, error: soldOut.length ? `${soldOut.map((x) => x.title).join(', ')} just sold out. Please pick another design.` : 'Your cart is empty' }, 409);
-  const lines = await loadLines(env, raw);
+  const lines = await loadLines(env, raw, { cache: true });
   applyUpsells(env, raw, lines);
   /* Refer and earn: a friend's code (attribution.ref, from ?ref= on the store) takes ₹100 off the online-payment price */
   const pc = pricingCfg(env, body);
@@ -153,7 +153,7 @@ async function handleOrder(req, env, ctx) {
   const { raw, soldOut } = await splitSoldOut(env, cartLines(b));
   if (!raw.length) return json({ ok: false, sold_out: soldOut, error: `${soldOut.map((x) => x.title).join(', ') || 'This design'} just sold out. Please pick another design.` }, 409);
   if (soldOut.length) console.log('order without sold-out', soldOut.map((x) => x.title).join(', '));
-  const lines = await loadLines(env, raw);
+  const lines = await loadLines(env, raw, { cache: true }) /* reuses the fresh lookup splitSoldOut just made */;
   /* Same person, same tattoos again within 48 h (double tap, or ordering again after a WhatsApp code): don't make a
      second order. A new order that only repeats designs of an open one is refused with that order's number. */
   if (env.DB) {

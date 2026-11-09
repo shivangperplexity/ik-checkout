@@ -22,16 +22,60 @@ async function adminToken(env) {
   return cached.token;
 }
 
-export async function gql(env, query, variables = {}) {
-  const res = await fetch(`https://${env.SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': await adminToken(env) },
-    body: JSON.stringify({ query, variables }),
-  });
-  const data = await res.json();
-  if (!res.ok || data.errors) throw new Error('shopify: ' + JSON.stringify(data.errors || res.status));
-  return data.data;
+/* Nov 2026: a Shopify call that hung kept the checkout on "Loading price…" until the browser gave up. Every call now
+   has a deadline, and a network error / timeout / 5xx / throttle gets one quick second try (queries only: a mutation
+   that timed out may have gone through, so it is never sent twice). */
+const GQL_TIMEOUT_MS = 8000;
+const isMutation = (q) => /^\s*mutation\b/.test(q);
+async function gqlOnce(env, query, variables, ms) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const res = await fetch(`https://${env.SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': await adminToken(env) },
+      body: JSON.stringify({ query, variables }),
+      signal: ctl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.errors) {
+      const e = new Error('shopify: ' + JSON.stringify(data.errors || res.status));
+      e.retry = res.status >= 500 || res.status === 429 || /THROTTLED/.test(JSON.stringify(data.errors || ''));
+      throw e;
+    }
+    return data.data;
+  } catch (e) {
+    if (e.name === 'AbortError') { const t = new Error(`shopify: no answer in ${ms / 1000}s`); t.retry = true; throw t; }
+    if (e.retry === undefined) e.retry = true; /* fetch failed (network) */
+    throw e;
+  } finally { clearTimeout(timer); }
 }
+export async function gql(env, query, variables = {}, { timeoutMs = GQL_TIMEOUT_MS } = {}) {
+  try { return await gqlOnce(env, query, variables, timeoutMs); } catch (e) {
+    if (!e.retry || isMutation(query)) throw e;
+    await new Promise((r) => setTimeout(r, 250));
+    return gqlOnce(env, query, variables, timeoutMs);
+  }
+}
+
+/**
+ * Variant facts for the checkout (price, sold out, titles), one Shopify call for the whole cart. With { cache: true }
+ * (the price quote) answers are reused for 60 s on a warm instance, so repeat quotes of the same cart don't wait on
+ * Shopify; orders always read fresh. Returns the nodes in cart order (null for an unknown variant).
+ */
+const VCACHE = new Map(), VTTL = 60 * 1000;
+export async function variantNodes(env, variantIds, { cache = false } = {}) {
+  const ids = variantIds.map(String), t = Date.now();
+  const miss = cache ? ids.filter((id) => !(VCACHE.get(id)?.exp > t)) : ids;
+  if (miss.length) {
+    const uniq = [...new Set(miss)];
+    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on ProductVariant { id title price availableForSale product { title productType handle } } } }`,
+      { ids: uniq.map((id) => `gid://shopify/ProductVariant/${id}`) });
+    uniq.forEach((id, i) => VCACHE.set(id, { v: d.nodes[i] || null, exp: t + VTTL }));
+    if (VCACHE.size > 500) for (const [k, x] of VCACHE) if (!(x.exp > t)) VCACHE.delete(k);
+  }
+  return ids.map((id) => VCACHE.get(id)?.v ?? null);
+}
+export const _clearVariantCache = () => VCACHE.clear();
 
 function userErr(r, key) {
   const e = r[key].userErrors;
@@ -39,15 +83,10 @@ function userErr(r, key) {
 }
 
 /** Authoritative prices/types from Shopify; never trust the browser. */
-export async function loadLines(env, cartLines) {
-  const ids = cartLines.map((l) => `gid://shopify/ProductVariant/${l.variant_id}`);
-  const d = await gql(
-    env,
-    `query($ids:[ID!]!){ nodes(ids:$ids){ ... on ProductVariant { id title price availableForSale product { title productType handle } } } }`,
-    { ids },
-  );
+export async function loadLines(env, cartLines, opts = {}) {
+  const nodes = await variantNodes(env, cartLines.map((l) => l.variant_id), opts);
   return cartLines.map((l, i) => {
-    const v = d.nodes[i];
+    const v = nodes[i];
     if (!v) throw new Error('unknown variant ' + l.variant_id);
     if (!v.availableForSale) throw new Error('sold out: ' + v.product.title);
     return {
