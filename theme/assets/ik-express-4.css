@@ -64,3 +64,11 @@
 .ikx-ca__apps .ikx-po__app{min-height:92px}
 .ikx-ca__apps .ikx-po__logo{width:46px;height:46px}
 .ikx-ca__go{margin:4px 0 0;width:100%}
+
+/* Design images: show the full artwork (no cropping of wide script designs) in pick rail, free-gift tiles, cart and pill */
+.ikx-pick__img img,.ikx-fp__img img,.ikx-item__img img,.ikx-pill__img img{object-fit:contain!important;background:#fff;padding:4px;box-sizing:border-box}
+/* Same fix on every page (search "Recently viewed"/results, cart, collection cards, product pick rail, track page) */
+.resource-card__image,.resource-card__image--secondary,.resource-card__collection-image,.cart-items__media-image{object-fit:contain!important;background:#fff;padding:8px;box-sizing:border-box}
+.card-gallery [style*="--product-media-fit"],product-card [style*="--product-media-fit"],.product-card [style*="--product-media-fit"]{--product-media-fit:contain!important}
+.iks-pair img{object-fit:contain!important;padding:6px!important;background:#fff!important}
+.ikt .items img{object-fit:contain!important;width:72px!important;height:72px!important;padding:4px;background:#fff}

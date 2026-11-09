@@ -7,6 +7,11 @@
   4. A "Follow us on Instagram" strip above the footer.
 {%- endcomment -%}
 <style>
+/* Design images must never be cropped (wide script designs): search "Recently viewed" + results, cart drawer/page, collection cards */
+.resource-card__image,.resource-card__image--secondary,.resource-card__collection-image,.cart-items__media-image{object-fit:contain!important;background:#fff;padding:8px;box-sizing:border-box}
+.card-gallery [style*="--product-media-fit"],product-card [style*="--product-media-fit"],.product-card [style*="--product-media-fit"]{--product-media-fit:contain!important}
+</style>
+<style>
 .iks-fab{position:fixed;right:16px;bottom:18px;z-index:2147482000;display:flex;flex-direction:column;gap:12px;align-items:center;width:50px}
 .iks-fab button,.iks-fab a{all:unset;box-sizing:border-box;cursor:pointer;display:grid;place-items:center;width:50px;height:50px;border-radius:50%;box-shadow:0 6px 18px rgba(0,0,0,.22);-webkit-tap-highlight-color:transparent}
 .iks-fab .iks-chatbtn{background:#0a0a0c;color:#fff}
@@ -48,7 +53,7 @@
 .ikt .slabels{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;font-size:10.5px;color:#6b6760}
 .ikt .pill{display:inline-block;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:999px;background:#efece6}
 .ikt .pill.delivered{background:#e3f4ea;color:#13804b}.ikt .pill.ofd,.ikt .pill.ndr{background:#fff4dc;color:#a15c07}.ikt .pill.cancelled,.ikt .pill.returned{background:#fdecea;color:#b42318}
-.ikt .items{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ikt .items img{width:54px;height:54px;object-fit:cover;border-radius:10px;border:1px solid #eee}
+.ikt .items{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ikt .items img{width:72px;height:72px;object-fit:contain;background:#fff;padding:4px;border-radius:10px;border:1px solid #eee}
 .ikt .scan{border-left:2px solid #e7e3dd;padding:0 0 10px 12px;margin-left:4px;font-size:13.5px}.ikt .scan:first-child{border-color:#0a0a0c}
 .ikt .vid{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000;cursor:pointer}
 .ikt .vid img{width:100%;height:100%;object-fit:cover;opacity:.85}.ikt .vid span{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:54px}
@@ -62,7 +67,7 @@
 .iks-pair{margin:14px 0;padding:12px;border:1.5px dashed #0a0a0c;border-radius:14px;background:#faf8f5;font:14px/1.4 system-ui,-apple-system,sans-serif;color:#111}
 .iks-pair h4{margin:0 0 2px;font-size:15px}.iks-pair .mut{color:#6b6760;font-size:12.5px;margin:0 0 10px}
 .iks-pair .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-.iks-pair .it{display:flex;flex-direction:column;gap:4px;min-width:0}.iks-pair img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;background:#fff;border:1px solid #eee}
+.iks-pair .it{display:flex;flex-direction:column;gap:4px;min-width:0}.iks-pair img{width:100%;aspect-ratio:1;object-fit:contain;padding:6px;border-radius:10px;background:#fff;border:1px solid #eee}
 .iks-pair .t{font-size:12px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .iks-pair .p{font-size:12px;font-weight:700}.iks-pair button{all:unset;box-sizing:border-box;cursor:pointer;text-align:center;font-size:12.5px;font-weight:700;border:1.5px solid #0a0a0c;border-radius:999px;padding:6px 0}
 .iks-pair button.ok{background:#0a0a0c;color:#fff}
