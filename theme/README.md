@@ -139,3 +139,9 @@ the price can't load, part 1 now retries instead: `native()` retries, the old "C
 relabelled "Loading price… tap to try again" (MutationObserver), the price is refetched on its own at 2 / 4 / 8 s, and
 every retry is logged as a `fail` event `retry:<why>`. Part 3: the "pay on Shopify's checkout" note now says
 "Getting your price… one moment". Tested headless with a quote API that always fails: no navigation to /checkout.
+
+## Build 062: faster price loading (Nov 2026)
+
+Build 061 + `src/ikx-js-1.liquid`: the /api/quote request has a 9 s deadline and retries once straight away (12 s)
+before the "Try again" path shows. Made by updating the unpublished Build 060 copy (the store was at the 20-theme
+limit), so it carries 061's `assets/ik-express-4.css` too.
