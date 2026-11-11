@@ -94,11 +94,24 @@ export async function cancelRequest(env, phone, name, reason) {
   const why = CANCEL_REASONS.includes(reason) ? reason : 'Other';
   const have = await env.DB.prepare("SELECT id FROM cancel_requests WHERE order_id=? AND status='open'").bind(o.order_id).first();
   if (have) return { ok: true, already: true };
+  /* Nov 2026: the customer is logged in on this number and asked to cancel a COD order the courier has not picked up:
+     cancel it now instead of waiting for the team (the code is only a second check; WhatsApp being down is not a reason
+     to keep the parcel going). A failure still becomes a request for the team. */
+  try {
+    const { action } = await import('./admin.js');
+    const res = (await action('cancel_orders')(env, { ids: [o.order_id] })).results?.[0] || {};
+    if (res.ok || /Already cancelled/i.test(res.note || '')) {
+      try { const { addTags } = await import('./shopify.js'); await addTags(env, `gid://shopify/Order/${o.order_id}`, ['cancelled-by-customer', 'cancel: ' + why]); } catch { /* best effort */ }
+      const { logMsg } = await import('./whatsapp.js');
+      await logMsg(env, { direction: 'in', phone, trigger: 'self_cancel', template: why, status: res.queued ? 'queued' : 'cancelled', orderName: o.order_name, preview: `Customer cancelled ${o.order_name} on the track page without the code (${why}); cancelled automatically before pickup` }).catch(() => {});
+      return { ok: true, cancelled: true, queued: !!res.queued };
+    }
+  } catch (e) { console.error('cancel request auto', o.order_name, e.message); }
   await env.DB.prepare("INSERT INTO cancel_requests (order_id, order_name, phone, reason, status, created_at) VALUES (?,?,?,?,'open',?)").bind(o.order_id, o.order_name, phone, why, now()).run();
   const paid = o.method !== 'cod';
   const { logMsg } = await import('./whatsapp.js');
   await logMsg(env, { direction: 'in', phone, trigger: 'ticket', template: '', status: 'received', orderName: o.order_name, preview: `🛑 Cancellation request for ${o.order_name} (${why}). ${paid ? 'Paid online: cancel it and refund the payment in PayU.' : 'The WhatsApp code could not be sent.'} Home > Cancellation requests.` }).catch(() => {});
-  try { const { openHandoff } = await import('./inbox.js'); await openHandoff(env, phone, `Cancel request ${o.order_name}`); } catch { /* best effort */ }
+  try { const { openHandoff } = await import('./inbox.js'); await openHandoff(env, phone, `Cancel request ${o.order_name}`, { pause: false }); } catch { /* best effort */ }
   return { ok: true };
 }
 

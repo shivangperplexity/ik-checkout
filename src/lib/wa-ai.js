@@ -51,7 +51,9 @@ const SYSTEM = (knowledge, orders, note = '') => `You are the WhatsApp assistant
 Rules:
 - Be warm, short and plain: WhatsApp style, 1 to 4 short sentences, no headings, no markdown, no emojis unless the customer uses them. Reply in the language the customer wrote in (English, Hindi, or Hinglish in Latin script).
 - Answer only from the STORE KNOWLEDGE and the CUSTOMER'S ORDERS below. If the answer is not there, say you are not sure and that the team will reply, and end your message with the exact token [HANDOFF].
-- Never invent prices, delivery dates, discounts, refunds or policies. Never promise a refund, replacement, cancellation or a specific date: say the team will confirm and end with [HANDOFF].
+- Never invent prices, delivery dates, discounts, refunds or policies. Never promise a refund or replacement: say the team will confirm and end with [HANDOFF].
+- Order status and delivery dates are YOUR job, never a hand-off: give the status, the expected date or window exactly as CUSTOMER'S ORDERS states it (say "expected", it is the courier's estimate), the last scan if given, and [TRACK #number]. Do not say the team will confirm the date.
+- Cancelling an order that CUSTOMER'S ORDERS says "can be cancelled" is also YOUR job (see [CANCEL] below), never a hand-off. For an order that cannot be cancelled, explain why from its line, kindly, without a hand-off.
 - For a complaint, a damaged or wrong item, a refund or payment problem, anything angry, or a request to talk to a person: acknowledge briefly, say a team member will reply here, and end with [HANDOFF].
 - For "where is my order" use the CUSTOMER'S ORDERS: name the order, its status and the expected date if one is given, where the parcel was last scanned if that is given, and the tracking link if there is one. If there are no orders for this number, say you cannot see an order on this number and ask for the order number, then end with [HANDOFF].
 - To confirm or cancel a COD order the customer can reply YES or CANCEL; after a failed delivery they can reply RE-ATTEMPT or RETURN. Mention these only when relevant.
@@ -60,7 +62,7 @@ Rules:
 ACTIONS you can take yourself (put the token at the very end of your reply; the system does it and adds the result):
 - [TRACK #1234]: the order's own tracking / manage page link. Use it whenever you talk about an order's status.
 - [ADDRESS #1234]: a link where the customer changes the delivery address or phone. Only for orders whose line says "address can be changed".
-- [CANCEL #1234]: cancels a Cash on Delivery order at once. Only for orders whose line says "can be cancelled", and ONLY after the customer has clearly confirmed in this chat. The first time they ask, ask why in one line and offer the fitting alternative (change the address, a different delivery day, or keep it: it is already packed in their name), and ask them to confirm. If they confirm or insist, cancel: no more persuading.
+- [CANCEL #1234]: cancels a Cash on Delivery order at once. Only for orders whose line says "can be cancelled", and ONLY after the customer has clearly confirmed in this chat. The first time they ask, ask why in one line and offer the fitting alternative (change the address, a different delivery day, or keep it: it is already packed in their name), and ask them to confirm. If they confirm or insist (yes / haan / cancel kar do / they repeat the request or give a reason), cancel: no more persuading. If they have more than one order that can be cancelled and did not say which, ask which one.
 - Orders paid online (prepaid, or COD with an advance paid online) can NOT be cancelled. Say so kindly and offer the address change instead; never promise a refund or cancellation for them, and do not hand off just for that.
 - Never use an action for an order that is not in CUSTOMER'S ORDERS. After the courier has picked a parcel up it cannot be cancelled: say so kindly (they may refuse it at the door, nothing to pay for COD).
 
@@ -96,6 +98,23 @@ async function liveScans(env, awb, n = 3) {
   } catch { return null; }
 }
 
+/**
+ * Pure: the usual delivery window when the courier gave no date: 3 to 6 days after pickup (policy), pickup = the
+ * courier's pickup time, else the next working day (no Sunday pickups). '' for delivered / returned / cancelled.
+ */
+export function usualWindow(r, t = Math.floor(Date.now() / 1000)) {
+  if (r.status === 'cancelled' || ['delivered', 'rto', 'lost'].includes(r.stage)) return '';
+  const D = 86400;
+  let pick = Number(r.picked_at) || 0;
+  if (!pick) {
+    pick = t + D;
+    if (new Date((pick + 19800) * 1000).getUTCDay() === 0) pick += D;
+  }
+  const from = pick + 3 * D, to = pick + 6 * D;
+  if (to < t) return 'it is later than usual, it should arrive any day now';
+  return `usually delivers ${day(Math.max(from, t))} to ${day(to)}${r.picked_at ? '' : ' (3 to 6 days after the courier picks it up)'}`;
+}
+
 function orderLine(r, live) {
   let items = ''; try { items = JSON.parse(r.contents_json || '[]').map((c) => `${c.title || c.sku || 'item'} x${c.quantity || 1}`).join(', ').slice(0, 160); } catch { items = ''; }
   let state;
@@ -105,13 +124,14 @@ function orderLine(r, live) {
     state = `shipped with ${r.courier || 'our courier'}, AWB ${r.awb}: ${STAGE_LABEL[r.stage] || r.stage}`
       + (r.stage === 'delivered' && r.delivered_at ? ` on ${day(r.delivered_at)}` : '')
       + (edd && ['transit', 'ofd', 'ndr'].includes(r.stage) ? `, expected ${edd}` : '')
+      + (!edd && ['transit', 'pickup_pending', 'pickup_failed', 'booked'].includes(r.stage) && usualWindow(r) ? `, ${usualWindow(r)}` : '')
       + (r.stage === 'ndr' ? (r.ndr_choice ? ` (customer chose ${r.ndr_choice}${r.ndr_date ? ' on ' + r.ndr_date : ''})` : ' (delivery attempt failed; customer can reply RE-ATTEMPT or RETURN)') : '')
       + (r.stage === 'pickup_pending' || r.stage === 'pickup_failed' ? ' (packed and waiting for the courier to collect it)' : '')
       + `, courier tracking ${trackUrlOf(r)} (for the customer use [TRACK ${r.order_name}] instead)`
       + (live && live.scans.length ? `. Latest courier scans: ${live.scans.join(' | ')}` : '');
   } else if (r.shipped_at) state = `shipped${r.tracking ? ' (' + r.tracking + ')' : ''}`;
   else if (r.method === 'cod' && !r.confirmed_at) state = 'placed, COD not yet confirmed by the customer (they can reply YES to confirm); not shipped yet';
-  else state = 'confirmed, being packed, not shipped yet (dispatch within 1 to 2 working days)';
+  else state = `confirmed, being packed, not shipped yet (dispatch within 1 to 2 working days; ${usualWindow(r)})`;
   const pre = r.status !== 'cancelled' && cancellable({ status: r.status, stage: r.awb ? r.stage : '', picked_at: r.picked_at, delivered_at: r.delivered_at });
   const cod = r.method === 'cod' && !(Number(r.advance_paise) > 0) && !r.converted_at;
   const can = pre ? (cod ? ` It can be cancelled ([CANCEL ${r.order_name}]) and its address can be changed ([ADDRESS ${r.order_name}]), as the courier has not picked it up yet.`
@@ -120,7 +140,7 @@ function orderLine(r, live) {
 }
 
 const ORDER_SQL = `SELECT o.order_id, o.order_name, o.phone, o.status, o.method, o.total_paise, o.confirmed_at, o.shipped_at, o.tracking, o.created_at, o.contents_json, o.converted_at, o.advance_paise,
-    s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.status AS ship_status, s.ndr_choice, s.ndr_date, s.picked_at
+    s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.status AS ship_status, s.ndr_choice, s.ndr_date, s.picked_at, s.provider
     FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'`;
 
 /** Orders Shopify has for this phone when this database has none (placed outside the IK checkout). */
@@ -363,10 +383,12 @@ export async function answerPhone(env0, phone, { route = null } = {}) {
   }
   await logMsg(env, { direction: 'out', phone, trigger: 'ai', template: a.handoff ? 'handoff' : 'answer', status: !res.ok ? 'failed' : a.handoff ? 'handoff' : 'accepted', wamid: res.id || '', error: res.ok ? '' : `${res.via}${used?.phoneId ? ' ' + used.phoneId : ''}: ${res.error}`, preview: a.text });
   if (!res.ok) return 'failed';
+  let pinged = false;
   if (a.handoff) {
-    try { const { openHandoff } = await import('./inbox.js'); await openHandoff(env0, phone, text.slice(0, 200)); } catch (e) { console.error('handoff', e.message); }
+    /* the assistant keeps answering (no pause): the chat is flagged for the team, the owner is pinged once per open hand-off */
+    try { const I = await import('./inbox.js'); pinged = await I.handoffOpen(env0, phone); await I.openHandoff(env0, phone, text.slice(0, 200), { pause: false }); } catch (e) { console.error('handoff', e.message); }
   }
-  if (a.handoff && env0.SETTINGS?.wa?.admin_phone) {
+  if (a.handoff && !pinged && env0.SETTINGS?.wa?.admin_phone) {
     const link = env0.WORKER_URL ? `\nReply here: ${String(env0.WORKER_URL).replace(/\/$/, '')}/admin#chat=${phone}` : '';
     try { await sendText(env0, '91' + String(env0.SETTINGS.wa.admin_phone).replace(/\D/g, '').slice(-10), `Customer +91 ${phone} needs a reply (assistant handed off).\nThey wrote: "${text.slice(0, 300)}"\nAssistant said: "${a.text.slice(0, 300)}"${link}`); } catch { /* best effort */ }
   }

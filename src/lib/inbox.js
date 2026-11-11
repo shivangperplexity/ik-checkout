@@ -17,12 +17,24 @@ const PLAIN_IN = "direction='in' AND trigger='reply' AND COALESCE(template,'')='
 const routeOf = (wamid) => { const m = /^in:(g4w|meta)(?::(.+))?$/.exec(String(wamid || '')); return m ? { via: m[1], phoneId: m[2] || '' } : null; };
 const clean = (p) => String(p || '').replace(/\D/g, '').slice(-10);
 
-/** Open (or keep open) a chat for the team. why: 'handoff' | 'takeover' | text. */
-export async function openHandoff(env, phone, why = 'handoff') {
+/**
+ * Open (or keep open) a chat for the team. why: 'handoff' | 'takeover' | text.
+ * pause: keep the assistant quiet (a person took the chat over). Nov 2026: a hand-off by the assistant itself or a
+ * support ticket no longer silences it, so "where is my order" an hour later still gets an answer; a team reply or
+ * takeover still does (24 h). An existing pause is never shortened.
+ */
+export async function openHandoff(env, phone, why = 'handoff', { pause = true } = {}) {
   const t = now();
   await env.DB.prepare(`INSERT INTO wa_handoff (phone, state, reason, opened_at, ai_paused_until) VALUES (?,?,?,?,?)
-    ON CONFLICT (phone) DO UPDATE SET state='open', reason=EXCLUDED.reason, opened_at=CASE WHEN wa_handoff.state='open' THEN wa_handoff.opened_at ELSE EXCLUDED.opened_at END, resolved_at=NULL, ai_paused_until=EXCLUDED.ai_paused_until`)
-    .bind(clean(phone), 'open', String(why).slice(0, 300), t, t + PAUSE).run();
+    ON CONFLICT (phone) DO UPDATE SET state='open', reason=EXCLUDED.reason, opened_at=CASE WHEN wa_handoff.state='open' THEN wa_handoff.opened_at ELSE EXCLUDED.opened_at END, resolved_at=NULL,
+      ai_paused_until=GREATEST(COALESCE(wa_handoff.ai_paused_until, 0), COALESCE(EXCLUDED.ai_paused_until, 0))`)
+    .bind(clean(phone), 'open', String(why).slice(0, 300), t, pause ? t + PAUSE : null).run();
+}
+
+/** Is a hand-off already open for this phone (so the owner is not pinged again)? */
+export async function handoffOpen(env, phone) {
+  const r = await env.DB.prepare('SELECT state FROM wa_handoff WHERE phone=?').bind(clean(phone)).first().catch(() => null);
+  return !!r && r.state === 'open';
 }
 
 /** Is the assistant paused for this phone (a person is handling it)? */

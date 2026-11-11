@@ -92,11 +92,73 @@ export async function createTicket(env, phone, b) {
   const { logMsg, fireTrigger } = await import('./whatsapp.js');
   /* into the Chats tab as the customer's message (trigger 'ticket': not a WhatsApp message, so it doesn't open the 24 h window) */
   await logMsg(env, { direction: 'in', phone, trigger: 'ticket', template: '', status: 'received', orderName: order, preview: `🎫 Support request ${ref}${order ? ' · order ' + order : ''} · ${topic}\n${message}` });
+  /* "Where is my order" and "Cancel my order" are answered at once from the order itself (Nov 2026); the rest, or
+     anything these cannot settle, goes to the team. The assistant is not paused by a ticket. */
+  let auto = null;
+  try { auto = await autoTicket(env, phone, topic, order); } catch (e) { console.error('auto ticket', ref, e.message); auto = null; }
   const { openHandoff } = await import('./inbox.js');
-  await openHandoff(env, phone, `Ticket ${ref}: ${topic}`);
+  if (!auto || auto.handoff) await openHandoff(env, phone, `Ticket ${ref}: ${topic}`, { pause: false });
   const name = (await env.DB.prepare('SELECT first_name FROM orders WHERE phone=? AND first_name IS NOT NULL ORDER BY created_at DESC LIMIT 1').bind(phone).first())?.first_name || 'there';
-  const told = await fireTrigger(env, 'support_reply', { to: phone, vars: { name: String(name).split(/\s+/)[0], ticket: ref, reply: `We have received your request about "${topic}" and will reply here soon.` }, orderName: order }).catch((e) => ({ ok: false, error: e.message }));
-  return { ok: true, ticket: ref, whatsapp: !!told?.ok };
+  const reply = auto?.reply || `We have received your request about "${topic}" and will reply here soon.`;
+  const told = await fireTrigger(env, 'support_reply', { to: phone, vars: { name: String(name).split(/\s+/)[0], ticket: ref, reply }, orderName: auto?.order || order }).catch((e) => ({ ok: false, error: e.message }));
+  if (auto?.reply) {
+    await logMsg(env, { direction: 'out', phone, trigger: 'auto', template: 'support_reply', status: told?.ok ? 'sent' : 'failed', orderName: auto.order || order, preview: reply }).catch(() => {});
+    await env.DB.prepare(`UPDATE tickets SET replied_at=?${auto.handoff ? '' : ", status='closed', closed_at=?"} WHERE id=?`).bind(...(auto.handoff ? [now(), r.id] : [now(), now(), r.id])).run().catch(() => {});
+  }
+  return { ok: true, ticket: ref, whatsapp: !!told?.ok, answered: !!auto?.reply, cancelled: !!auto?.cancelled };
+}
+
+/**
+ * A ticket the system can settle itself. Returns { reply, order, handoff, cancelled } or null (send to the team).
+ *   Where is my order: the order's status, expected date and its track link.
+ *   Cancel my order: a Cash on Delivery order the courier has not picked up is cancelled at once (the customer is
+ *   logged in on this number and asked in writing); paid-online or already picked up: why not, and what they can do.
+ */
+export async function autoTicket(env, phone, topic, orderName = '') {
+  if (topic !== 'Where is my order' && topic !== 'Cancel my order') return null;
+  const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.method, o.confirmed_at, o.advance_paise, o.converted_at, o.created_at,
+      s.awb, s.stage, s.edd, s.delivered_at, s.rto, s.picked_at, s.provider, s.courier
+    FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'
+    WHERE o.phone=? AND o.order_id IS NOT NULL AND o.status NOT IN ('pending_payment','failed','completing') ORDER BY o.created_at DESC LIMIT 10`).bind(phone).all()).results;
+  if (!rows.length) return null;
+  const named = orderName ? rows.find((o) => o.order_name === '#' + String(orderName).replace(/^#/, '')) : null;
+  if (orderName && !named) return null;   /* an order number that is not theirs, or unknown: the team checks */
+  const { trackLink } = await import('./self-cancel.js');
+  const live = rows.filter((o) => o.status !== 'cancelled');
+
+  if (topic === 'Where is my order') {
+    const o = named || live[0] || rows[0];
+    const st = customerStatus(o);
+    let when = '';
+    if (o.edd && !['delivered', 'returned', 'cancelled'].includes(st.key)) {
+      const e = /^\d{4}-\d{2}-\d{2}/.test(String(o.edd)) ? new Date(String(o.edd).slice(0, 10) + 'T12:00:00+05:30').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) : String(o.edd);
+      when = ` Expected delivery: ${e}.`;
+    } else if (['packed', 'transit', 'confirmed', 'ndr'].includes(st.key)) {
+      const { usualWindow } = await import('./wa-ai.js');
+      const w = usualWindow(o);
+      if (w) when = ` It ${w}.`;
+    }
+    const courier = o.awb && o.courier ? ` with ${o.courier}` : '';
+    return { order: o.order_name, reply: `Your order ${o.order_name}: ${st.text}${courier}.${when} Live tracking: ${await trackLink(env, o.order_id)}`, handoff: st.key === 'issue' };
+  }
+
+  /* Cancel my order */
+  const can = live.filter((o) => cancellable(o));
+  const o = named || (can.length === 1 ? can[0] : null) || (!can.length ? live[0] : null);
+  if (!o) return { order: '', reply: `You have more than one order that can still be cancelled (${can.map((x) => x.order_name).join(', ')}). Please tell us which one, or cancel it yourself on ${await trackLink(env, can[0].order_id)}`, handoff: true };
+  if (o.status === 'cancelled') return { order: o.order_name, reply: `Order ${o.order_name} is already cancelled. Nothing to pay.`, handoff: false };
+  if (!cancellable(o)) {
+    if (o.stage === 'delivered' || o.delivered_at) return { order: o.order_name, reply: `Order ${o.order_name} was already delivered, so it can't be cancelled. Our team will reply here about what you need.`, handoff: true };
+    return { order: o.order_name, reply: `Order ${o.order_name} has already been picked up by the courier, so it can't be cancelled now.${codOnly(o) ? ' If you don\'t want it, you can refuse it at the door: there is nothing to pay.' : ' Our team will reply here.'}`, handoff: !codOnly(o) };
+  }
+  if (!codOnly(o)) return { order: o.order_name, reply: `Order ${o.order_name} was paid online, so it can't be cancelled. You can still change the delivery address until it ships: ${await trackLink(env, o.order_id)}`, handoff: false };
+  const { action } = await import('./admin.js');
+  const res = (await action('cancel_orders')(env, { ids: [o.order_id] })).results?.[0] || {};
+  if (!res.ok && !/Already cancelled/i.test(res.note || '')) return { order: o.order_name, reply: `We couldn't cancel order ${o.order_name} automatically. Our team will cancel it and confirm here shortly.`, handoff: true };
+  try { const { addTags } = await import('./shopify.js'); await addTags(env, `gid://shopify/Order/${o.order_id}`, ['cancelled-by-customer', 'cancel: support ticket']); } catch { /* tag is best effort */ }
+  const { logMsg } = await import('./whatsapp.js');
+  await logMsg(env, { direction: 'in', phone, trigger: 'self_cancel', template: 'ticket', status: res.queued ? 'queued' : 'cancelled', orderName: o.order_name, preview: `Customer cancelled ${o.order_name} with a support request (cancelled automatically before pickup)` }).catch(() => {});
+  return { order: o.order_name, reply: `Order ${o.order_name} is cancelled${res.queued ? ' (it will show as cancelled in a few minutes)' : ''}. Nothing to pay. You can order again anytime at inkkulture.in`, handoff: false, cancelled: true };
 }
 
 export async function ticketsOf(env, phone) {
