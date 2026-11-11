@@ -87,8 +87,16 @@ export async function seoCheck(env, { urls = [], theme = '' } = {}) {
     if (url.hostname !== 'www.inkkulture.in') { out.push({ url: u, error: 'host not allowed' }); continue; }
     if (theme) url.searchParams.set('preview_theme_id', String(theme).replace(/\D/g, ''));
     try {
-      const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; IK-SEO-check)' }, redirect: 'follow' });
-      out.push({ url: url.pathname, status: r.status, ...inspectHtml(await r.text()) });
+      /* a theme preview answers with a redirect that sets a cookie: follow by hand, carrying the cookies */
+      let cur = url.toString(), r, jar = {};
+      for (let i = 0; i < 6; i++) {
+        r = await fetch(cur, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; IK-SEO-check)', Cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ') }, redirect: 'manual' });
+        for (const c of r.headers.getSetCookie?.() || []) { const [kv] = c.split(';'); const k = kv.split('=')[0]; jar[k] = kv.slice(k.length + 1); }
+        if (r.status < 300 || r.status >= 400) break;
+        cur = new URL(r.headers.get('location'), cur).toString();
+      }
+      const html = await r.text();
+      out.push({ url: url.pathname, status: r.status, theme: (html.match(/Shopify\.theme\s*=\s*\{[^}]*"id":(\d+)/) || [])[1] || '', ...inspectHtml(html) });
     } catch (e) { out.push({ url: u, error: e.message }); }
   }
   return { pages: out };
