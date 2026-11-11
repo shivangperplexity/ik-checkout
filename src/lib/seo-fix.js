@@ -44,7 +44,7 @@ export async function fixAlts(env, { dry = true, max = 2000 } = {}) {
 
 /** Collection page copy (src/lib/seo-collections.json): 150-200 words with question headings, plus fixed meta descriptions. */
 export async function applyCollections(env, { dry = true } = {}) {
-  const { default: list } = await import('./seo-collections.json', { with: { type: 'json' } });
+  const { default: list } = await import('./seo-collections.js');
   if (dry) return { dry: true, collections: list.length, handles: list.map((c) => c.handle) };
   const done = [], errors = [];
   for (const c of list) {

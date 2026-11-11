@@ -1,4 +1,4 @@
-[
+export default [
  {
   "id": "gid://shopify/Collection/495351267563",
   "handle": "minimal-fineline",
@@ -148,4 +148,4 @@
    "description": "Large semi-permanent tattoos, 11 × 18 cm and up: forearm, chest, back and sleeve pieces. Needle-free real-ink look, lasts 1-2 weeks. Buy 1 Get 1 Free, COD."
   }
  }
-]
+];
