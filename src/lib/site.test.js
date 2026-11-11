@@ -22,7 +22,8 @@ const envOf = (rows) => ({ ADMIN_SECRET: 'x', DB: { prepare: () => ({ bind: () =
 test('usual delivery window: 3 to 6 days after pickup, next working day when not picked up, none when finished', () => {
   assert.match(usualWindow({ stage: 'transit', picked_at: T - 86400 }, T), /usually delivers 13 Nov to 16 Nov$/);
   assert.match(usualWindow({ stage: 'pickup_pending' }, T), /15 Nov to 18 Nov \(3 to 6 days after the courier picks it up\)/);
-  assert.match(usualWindow({ stage: 'transit', picked_at: T - 9 * 86400 }, T), /any day now/);
+  assert.match(usualWindow({ stage: 'transit', picked_at: T - 7 * 86400 }, T), /any day now/);
+  assert.match(usualWindow({ stage: 'transit', picked_at: T - 9 * 86400 }, T), /delayed with the courier/);
   assert.equal(usualWindow({ stage: 'delivered' }, T), '');
   assert.equal(usualWindow({ status: 'cancelled' }, T), '');
 });

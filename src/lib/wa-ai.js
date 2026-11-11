@@ -112,6 +112,7 @@ export function usualWindow(r, t = Math.floor(Date.now() / 1000)) {
     if (new Date((pick + 19800) * 1000).getUTCDay() === 0) pick += D;
   }
   const from = pick + 3 * D, to = pick + 6 * D;
+  if (to < t - 2 * D) return 'it is delayed with the courier, past the usual 3 to 6 days';
   if (to < t) return 'it is later than usual, it should arrive any day now';
   return `usually delivers ${day(Math.max(from, t))} to ${day(to)}${r.picked_at ? '' : ' (3 to 6 days after the courier picks it up)'}`;
 }
@@ -126,6 +127,7 @@ function orderLine(r, live) {
       + (r.stage === 'delivered' && r.delivered_at ? ` on ${day(r.delivered_at)}` : '')
       + (edd && ['transit', 'ofd', 'ndr'].includes(r.stage) ? `, expected ${edd}` : '')
       + (!edd && ['transit', 'pickup_pending', 'pickup_failed', 'booked'].includes(r.stage) && usualWindow(r) ? `, ${usualWindow(r)}` : '')
+      + (/delayed with the courier/.test(usualWindow(r)) && !edd ? ' (tell the customer sorry, the team will check it with the courier today, and end with [HANDOFF]; do not give a date)' : '')
       + (r.stage === 'ndr' ? (r.ndr_choice ? ` (customer chose ${r.ndr_choice}${r.ndr_date ? ' on ' + r.ndr_date : ''})` : ' (delivery attempt failed; customer can reply RE-ATTEMPT or RETURN)') : '')
       + (r.stage === 'pickup_pending' || r.stage === 'pickup_failed' ? ' (packed and waiting for the courier to collect it)' : '')
       + `, courier tracking ${trackUrlOf(r)} (for the customer use [TRACK ${r.order_name}] instead)`
@@ -254,6 +256,9 @@ export async function callModel(c, P, system, merged, o = {}) {
   return { r, j, out };
 }
 
+/** A reply that hands the chat to a person says so (English / Hindi / Hinglish). */
+export const SAYS_TEAM = /\b(team|teammate|someone|a person|colleague|support|executive|get back|reply (here )?(soon|shortly)|will (reply|contact|call|check|confirm)|reply kareg|batayeg|baat kareg|check kareg|sampark)/i;
+
 export async function aiAnswer(env, { phone, text, thread = [], note = '', dry = false }) {
   const c = aiCfg(env);
   const orders = phone ? await customerOrders(env, phone, text).catch(() => '') : '';
@@ -279,7 +284,8 @@ export async function aiAnswer(env, { phone, text, thread = [], note = '', dry =
   }
   if (!r.ok) { const e = new Error(`${P.label.split(' (')[0]} ${r.status}${r.status === 429 ? ' (free limit reached for now)' : ''}: ` + (j.error?.message || j.message || JSON.stringify(j).slice(0, 200))); e.status = r.status; throw e; }
   out = String(out || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/^[\s\S]*<\/think>/, '').trim();
-  let handoff = /\[HANDOFF\]/.test(out);
+  /* the model sometimes tags a complete answer with [HANDOFF]: a real hand-off tells the customer a person will reply */
+  let handoff = /\[HANDOFF\]/.test(out) && SAYS_TEAM.test(out);
   out = out.replace(/\s*\[HANDOFF\]\s*/g, ' ').replace(/\s+$/, '').trim();
   /* actions the model asked for: only on this phone's own orders */
   const acts = [...out.matchAll(/\[(TRACK|ADDRESS|CANCEL_REQUEST|CANCEL)\s+#?(\d{3,6})\]/g)].map((m) => ({ kind: m[1], name: '#' + m[2] }));

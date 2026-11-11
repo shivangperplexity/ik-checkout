@@ -193,3 +193,12 @@ test('saved model not available to this key: switches to one from the key\'s lis
   } finally { globalThis.fetch = real; }
   assert.equal(pickModel(['llama-3.1-8b-instant', 'qwen/qwen3.8-27b']), 'qwen/qwen3.8-27b');
 });
+
+import { SAYS_TEAM } from './wa-ai.js';
+test('a hand-off must tell the customer a person will reply; a plain answer tagged [HANDOFF] is not one', () => {
+  assert.ok(SAYS_TEAM.test('Sorry about that! A team member will reply here shortly.'));
+  assert.ok(SAYS_TEAM.test('Hamari team aapko jaldi reply karegi.'));
+  assert.ok(SAYS_TEAM.test('Courier se check karke team batayegi.'));
+  assert.ok(!SAYS_TEAM.test('They last 1 to 2 weeks depending on your skin type.'));
+  assert.ok(!SAYS_TEAM.test('Ye 1-2 hafte tak chalta hai.'));
+});

@@ -129,7 +129,7 @@ export async function autoTicket(env, phone, topic, orderName = '') {
   if (topic === 'Where is my order') {
     const o = named || live[0] || rows[0];
     const st = customerStatus(o);
-    let when = '';
+    let when = '', late = false;
     if (o.edd && !['delivered', 'returned', 'cancelled'].includes(st.key)) {
       const e = /^\d{4}-\d{2}-\d{2}/.test(String(o.edd)) ? new Date(String(o.edd).slice(0, 10) + 'T12:00:00+05:30').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) : String(o.edd);
       when = ` Expected delivery: ${e}.`;
@@ -137,9 +137,10 @@ export async function autoTicket(env, phone, topic, orderName = '') {
       const { usualWindow } = await import('./wa-ai.js');
       const w = usualWindow(o);
       if (w) when = ` It ${w}.`;
+      if (/delayed with the courier/.test(w)) { late = true; when += ' Our team is checking it with the courier and will update you here.'; }
     }
     const courier = o.awb && o.courier ? ` with ${o.courier}` : '';
-    return { order: o.order_name, reply: `Your order ${o.order_name}: ${st.text}${courier}.${when} Live tracking: ${await trackLink(env, o.order_id)}`, handoff: st.key === 'issue' };
+    return { order: o.order_name, reply: `Your order ${o.order_name}: ${st.text}${courier}.${when} Live tracking: ${await trackLink(env, o.order_id)}`, handoff: st.key === 'issue' || late };
   }
 
   /* Cancel my order */
