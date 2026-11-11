@@ -11,6 +11,10 @@
     assign ik_logo = settings.logo | image_url: width: 512 | prepend: 'https:'
   elsif shop.brand.logo != blank
     assign ik_logo = shop.brand.logo | image_url: width: 512 | prepend: 'https:'
+  elsif settings.favicon != blank
+    assign ik_logo = settings.favicon | image_url: width: 512, height: 512 | prepend: 'https:'
+  else
+    assign ik_logo = 'ikl-logo-black.svg' | asset_url | prepend: 'https:'
   endif
   assign ik_year = 'now' | date: '%s' | plus: 31536000 | date: '%Y-%m-%d'
   assign ik_cur = cart.currency.iso_code | default: 'INR'
@@ -24,7 +28,7 @@
   endif
 -%}
 {%- capture ik_org -%}
-{"@type":"Organization","@id":"{{ ik_url }}/#org","name":"Ink Kulture","alternateName":"Ink Kulture Semi Permanent Tattoos","legalName":"SMG GO Private Limited","url":"{{ ik_url }}"{% if ik_logo != blank %},"logo":"{{ ik_logo }}"{% endif %},"description":"Ink Kulture makes needle-free semi-permanent tattoos in India that look like real ink and last 1-2 weeks.","email":"smggoindia@gmail.com","telephone":"+91-73979-73573","address":{"@type":"PostalAddress","addressLocality":"Ulwe, Navi Mumbai","addressRegion":"Maharashtra","postalCode":"410206","addressCountry":"IN"},"employee":[{"@type":"Person","name":"Shivang Gupta","jobTitle":"Chief Executive Officer"},{"@type":"Person","name":"Sristi Gupta","jobTitle":"Chief Financial Officer"},{"@type":"Person","name":"Shivam Mali","jobTitle":"Chief Operating Officer"}],"contactPoint":{"@type":"ContactPoint","contactType":"customer service","telephone":"+91-73979-73573","email":"smggoindia@gmail.com","areaServed":"IN","availableLanguage":["English","Hindi"],"hoursAvailable":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],"opens":"10:00","closes":"19:00"}},"sameAs":["https://www.instagram.com/inkkulture.in/"]}
+{"@type":"Organization","@id":"{{ ik_url }}/#org","name":"Ink Kulture","alternateName":{{ shop.name | json }},"legalName":"SMG GO Private Limited","url":"{{ ik_url }}"{% if ik_logo != blank %},"logo":"{{ ik_logo }}"{% endif %},"description":"Ink Kulture makes needle-free semi-permanent tattoos in India that look like real ink and last 1-2 weeks.","email":"smggoindia@gmail.com","telephone":"+91-73979-73573","address":{"@type":"PostalAddress","addressLocality":"Ulwe, Navi Mumbai","addressRegion":"Maharashtra","postalCode":"410206","addressCountry":"IN"},"employee":[{"@type":"Person","name":"Shivang Gupta","jobTitle":"Chief Executive Officer"},{"@type":"Person","name":"Sristi Gupta","jobTitle":"Chief Financial Officer"},{"@type":"Person","name":"Shivam Mali","jobTitle":"Chief Operating Officer"}],"contactPoint":{"@type":"ContactPoint","contactType":"customer service","telephone":"+91-73979-73573","email":"smggoindia@gmail.com","areaServed":"IN","availableLanguage":["English","Hindi"],"hoursAvailable":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],"opens":"10:00","closes":"19:00"}},"sameAs":["https://www.instagram.com/inkkulture.in/"]}
 {%- endcapture -%}
 {%- capture ik_ship -%}
 {"@type":"OfferShippingDetails","shippingRate":{"@type":"MonetaryAmount","value":0,"currency":"{{ ik_cur }}"},"shippingDestination":{"@type":"DefinedRegion","addressCountry":"IN"},"deliveryTime":{"@type":"ShippingDeliveryTime","handlingTime":{"@type":"QuantitativeValue","minValue":0,"maxValue":1,"unitCode":"DAY"},"transitTime":{"@type":"QuantitativeValue","minValue":3,"maxValue":6,"unitCode":"DAY"}}}
@@ -72,8 +76,9 @@
 {%- endif -%}
 
 {%- if request.page_type == 'article' and article -%}
+{%- comment -%} Shopify's own Article markup is already on the page (main-blog-post); only the breadcrumb is added here. {%- endcomment -%}
 <script type="application/ld+json">
-{"@context":"https://schema.org","@graph":[{"@type":"BlogPosting","@id":"{{ canonical_url }}#article","headline":{{ article.title | json }},"url":"{{ canonical_url }}","mainEntityOfPage":"{{ canonical_url }}","description":{{ article.excerpt_or_content | strip_html | strip_newlines | strip | truncate: 300 | json }}{% if article.image %},"image":"https:{{ article.image | image_url: width: 1200 }}"{% endif %},"datePublished":"{{ article.published_at | date: '%Y-%m-%dT%H:%M:%S%z' }}","dateModified":"{{ article.updated_at | date: '%Y-%m-%dT%H:%M:%S%z' }}","author":{"@type":"Organization","name":"Ink Kulture","url":"{{ ik_url }}/pages/about"},"publisher":{"@type":"Organization","name":"Ink Kulture"{% if ik_logo != blank %},"logo":{"@type":"ImageObject","url":"{{ ik_logo }}"}{% endif %}},"inLanguage":"en-IN"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ ik_url }}/"},{"@type":"ListItem","position":2,"name":{{ blog.title | json }},"item":"{{ ik_url }}{{ blog.url }}"},{"@type":"ListItem","position":3,"name":{{ article.title | json }},"item":"{{ canonical_url }}"}]}]}
+{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ ik_url }}/"},{"@type":"ListItem","position":2,"name":{{ blog.title | json }},"item":"{{ ik_url }}{{ blog.url }}"},{"@type":"ListItem","position":3,"name":{{ article.title | json }},"item":"{{ canonical_url }}"}]}
 </script>
 {%- endif -%}
 

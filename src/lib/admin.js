@@ -1494,6 +1494,7 @@ const ACTIONS = {
   async seo_collections(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.applyCollections(env, { dry: b?.dry !== false })) }; },
   async seo_check(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.seoCheck(env, { urls: Array.isArray(b?.urls) ? b.urls : [], theme: b?.theme || '' })) }; },
   async seo_articles(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.applyArticles(env, { dry: b?.dry !== false })) }; },
+  async seo_products(env) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.productAudit(env)) }; },
   async review_seo_sync(env, b) { const R = await import('./review-seo.js'); return { ok: true, ...(await R.reviewSeoSync(env, { force: true, dry: !!b?.dry })) }; },
   async review_set(env, b) { const R = await import('./reviews.js'); return R.adminSet(env, b); },
   async review_delete(env, b) { const R = await import('./reviews.js'); return R.adminDelete(env, b); },

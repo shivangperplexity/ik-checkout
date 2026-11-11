@@ -127,3 +127,18 @@ export async function applyArticles(env, { dry = true } = {}) {
   }
   return { dry, done, errors };
 }
+
+/** Catalogue SEO health: description length, SEO title / description presence, handle vs title. */
+export async function productAudit(env) {
+  const rows = []; let after = null;
+  for (let p = 0; p < 10; p++) {
+    const d = await gql(env, `query($after:String){ products(first:100, after:$after, query:"status:active"){ nodes{ id handle title description seo{ title description } } pageInfo{ hasNextPage endCursor } } }`, { after });
+    for (const x of d.products.nodes) rows.push({ id: x.id.split('/').pop(), handle: x.handle, title: x.title, words: String(x.description || '').split(/\s+/).filter(Boolean).length, st: (x.seo.title || '').length, sd: (x.seo.description || '').length });
+    if (!d.products.pageInfo.hasNextPage) break; after = d.products.pageInfo.endCursor;
+  }
+  const slug = (t) => t.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const w = rows.map((r) => r.words).sort((a, b) => a - b);
+  return { products: rows.length, words_median: w[Math.floor(w.length / 2)], under_80: rows.filter((r) => r.words < 80).length, no_seo_title: rows.filter((r) => !r.st).length, no_seo_desc: rows.filter((r) => !r.sd).length,
+    long_seo_title: rows.filter((r) => r.st > 65).length, long_seo_desc: rows.filter((r) => r.sd > 165).length, handle_mismatch: rows.filter((r) => !slug(r.title).startsWith(r.handle.replace(/-\d+$/, '')) && r.handle !== slug(r.title)).length,
+    thin: rows.filter((r) => r.words < 80).slice(0, 15).map((r) => [r.handle, r.words]) };
+}
