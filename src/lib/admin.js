@@ -1490,7 +1490,7 @@ const ACTIONS = {
     r.template = tpl ? tpl.status : (env.WA_WABA_ID || (await withSettings(env)).WA_WABA_ID ? 'MISSING' : 'UNKNOWN');
     return r;
   },
-  async seo_alts(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.fixAlts(env, { dry: b?.dry !== false })) }; },
+  async seo_alts(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.fixAlts(env, { dry: b?.dry !== false, full: !!b?.full })) }; },
   async seo_collections(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.applyCollections(env, { dry: b?.dry !== false })) }; },
   async review_seo_sync(env, b) { const R = await import('./review-seo.js'); return { ok: true, ...(await R.reviewSeoSync(env, { force: true, dry: !!b?.dry })) }; },
   async review_set(env, b) { const R = await import('./reviews.js'); return R.adminSet(env, b); },

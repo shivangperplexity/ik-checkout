@@ -14,7 +14,7 @@ export function altFor(title, alt, i) {
   return `${t} – semi-permanent tattoo, photo ${i + 1}`;
 }
 
-export async function fixAlts(env, { dry = true, max = 2000 } = {}) {
+export async function fixAlts(env, { dry = true, max = 2000, full = false } = {}) {
   const changes = []; let after = null, products = 0;
   for (let p = 0; p < 10; p++) {
     const d = await gql(env, `query($after:String){ products(first:50, after:$after, query:"status:active"){ nodes{ title
@@ -31,7 +31,7 @@ export async function fixAlts(env, { dry = true, max = 2000 } = {}) {
     after = d.products.pageInfo.endCursor;
   }
   const todo = changes.slice(0, max);
-  if (dry) return { dry: true, products, changes: changes.length, sample: todo.slice(0, 8) };
+  if (dry) return { dry: true, products, changes: changes.length, sample: todo.slice(0, 8), ...(full ? { all: todo.map((c) => [c.id.split('/').pop(), c.alt]) } : {}) };
   let ok = 0; const errors = [];
   for (let i = 0; i < todo.length; i += 50) {
     const d = await gql(env, 'mutation($f:[FileUpdateInput!]!){ fileUpdate(files:$f){ files{ id } userErrors{ field message } } }',
