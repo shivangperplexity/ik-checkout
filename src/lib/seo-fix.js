@@ -75,6 +75,7 @@ export function inspectHtml(html) {
     og_image: !!pick(/property="og:image"\s+content="([^"]*)"/i),
     h1: [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map((m) => m[1].replace(/<[^>]+>/g, '').trim()).slice(0, 3),
     jsonld: ld,
+    jsonld_raw: [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1].trim().slice(0, 220)),
     liquid_errors: [...html.matchAll(/Liquid (?:syntax )?error[^<]{0,160}/gi)].map((m) => m[0]).slice(0, 5),
     has_crumbs: html.includes('ikl-crumbs'), has_reviews: html.includes('ikl-prv__sum'), has_copy: html.includes('ikl-ccopy'), has_pages: html.includes('ikl-cpages'),
     bytes: html.length,
