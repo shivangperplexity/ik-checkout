@@ -1,0 +1,75 @@
+{{ 'ikl-styles.css' | asset_url | stylesheet_tag }}
+
+<section class="ikl-section {% if section.settings.color_scheme != 'light' %}ikl-section--{{ section.settings.color_scheme }}{% endif %}">
+  <div class="ikl-container">
+
+    {%- if section.settings.heading != blank -%}
+      <div class="ikl-head ikl-head--center">
+        <div>
+          {%- if section.settings.eyebrow != blank -%}<p class="ikl-eyebrow">{{ section.settings.eyebrow }}</p>{%- endif -%}
+          <h2 class="ikl-h2 ikl-h2--upright">{{ section.settings.heading }}</h2>
+        </div>
+      </div>
+    {%- endif -%}
+
+    {%- if section.blocks.size > 0 -%}
+      <div class="ikl-faq">
+        {%- for block in section.blocks -%}
+          <details class="ikl-faq__item" {% if block.settings.open %}open{% endif %} {{ block.shopify_attributes }}>
+            <summary><h3 class="ikl-faq__q">{{ block.settings.question }}</h3></summary>
+            <div class="ikl-faq__answer">{{ block.settings.answer }}</div>
+          </details>
+        {%- endfor -%}
+      </div>
+      {%- comment -%} IK Build 063: the same questions as FAQPage structured data (read by Google and AI search) {%- endcomment -%}
+      <script type="application/ld+json">
+      {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{%- for block in section.blocks -%}{"@type":"Question","name":{{ block.settings.question | strip_html | strip | json }},"acceptedAnswer":{"@type":"Answer","text":{{ block.settings.answer | strip_html | strip_newlines | strip | json }}}}{% unless forloop.last %},{% endunless %}{%- endfor -%}]}
+      </script>
+    {%- else -%}
+      <div class="ikl-empty">Add a question block for each FAQ entry.</div>
+    {%- endif -%}
+
+  </div>
+</section>
+
+<style>
+  #shopify-section-{{ section.id }} { background: {{ section.settings.bg_color }}; }
+  #shopify-section-{{ section.id }} .ikl-section { background: {{ section.settings.bg_color }}; }
+  #shopify-section-{{ section.id }} h1,
+  #shopify-section-{{ section.id }} h2 { color: {{ section.settings.text_color }}; }
+  #shopify-section-{{ section.id }} .ikl-faq__item > summary { color: {{ section.settings.text_color }}; }
+  #shopify-section-{{ section.id }} .ikl-faq__q { display: inline; font: inherit; margin: 0; color: inherit; letter-spacing: inherit; text-transform: inherit; }
+  #shopify-section-{{ section.id }} .ikl-faq__answer { color: {{ section.settings.body_color }}; }
+</style>
+
+{% schema %}
+{
+  "name": "IK — FAQ",
+  "tag": "div",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Good to know" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "FAQs" },
+    { "type": "header", "content": "Colours" },
+    { "type": "select", "id": "color_scheme", "label": "Scheme", "options": [
+      { "value": "light", "label": "Light" },
+      { "value": "ivory", "label": "Ivory" },
+      { "value": "dark", "label": "Ink black" },
+      { "value": "royal", "label": "Royal gradient" }
+    ], "default": "light" },
+    { "type": "color", "id": "bg_color", "label": "Background", "default": "#FFFFFF" },
+    { "type": "color", "id": "text_color", "label": "Heading & question colour", "default": "#0A0A0C" },
+    { "type": "color", "id": "body_color", "label": "Answer colour", "default": "#5A5A63" }
+  ],
+  "blocks": [
+    { "type": "question", "name": "Question", "settings": [
+      { "type": "text", "id": "question", "label": "Question", "default": "What is your delivery timeline?" },
+      { "type": "richtext", "id": "answer", "label": "Answer", "default": "<p>Standard delivery takes 3-6 days.</p>" },
+      { "type": "checkbox", "id": "open", "label": "Open by default", "default": false }
+    ] }
+  ],
+  "max_blocks": 24,
+  "presets": [
+    { "name": "IK — FAQ", "blocks": [{ "type": "question" }, { "type": "question" }, { "type": "question" }] }
+  ]
+}
+{% endschema %}

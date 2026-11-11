@@ -1,0 +1,25 @@
+{%- comment -%} IK Build 063: visible breadcrumb (Home > collection > product). Structured data is in snippets/ik-schema. {%- endcomment -%}
+{%- liquid
+  assign ik_c = collection
+  if ik_c == blank and product
+    assign ik_c = collections['all-tattoos']
+  endif
+-%}
+<nav class="ikl-crumbs ikl-container" aria-label="Breadcrumb">
+  <ol>
+    <li><a href="{{ routes.root_url }}">Home</a></li>
+    {%- if ik_c -%}<li><a href="{{ ik_c.url }}">{{ ik_c.title }}</a></li>{%- endif -%}
+    {%- if product -%}<li aria-current="page">{{ product.title }}</li>{%- endif -%}
+  </ol>
+</nav>
+<style>
+  .ikl-crumbs { padding-top: 12px; padding-bottom: 4px; font-size: 13px; color: #5a5a63; }
+  .ikl-crumbs ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  .ikl-crumbs li + li::before { content: '›'; margin-right: 6px; color: #9a958c; }
+  .ikl-crumbs a { color: inherit; text-decoration: none; }
+  .ikl-crumbs a:hover { text-decoration: underline; }
+  .ikl-crumbs [aria-current] { color: #0a0a0c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
+</style>
+{% schema %}
+{ "name": "IK — Breadcrumb", "tag": "div", "settings": [], "presets": [{ "name": "IK — Breadcrumb" }] }
+{% endschema %}

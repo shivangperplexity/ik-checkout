@@ -1,0 +1,31 @@
+{%- comment -%}
+  IK Build 063: collection page copy (Shopify admin > Collections > description) printed below the grid, and plain
+  page links so search engines can reach every product even though the grid loads more as you scroll.
+{%- endcomment -%}
+{%- paginate collection.products by 24 -%}
+  {%- if paginate.pages > 1 -%}
+    <nav class="ikl-container ikl-cpages" aria-label="Collection pages">
+      <span>Pages:</span>
+      {%- for part in paginate.parts -%}
+        {%- if part.is_link -%}<a href="{{ part.url }}">{{ part.title }}</a>{%- else -%}<span{% if part.title == paginate.current_page %} aria-current="page"{% endif %}>{{ part.title }}</span>{%- endif -%}
+      {%- endfor -%}
+    </nav>
+  {%- endif -%}
+{%- endpaginate -%}
+{%- if collection.description != blank and current_page == 1 -%}
+  <section class="ikl-container ikl-ccopy rte">
+    {{ collection.description }}
+  </section>
+{%- endif -%}
+<style>
+  .ikl-cpages { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; padding-top: 8px; padding-bottom: 8px; font-size: 14px; color: #5a5a63; }
+  .ikl-cpages a { color: #0a0a0c; text-decoration: underline; }
+  .ikl-cpages [aria-current] { font-weight: 700; color: #0a0a0c; }
+  .ikl-ccopy { max-width: 820px; padding-top: 24px; padding-bottom: 48px; color: #3a3a40; line-height: 1.65; }
+  .ikl-ccopy h2 { font-size: 1.2rem; margin: 1.4em 0 .4em; color: #0a0a0c; }
+  .ikl-ccopy p { margin: 0 0 .8em; }
+  .ikl-ccopy a { text-decoration: underline; }
+</style>
+{% schema %}
+{ "name": "IK — Collection copy", "tag": "div", "enabled_on": { "templates": ["collection"] }, "settings": [], "presets": [{ "name": "IK — Collection copy" }] }
+{% endschema %}

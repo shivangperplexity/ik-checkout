@@ -1,0 +1,83 @@
+{
+  "type": "footer",
+  "name": "t:names.footer",
+  "sections": {
+    "ikl_footer": {
+      "type": "ikl-footer",
+      "blocks": {
+        "brand": {
+          "type": "brand",
+          "settings": {
+            "logo_width": 200,
+            "text": "<p><strong>A BRAND OPERATED BY SMG GO PRIVATE LIMITED<br/><br/>Customer care</strong></p><p>Mail: <a href=\"mailto:smggoindia@gmail.com\">smggoindia@gmail.com</a></p><p>WhatsApp: <a href=\"https://wa.me/917397973573\">+91 73979 73573</a></p><p>Ulwe, Navi Mumbai, Maharashtra 410206, India</p>"
+          }
+        },
+        "col_profile": {
+          "type": "menu",
+          "settings": {
+            "heading": "Profile",
+            "menu": "customer-account-main-menu"
+          }
+        },
+        "col_main": {
+          "type": "menu",
+          "settings": {
+            "heading": "Main menu",
+            "menu": "footer"
+          }
+        },
+        "news": {
+          "type": "newsletter",
+          "settings": {
+            "heading": "Sign up and save",
+            "text": "<p>Subscribe for new drops, offers and early access.</p>",
+            "placeholder": "Enter your email",
+            "success_text": "Thanks for subscribing.",
+            "show_social": true,
+            "instagram": "https://www.instagram.com/inkkulture.in/",
+            "whatsapp": "https://wa.me/917397973573",
+            "youtube": ""
+          }
+        }
+      },
+      "block_order": [
+        "brand",
+        "col_profile",
+        "col_main",
+        "news"
+      ],
+      "settings": {
+        "policy_menu": "",
+        "show_payment_icons": true,
+        "logo_width": 200,
+        "bg_color": "#0a0a0c",
+        "text_color": "#ede7dc",
+        "body_color": "#9a958c"
+      }
+    },
+    "ikl_offer_popup": {
+      "type": "ikl-offer-popup",
+      "settings": {
+        "enabled": false,
+        "eyebrow": "Limited-time offer",
+        "burst_text": "On every design",
+        "subheading": "On every tattoo. Add any 2 and the lower-priced one is free.",
+        "cta_label": "Shop bestsellers",
+        "cta_link": "shopify://collections/bestsellers",
+        "show_coupon": true,
+        "coupon_heading": "Extra 10% OFF",
+        "coupon_sub": "On prepaid orders. Works with Buy 1 Get 1.",
+        "coupon_code": "PREPAID",
+        "note": "Auto-applied at checkout. Pay online for priority dispatch.",
+        "delay": 4,
+        "frequency": "session",
+        "campaign_id": "bogo",
+        "show_on_mobile": true
+      }
+    }
+  },
+  "order": [
+    "ikl_footer",
+    "ikl_offer_popup"
+  ]
+}

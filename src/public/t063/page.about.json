@@ -1,0 +1,220 @@
+{
+  "sections": {
+    "about_main": {
+      "type": "ikl-about",
+      "blocks": {
+        "b01": {
+          "type": "eyebrow",
+          "settings": {
+            "text": "Ink Kulture"
+          }
+        },
+        "b02": {
+          "type": "title",
+          "settings": {
+            "text": "About Ink Kulture"
+          }
+        },
+        "b03": {
+          "type": "lede",
+          "settings": {
+            "text": "<p><strong>Ink Kulture is an Indian brand of semi-permanent tattoos</strong>: needle-free designs that look like real ink for 1–2 weeks and then fade on their own.</p><p>Some things are meant to stay. Some are meant to be lived, loved, and changed. We believe your skin can be a canvas for who you are today — without deciding who you have to be forever.</p>"
+          }
+        },
+        "b04": {
+          "type": "text",
+          "settings": {
+            "text": "<p>That's why we created a different way to experience tattoos. Our semi-permanent tattoos give you the freedom to experiment with real-looking ink, express yourself, and change things up whenever you're ready for something new. No lifelong commitment. No pressure. Just art that gets to evolve with you.</p><p>For us, tattoos have never been just about putting a design on your skin. They can hold a memory, represent a feeling, celebrate a phase of your life, or simply exist because you thought they looked really, really good. And we don't think every tattoo needs a deep meaning — or a permanent place on your body — to be worth wearing.</p>"
+          }
+        },
+        "b20": {
+          "type": "heading",
+          "settings": {
+            "text": "What is a semi-permanent tattoo?"
+          }
+        },
+        "b21": {
+          "type": "text",
+          "settings": {
+            "text": "<p>A semi-permanent tattoo is a design you press onto clean, dry skin. The plant-based ink sits in the top layer of the skin and develops into a realistic blue-black over 24–48 hours. There are no needles and no pain, and the design fades naturally in 1–2 weeks as your skin renews. Read our <a href=\"/pages/semi-permanent-tattoos\">complete guide to semi-permanent tattoos</a> or see <a href=\"/pages/how-to-apply\">how to apply one</a>.</p>"
+          }
+        },
+        "b05": {
+          "type": "heading",
+          "settings": {
+            "text": "Made for changing minds."
+          }
+        },
+        "b06": {
+          "type": "text",
+          "settings": {
+            "text": "<p>One day you might want something delicate and minimal. Another day, something bold enough to start a conversation. You might be testing out a tattoo before getting the real thing, matching with your best friend, dressing up for a festival, marking a special moment, or simply looking for a new way to express yourself.</p><p><strong>Whatever your reason, we're here for it.</strong></p><p>Our tattoos are designed to develop naturally on your skin, creating an authentic, ink-like appearance that feels much closer to a real tattoo than the temporary tattoos you remember growing up with. Over time, they gradually fade — leaving you with a blank canvas for whatever comes next.</p>"
+          }
+        },
+        "b22": {
+          "type": "heading",
+          "settings": {
+            "text": "Why people choose Ink Kulture"
+          }
+        },
+        "b23": {
+          "type": "text",
+          "settings": {
+            "text": "<ul><li><strong>200+ designs</strong>: fineline, blackwork, script and Sanskrit mantras, florals, animals, cyber sigilism, couple sets, festive and full-sleeve pieces.</li><li><strong>Try before you commit</strong>: test a design, wording or placement for 1–2 weeks before a permanent tattoo.</li><li><strong>Buy 1 Get 1 Free</strong> on every tattoo, designs from ₹349.</li><li><strong>Free delivery</strong> across India and Cash on Delivery on most PIN codes.</li><li><strong>Real reviews</strong>: every review on our site comes from a delivered order.</li></ul>"
+          }
+        },
+        "b07": {
+          "type": "heading",
+          "settings": {
+            "text": "Because you're allowed to change."
+          }
+        },
+        "b08": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Your playlists change. Your wardrobe changes. Your favourite places, people, aesthetics and ideas change. The person you are today might look completely different a year from now — and we think that's something worth celebrating.</p><p>Semi-permanent tattoos give you room to explore all those versions of yourself.</p><p>Wear something because it means everything to you. Wear something because it means absolutely nothing. Try the tattoo you've had saved in your camera roll forever. Choose something impulsively. Mix them, layer them, switch placements, find your signature style — or never have one at all.</p>"
+          }
+        },
+        "b09": {
+          "type": "quote",
+          "settings": {
+            "text": "There are no rules here."
+          }
+        },
+        "b10": {
+          "type": "heading",
+          "settings": {
+            "text": "Real expression. Less commitment. More freedom."
+          }
+        },
+        "b11": {
+          "type": "text",
+          "settings": {
+            "text": "<p>We're building a space where tattoos feel more accessible, playful and personal. A place between temporary and forever, where you can experience the confidence of wearing ink while keeping the freedom to change your mind.</p><p>Because self-expression shouldn't feel like a decision you have to make once and live with forever.</p><p>It should be fun. It should be personal. It should grow with you.</p>"
+          }
+        },
+        "b24": {
+          "type": "heading",
+          "settings": {
+            "text": "Who runs Ink Kulture"
+          }
+        },
+        "b25": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Ink Kulture is run by <strong>SMG GO Private Limited</strong>, Ulwe, Navi Mumbai, Maharashtra, India.</p><ul><li><strong>Shivang Gupta</strong>, Chief Executive Officer</li><li><strong>Sristi Gupta</strong>, Chief Financial Officer</li><li><strong>Shivam Mali</strong>, Chief Operating Officer</li></ul>"
+          }
+        },
+        "b26": {
+          "type": "heading",
+          "settings": {
+            "text": "How to reach us"
+          }
+        },
+        "b27": {
+          "type": "text",
+          "settings": {
+            "text": "<p><strong>WhatsApp:</strong> <a href=\"https://wa.me/917397973573\">+91 73979 73573</a><br><strong>Email:</strong> <a href=\"mailto:smggoindia@gmail.com\">smggoindia@gmail.com</a><br><strong>Instagram:</strong> <a href=\"https://www.instagram.com/inkkulture.in/\">@inkkulture.in</a><br><strong>Address:</strong> SMG GO Private Limited, Ulwe, Navi Mumbai, Maharashtra 410206, India<br><strong>Support hours:</strong> Monday–Saturday, 10 am – 7 pm IST</p>"
+          }
+        },
+        "b12": {
+          "type": "rule",
+          "settings": {}
+        },
+        "b13": {
+          "type": "statement",
+          "settings": {
+            "text": "<p>So wear the tattoo. Take the pictures. Make the memory. Let it fade.</p><p>Your skin. Your story. Your rules.</p>"
+          }
+        },
+        "b14": {
+          "type": "cta",
+          "settings": {
+            "label": "Shop all designs",
+            "link": "shopify://collections/all-tattoos"
+          }
+        }
+      },
+      "block_order": [
+        "b01",
+        "b02",
+        "b03",
+        "b04",
+        "b20",
+        "b21",
+        "b05",
+        "b06",
+        "b22",
+        "b23",
+        "b07",
+        "b08",
+        "b09",
+        "b10",
+        "b11",
+        "b24",
+        "b25",
+        "b26",
+        "b27",
+        "b12",
+        "b13",
+        "b14"
+      ],
+      "settings": {
+        "measure": 760,
+        "bg_color": "#FFFFFF",
+        "text_color": "#0A0A0C",
+        "body_color": "#5A5A63",
+        "accent_color": "#315A9F"
+      }
+    },
+    "about_faq": {
+      "type": "ikl-faq",
+      "blocks": {
+        "q1": {
+          "type": "question",
+          "settings": {
+            "question": "How long does a semi-permanent tattoo last?",
+            "answer": "<p>1–2 weeks, depending on placement, application and daily activity. It fades gradually rather than peeling off in one go.</p>"
+          }
+        },
+        "q2": {
+          "type": "question",
+          "settings": {
+            "question": "How is this different from a temporary tattoo?",
+            "answer": "<p>Our tattoos develop into the top layer of skin over 24–48 hours, so they read as ink rather than sitting on the surface with a sticker-like shine.</p>"
+          }
+        },
+        "q3": {
+          "type": "question",
+          "settings": {
+            "question": "Can I remove it before it fades?",
+            "answer": "<p>Yes — gentle daily exfoliation speeds up the fade.</p>"
+          }
+        },
+        "q4": {
+          "type": "question",
+          "settings": {
+            "question": "Who owns Ink Kulture?",
+            "answer": "<p>Ink Kulture is a brand of SMG GO Private Limited, based in Ulwe, Navi Mumbai, Maharashtra.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "q1",
+        "q2",
+        "q3",
+        "q4"
+      ],
+      "settings": {
+        "eyebrow": "Good to know",
+        "heading": "Common questions",
+        "color_scheme": "ivory",
+        "bg_color": "#EDE7DC"
+      }
+    }
+  },
+  "order": [
+    "about_main",
+    "about_faq"
+  ]
+}

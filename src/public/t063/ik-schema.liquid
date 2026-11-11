@@ -1,0 +1,89 @@
+{%- comment -%}
+  IK Build 063: structured data (JSON-LD) for Google and AI search. Rendered in <head> from meta-tags.
+  Organization + WebSite on the home, about and contact pages; Product (offers, shipping, returns, real reviews from
+  the ikseo / reviews metafields) on product pages; BreadcrumbList everywhere below the home page; CollectionPage +
+  ItemList on collections; BlogPosting on articles; HowTo on the how-to-apply page. FAQPage lives in ikl-faq.
+{%- endcomment -%}
+{%- liquid
+  assign ik_url = shop.url
+  assign ik_logo = ''
+  if settings.logo != blank
+    assign ik_logo = settings.logo | image_url: width: 512 | prepend: 'https:'
+  elsif shop.brand.logo != blank
+    assign ik_logo = shop.brand.logo | image_url: width: 512 | prepend: 'https:'
+  endif
+  assign ik_year = 'now' | date: '%s' | plus: 31536000 | date: '%Y-%m-%d'
+  assign ik_cur = cart.currency.iso_code | default: 'INR'
+  assign ik_home = false
+  if request.page_type == 'index'
+    assign ik_home = true
+  elsif request.page_type == 'page'
+    if page.handle == 'about' or page.handle == 'contact'
+      assign ik_home = true
+    endif
+  endif
+-%}
+{%- capture ik_org -%}
+{"@type":"Organization","@id":"{{ ik_url }}/#org","name":"Ink Kulture","alternateName":"Ink Kulture Semi Permanent Tattoos","legalName":"SMG GO Private Limited","url":"{{ ik_url }}"{% if ik_logo != blank %},"logo":"{{ ik_logo }}"{% endif %},"description":"Ink Kulture makes needle-free semi-permanent tattoos in India that look like real ink and last 1-2 weeks.","email":"smggoindia@gmail.com","telephone":"+91-73979-73573","address":{"@type":"PostalAddress","addressLocality":"Ulwe, Navi Mumbai","addressRegion":"Maharashtra","postalCode":"410206","addressCountry":"IN"},"employee":[{"@type":"Person","name":"Shivang Gupta","jobTitle":"Chief Executive Officer"},{"@type":"Person","name":"Sristi Gupta","jobTitle":"Chief Financial Officer"},{"@type":"Person","name":"Shivam Mali","jobTitle":"Chief Operating Officer"}],"contactPoint":{"@type":"ContactPoint","contactType":"customer service","telephone":"+91-73979-73573","email":"smggoindia@gmail.com","areaServed":"IN","availableLanguage":["English","Hindi"],"hoursAvailable":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],"opens":"10:00","closes":"19:00"}},"sameAs":["https://www.instagram.com/inkkulture.in/"]}
+{%- endcapture -%}
+{%- capture ik_ship -%}
+{"@type":"OfferShippingDetails","shippingRate":{"@type":"MonetaryAmount","value":0,"currency":"{{ ik_cur }}"},"shippingDestination":{"@type":"DefinedRegion","addressCountry":"IN"},"deliveryTime":{"@type":"ShippingDeliveryTime","handlingTime":{"@type":"QuantitativeValue","minValue":0,"maxValue":1,"unitCode":"DAY"},"transitTime":{"@type":"QuantitativeValue","minValue":3,"maxValue":6,"unitCode":"DAY"}}}
+{%- endcapture -%}
+{%- capture ik_ret -%}
+{"@type":"MerchantReturnPolicy","applicableCountry":"IN","returnPolicyCategory":"https://schema.org/MerchantReturnNotPermitted","url":"{{ ik_url }}/pages/refund-policy"}
+{%- endcapture -%}
+
+{%- if ik_home -%}
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{{ ik_org }},{"@type":"WebSite","@id":"{{ ik_url }}/#website","name":"Ink Kulture","url":"{{ ik_url }}","inLanguage":"en-IN","publisher":{"@id":"{{ ik_url }}/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"{{ ik_url }}/search?q={search_term_string}"},"query-input":"required name=search_term_string"}}]}
+</script>
+{%- endif -%}
+
+{%- if request.page_type == 'product' and product -%}
+{%- liquid
+  assign ik_rc = product.metafields.reviews.rating_count.value | default: 0
+  assign ik_rv = product.metafields.reviews.rating.value.rating
+  assign ik_list = product.metafields.ikseo.reviews.value
+  assign ik_desc = product.description | strip_html | strip_newlines | strip | truncate: 600
+  if ik_desc == blank
+    assign ik_desc = product.title | append: ' – a needle-free semi-permanent tattoo by Ink Kulture that looks like real ink and lasts 1-2 weeks.'
+  endif
+  assign ik_crumb = collection
+  if ik_crumb == blank
+    assign ik_crumb = collections['all-tattoos']
+  endif
+-%}
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{"@type":"Product","@id":"{{ canonical_url }}#product","name":{{ product.title | json }},"url":"{{ canonical_url }}","description":{{ ik_desc | json }},"image":[{%- assign ik_sep = '' -%}{%- for m in product.media limit: 6 -%}{%- if m.media_type == 'image' -%}{{ ik_sep }}"https:{{ m | image_url: width: 1200 }}"{%- assign ik_sep = ',' -%}{%- endif -%}{%- endfor -%}],"brand":{"@type":"Brand","name":"Ink Kulture"},"category":"Semi-permanent tattoo"{% if product.selected_or_first_available_variant.sku != blank %},"sku":{{ product.selected_or_first_available_variant.sku | json }}{% endif %},"offers":[{%- for v in product.variants limit: 20 -%}{"@type":"Offer","url":"{{ canonical_url }}?variant={{ v.id }}"{% if v.sku != blank %},"sku":{{ v.sku | json }}{% endif %},"name":{{ v.title | json }},"price":"{{ v.price | money_without_currency | remove: ',' }}","priceCurrency":"{{ ik_cur }}","priceValidUntil":"{{ ik_year }}","availability":"https://schema.org/{% if v.available %}InStock{% else %}OutOfStock{% endif %}","itemCondition":"https://schema.org/NewCondition","seller":{"@type":"Organization","name":"Ink Kulture"},"shippingDetails":{{ ik_ship }},"hasMerchantReturnPolicy":{{ ik_ret }}}{% unless forloop.last %},{% endunless %}{%- endfor -%}]
+{%- if ik_rc > 0 and ik_rv -%}
+,"aggregateRating":{"@type":"AggregateRating","ratingValue":"{{ ik_rv }}","reviewCount":{{ ik_rc }},"bestRating":"5","worstRating":"1"}
+{%- if ik_list.size > 0 -%}
+,"review":[{%- for r in ik_list limit: 5 -%}{"@type":"Review","author":{"@type":"Person","name":{{ r.n | json }}},"datePublished":"{{ r.d }}","reviewBody":{{ r.t | json }},"reviewRating":{"@type":"Rating","ratingValue":"{{ r.r }}","bestRating":"5","worstRating":"1"}}{% unless forloop.last %},{% endunless %}{%- endfor -%}]
+{%- endif -%}
+{%- endif -%}
+},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ ik_url }}/"}{% if ik_crumb %},{"@type":"ListItem","position":2,"name":{{ ik_crumb.title | json }},"item":"{{ ik_url }}{{ ik_crumb.url }}"},{"@type":"ListItem","position":3,"name":{{ product.title | json }},"item":"{{ canonical_url }}"}{% else %},{"@type":"ListItem","position":2,"name":{{ product.title | json }},"item":"{{ canonical_url }}"}{% endif %}]}]}
+</script>
+{%- endif -%}
+
+{%- if request.page_type == 'collection' and collection -%}
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{"@type":"CollectionPage","@id":"{{ canonical_url }}#page","name":{{ collection.title | json }},"url":"{{ canonical_url }}","description":{{ collection.description | strip_html | strip_newlines | strip | truncate: 300 | json }},"isPartOf":{"@type":"WebSite","name":"Ink Kulture","url":"{{ ik_url }}"},"mainEntity":{"@type":"ItemList","numberOfItems":{{ collection.products_count }},"itemListElement":[{%- for p in collection.products limit: 24 -%}{"@type":"ListItem","position":{{ forloop.index }},"url":"{{ ik_url }}{{ p.url }}","name":{{ p.title | json }}}{% unless forloop.last %},{% endunless %}{%- endfor -%}]}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ ik_url }}/"},{"@type":"ListItem","position":2,"name":{{ collection.title | json }},"item":"{{ canonical_url }}"}]}]}
+</script>
+{%- endif -%}
+
+{%- if request.page_type == 'article' and article -%}
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[{"@type":"BlogPosting","@id":"{{ canonical_url }}#article","headline":{{ article.title | json }},"url":"{{ canonical_url }}","mainEntityOfPage":"{{ canonical_url }}","description":{{ article.excerpt_or_content | strip_html | strip_newlines | strip | truncate: 300 | json }}{% if article.image %},"image":"https:{{ article.image | image_url: width: 1200 }}"{% endif %},"datePublished":"{{ article.published_at | date: '%Y-%m-%dT%H:%M:%S%z' }}","dateModified":"{{ article.updated_at | date: '%Y-%m-%dT%H:%M:%S%z' }}","author":{"@type":"Organization","name":"Ink Kulture","url":"{{ ik_url }}/pages/about"},"publisher":{"@type":"Organization","name":"Ink Kulture"{% if ik_logo != blank %},"logo":{"@type":"ImageObject","url":"{{ ik_logo }}"}{% endif %}},"inLanguage":"en-IN"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ ik_url }}/"},{"@type":"ListItem","position":2,"name":{{ blog.title | json }},"item":"{{ ik_url }}{{ blog.url }}"},{"@type":"ListItem","position":3,"name":{{ article.title | json }},"item":"{{ canonical_url }}"}]}]}
+</script>
+{%- endif -%}
+
+{%- if request.page_type == 'page' and page -%}
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ ik_url }}/"},{"@type":"ListItem","position":2,"name":{{ page.title | json }},"item":"{{ canonical_url }}"}]}
+</script>
+{%- if page.handle == 'how-to-apply' -%}
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"HowTo","name":"How to apply an Ink Kulture semi-permanent tattoo","description":"Apply a needle-free semi-permanent tattoo in about two minutes. The ink darkens over 24-48 hours and lasts 1-2 weeks.","totalTime":"PT2M","supply":[{"@type":"HowToSupply","name":"Ink Kulture semi-permanent tattoo"},{"@type":"HowToSupply","name":"Skin wipe"},{"@type":"HowToSupply","name":"Water"}],"step":[{"@type":"HowToStep","position":1,"name":"Clean the skin","text":"Wipe the spot with the skin wipe and let it dry fully. No cream, oil or sweat."},{"@type":"HowToStep","position":2,"name":"Place the tattoo","text":"Remove the clear film and place the tattoo face down. Hold it still."},{"@type":"HowToStep","position":3,"name":"Wet and press","text":"Dip the tissue in water and press it firmly over the paper for 30 seconds."},{"@type":"HowToStep","position":4,"name":"Peel and let it develop","text":"Peel the paper off slowly from one corner and let it dry. The ink darkens over 24-48 hours."}]}
+</script>
+{%- endif -%}
+{%- endif -%}

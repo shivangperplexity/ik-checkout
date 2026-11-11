@@ -1,0 +1,44 @@
+{%- comment -%}
+  IK Build 063: this product's own reviews, printed in the page HTML (search engines and AI read it).
+  Data: reviews.rating / reviews.rating_count / ikseo.reviews metafields, filled daily by the IK checkout app
+  from real reviews of delivered orders. Shows nothing when the design has no reviews yet.
+{%- endcomment -%}
+{%- liquid
+  assign rc = product.metafields.reviews.rating_count.value | default: 0
+  assign rv = product.metafields.reviews.rating.value.rating
+  assign list = product.metafields.ikseo.reviews.value
+-%}
+{%- if rc > 0 and rv -%}
+  {%- assign full = rv | round -%}
+  <section class="ikl-section ikl-prv" aria-labelledby="ikl-prv-h-{{ section.id }}">
+    <div class="ikl-container">
+      <h2 class="ikl-h2 ikl-h2--upright" id="ikl-prv-h-{{ section.id }}">{{ section.settings.heading | default: 'Reviews of this design' }}</h2>
+      <p class="ikl-prv__sum">
+        <span class="ikl-prv__stars" aria-hidden="true">{%- for i in (1..5) -%}{%- if i <= full -%}&#9733;{%- else -%}&#9734;{%- endif -%}{%- endfor -%}</span>
+        <strong>{{ rv }} out of 5</strong> from {{ rc }} verified {% if rc == 1 %}buyer{% else %}buyers{% endif %} of {{ product.title }}
+      </p>
+      {%- if list.size > 0 -%}
+        <ul class="ikl-prv__list">
+          {%- for r in list limit: 5 -%}
+            <li class="ikl-prv__item">
+              <p class="ikl-prv__meta"><span class="ikl-prv__stars" aria-label="{{ r.r }} out of 5">{%- for i in (1..5) -%}{%- if i <= r.r -%}&#9733;{%- else -%}&#9734;{%- endif -%}{%- endfor -%}</span> <strong>{{ r.n | escape }}</strong>{% if r.c != blank %}, {{ r.c | escape }}{% endif %} · <time datetime="{{ r.d }}">{{ r.d | date: '%-d %b %Y' }}</time> · Verified buyer</p>
+              <p class="ikl-prv__body">{{ r.t | escape }}</p>
+            </li>
+          {%- endfor -%}
+        </ul>
+      {%- endif -%}
+    </div>
+  </section>
+  <style>
+    .ikl-prv { padding-top: 24px; padding-bottom: 24px; background: #fff; }
+    .ikl-prv__sum { margin: 8px 0 16px; color: #5a5a63; }
+    .ikl-prv__stars { color: #f5a623; letter-spacing: 1px; }
+    .ikl-prv__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    .ikl-prv__item { border: 1px solid #e6e1d6; border-radius: 12px; padding: 14px 16px; }
+    .ikl-prv__meta { margin: 0 0 6px; font-size: 13px; color: #5a5a63; }
+    .ikl-prv__body { margin: 0; color: #0a0a0c; }
+  </style>
+{%- endif -%}
+{% schema %}
+{ "name": "IK — Product reviews (server)", "tag": "div", "settings": [ { "type": "text", "id": "heading", "label": "Heading", "default": "Reviews of this design" } ], "presets": [{ "name": "IK — Product reviews (server)" }] }
+{% endschema %}

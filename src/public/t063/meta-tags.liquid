@@ -1,0 +1,157 @@
+{% doc %}
+  Renders all meta tags for the page including Open Graph, Twitter Cards, and SEO tags.
+  IK Build 063: brand suffix is "Ink Kulture" (not the long shop name), every page has a meta description,
+  og:image falls back to a bestseller photo, and structured data comes from snippets/ik-schema.
+
+  @param {object} [product] - The product object, available on product pages for price meta tags.
+{% enddoc %}
+
+<meta charset="utf-8">
+<meta
+  http-equiv="X-UA-Compatible"
+  content="IE=edge"
+>
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+>
+<meta
+  name="theme-color"
+  content="#0a0a0c"
+>
+
+{%- liquid
+  assign ik_brand = 'Ink Kulture'
+  assign ik_default_desc = 'Buy needle-free semi-permanent tattoos online in India. 200+ designs that look like real ink and last 1-2 weeks. From Rs 349, Buy 1 Get 1 Free, free delivery, COD available.'
+  assign og_title = page_title | default: ik_brand
+  if request.page_type == 'index'
+    if page_title == blank or page_title == shop.name
+      assign og_title = 'Ink Kulture – Semi Permanent Tattoos Online in India'
+    endif
+  endif
+  assign og_url = canonical_url | default: request.origin
+  assign og_type = 'website'
+  assign ik_desc = page_description | default: shop.description | default: ik_default_desc
+  if request.page_type == 'index'
+    assign ik_desc = page_description | default: ik_default_desc
+    if ik_desc == shop.name
+      assign ik_desc = ik_default_desc
+    endif
+  endif
+  assign og_description = ik_desc
+
+  if request.page_type == 'product'
+    assign og_type = 'product'
+  elsif request.page_type == 'article'
+    assign og_type = 'article'
+  elsif request.page_type == 'password'
+    assign og_url = request.origin
+  endif
+
+  assign ik_img = page_image
+  if ik_img == blank
+    assign ik_img = collections['bestsellers'].products.first.featured_image
+  endif
+-%}
+
+<meta
+  property="og:site_name"
+  content="{{ ik_brand }}"
+>
+<meta
+  property="og:url"
+  content="{{ og_url }}"
+>
+<meta
+  property="og:title"
+  content="{{ og_title | escape }}"
+>
+<meta
+  property="og:type"
+  content="{{ og_type }}"
+>
+<meta
+  property="og:description"
+  content="{{ og_description | escape }}"
+>
+<meta
+  property="og:locale"
+  content="en_IN"
+>
+
+{%- if ik_img -%}
+  <meta
+    property="og:image"
+    content="https:{{ ik_img | image_url: width: 1200 }}"
+  >
+  <meta
+    property="og:image:secure_url"
+    content="https:{{ ik_img | image_url: width: 1200 }}"
+  >
+  <meta
+    property="og:image:width"
+    content="1200"
+  >
+  <meta
+    property="og:image:height"
+    content="{{ 1200 | times: ik_img.height | divided_by: ik_img.width }}"
+  >
+  <meta
+    property="og:image:alt"
+    content="{{ ik_img.alt | default: og_title | escape }}"
+  >
+{%- endif -%}
+
+{%- if request.page_type == 'product' -%}
+  <meta
+    property="og:price:amount"
+    content="{{ product.price | money_without_currency | strip_html | remove: ',' }}"
+  >
+  <meta
+    property="og:price:currency"
+    content="{{ cart.currency.iso_code }}"
+  >
+{%- endif -%}
+
+{%- if settings.social_twitter_link != blank -%}
+  <meta
+    name="twitter:site"
+    content="{{ settings.social_twitter_link | split: 'twitter.com/' | last | prepend: '@' }}"
+  >
+{%- endif -%}
+<meta
+  name="twitter:card"
+  content="summary_large_image"
+>
+<meta
+  name="twitter:title"
+  content="{{ og_title | escape }}"
+>
+<meta
+  name="twitter:description"
+  content="{{ og_description | escape }}"
+>
+
+<title>
+  {%- if request.page_type == 'index' -%}
+    {{ og_title }}
+    {%- unless og_title contains ik_brand %} | {{ ik_brand }}{% endunless -%}
+  {%- else -%}
+    {{ page_title }}
+    {%- if current_tags %} &ndash; tagged "{{ current_tags | join: ', ' }}"{% endif -%}
+    {%- if current_page != 1 %} &ndash; Page {{ current_page }}{% endif -%}
+    {%- unless page_title contains ik_brand %} | {{ ik_brand }}{% endunless -%}
+  {%- endif -%}
+</title>
+
+<link
+  rel="canonical"
+  href="{{ canonical_url }}"
+>
+
+<meta
+  name="description"
+  content="{{ ik_desc | escape }}"
+>
+
+{%- render 'ik-schema' -%}
