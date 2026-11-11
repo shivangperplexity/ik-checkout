@@ -1,10 +1,11 @@
 /** ShipPrime-only P&L inputs: every order shipped through ShipPrime, its outcome, value, units and forward charge. */
 export async function spPnl(env) {
-  const rows = (await env.DB.prepare(`SELECT r.state, r.pay, COUNT(*) n, SUM(r.total_paise - COALESCE(r.refunded_paise,0)) v, SUM(COALESCE(r.units,1)) u,
+  const rows = (await env.DB.prepare(`SELECT CASE WHEN s.rto OR s.stage='rto' THEN 'rto' WHEN s.stage='delivered' THEN 'delivered' WHEN s.stage IN ('pickup_pending','pickup_failed') OR s.stage IS NULL OR s.stage='' THEN 'not_picked' ELSE 'transit' END AS state,
+      CASE WHEN COALESCE(s.cod_paise,0) > 0 THEN 'cod' ELSE 'prepaid' END AS pay, COUNT(*) n, SUM(r.total_paise - COALESCE(r.refunded_paise,0)) v, SUM(COALESCE(r.units,1)) u,
       SUM(COALESCE(s.charge_paise,0)) ch, SUM(CASE WHEN COALESCE(s.charge_paise,0) > 0 THEN 1 ELSE 0 END) ch_n, MIN(s.created_at) first, MAX(s.created_at) last
     FROM shipments s JOIN rev_orders r ON r.order_id = s.order_id
     WHERE s.provider = 'shipprime' AND COALESCE(s.status,'') <> 'cancelled' AND r.state <> 'cancelled'
-    GROUP BY r.state, r.pay`).all()).results;
+    GROUP BY 1, 2`).all()).results;
   const first = Math.min(...rows.map((r) => Number(r.first)).filter(Boolean));
   const all = (await env.DB.prepare(`SELECT COUNT(*) n, SUM(CASE WHEN s.provider='shipprime' THEN 1 ELSE 0 END) sp,
       SUM(CASE WHEN s.order_id IS NOT NULL AND COALESCE(s.provider,'')<>'shipprime' THEN 1 ELSE 0 END) other, SUM(CASE WHEN r.state='cancelled' THEN 1 ELSE 0 END) cancelled
