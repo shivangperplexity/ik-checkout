@@ -1490,6 +1490,7 @@ const ACTIONS = {
     r.template = tpl ? tpl.status : (env.WA_WABA_ID || (await withSettings(env)).WA_WABA_ID ? 'MISSING' : 'UNKNOWN');
     return r;
   },
+  async review_seo_sync(env, b) { const R = await import('./review-seo.js'); return { ok: true, ...(await R.reviewSeoSync(env, { force: true, dry: !!b?.dry })) }; },
   async review_set(env, b) { const R = await import('./reviews.js'); return R.adminSet(env, b); },
   async review_delete(env, b) { const R = await import('./reviews.js'); return R.adminDelete(env, b); },
   async review_cfg(env, b) { const R = await import('./reviews.js'); return { ok: true, cfg: await R.saveReviewCfg(env, b || {}) }; },
