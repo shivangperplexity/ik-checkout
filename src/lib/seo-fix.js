@@ -166,12 +166,16 @@ export function extraCopy(p) {
   out.push('</div>');
   return out.join('');
 }
-export async function fixDescriptions(env, { dry = true, limit = 300 } = {}) {
+export async function fixDescriptions(env, { dry = true, limit = 300, redo = false } = {}) {
   const todo = []; let after = null;
   for (let pg = 0; pg < 10; pg++) {
     const d = await gql(env, `query($after:String){ products(first:50, after:$after, query:"status:active"){ nodes{ id title descriptionHtml
       variants(first:6){ nodes{ title } } collections(first:20){ nodes{ handle } } } pageInfo{ hasNextPage endCursor } } }`, { after });
-    for (const p of d.products.nodes) if (!String(p.descriptionHtml || '').includes('ik-more')) todo.push(p);
+    for (const p of d.products.nodes) {
+      const h = String(p.descriptionHtml || '');
+      if (!h.includes('ik-more')) todo.push(p);
+      else if (redo && / or the /.test(h.slice(h.indexOf('ik-more'), h.indexOf('ik-more') + 400))) todo.push({ ...p, descriptionHtml: h.replace(/<div class="ik-more">[\s\S]*<\/div>\s*$/, '') });
+    }
     if (!d.products.pageInfo.hasNextPage) break; after = d.products.pageInfo.endCursor;
   }
   const words = (h) => h.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
