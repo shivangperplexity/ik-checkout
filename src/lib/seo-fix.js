@@ -41,3 +41,18 @@ export async function fixAlts(env, { dry = true, max = 2000 } = {}) {
   }
   return { products, changes: changes.length, updated: ok, errors: errors.slice(0, 5) };
 }
+
+/** Collection page copy (src/lib/seo-collections.json): 150-200 words with question headings, plus fixed meta descriptions. */
+export async function applyCollections(env, { dry = true } = {}) {
+  const { default: list } = await import('./seo-collections.json', { with: { type: 'json' } });
+  if (dry) return { dry: true, collections: list.length, handles: list.map((c) => c.handle) };
+  const done = [], errors = [];
+  for (const c of list) {
+    const input = { id: c.id, descriptionHtml: c.descriptionHtml, ...(c.seo ? { seo: c.seo } : {}) };
+    try {
+      const d = await gql(env, 'mutation($i:CollectionInput!){ collectionUpdate(input:$i){ collection{ handle } userErrors{ message } } }', { i: input });
+      const e = d.collectionUpdate.userErrors; if (e?.length) errors.push(`${c.handle}: ${e[0].message}`); else done.push(c.handle);
+    } catch (e) { errors.push(`${c.handle}: ${e.message}`); }
+  }
+  return { updated: done.length, errors };
+}
