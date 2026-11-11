@@ -102,3 +102,28 @@ export async function seoCheck(env, { urls = [], theme = '' } = {}) {
   }
   return { pages: out };
 }
+
+/** Blog posts: SEO title/description, question H2s, related links (src/lib/seo-articles.js). */
+export function patchBody(body, h, r) {
+  let b = String(body || '');
+  for (const [from, to] of Object.entries(h || {})) b = b.split(`>${from}</h2>`).join(`>${to}</h2>`);
+  if (r && !b.includes('ik-related')) b += `\n<p class="ik-related"><strong>Related:</strong> ${r}</p>`;
+  return b;
+}
+export async function applyArticles(env, { dry = true } = {}) {
+  const { default: list } = await import('./seo-articles.js');
+  const done = [], errors = [];
+  for (const a of list) {
+    const gid = `gid://shopify/Article/${a.id}`;
+    try {
+      const cur = (await gql(env, 'query($id:ID!){ article(id:$id){ body } }', { id: gid })).article;
+      const body = patchBody(cur.body, a.h, a.r);
+      const hit = Object.keys(a.h).filter((k) => cur.body.includes(`>${k}</h2>`)).length;
+      if (dry) { done.push({ id: a.id, h2_found: hit, of: Object.keys(a.h).length }); continue; }
+      const d = await gql(env, 'mutation($id:ID!,$a:ArticleUpdateInput!){ articleUpdate(id:$id, article:$a){ article{ id } userErrors{ message } } }', { id: gid, a: { body,
+        metafields: [{ namespace: 'global', key: 'title_tag', type: 'single_line_text_field', value: a.t }, { namespace: 'global', key: 'description_tag', type: 'single_line_text_field', value: a.d }] } });
+      const e = d.articleUpdate.userErrors; if (e?.length) errors.push(`${a.id}: ${e[0].message}`); else done.push({ id: a.id, h2: hit });
+    } catch (e) { errors.push(`${a.id}: ${e.message.slice(0, 160)}`); }
+  }
+  return { dry, done, errors };
+}
