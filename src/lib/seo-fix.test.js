@@ -11,5 +11,5 @@ import { extraCopy } from './seo-fix.js';
 test('extra product copy names the design, sizes, placement and style', () => {
   const h = extraCopy({ title: 'Lotus & Vine Tattoo', variants: { nodes: [{ title: 'Small 5.5 x 5.5 cm' }] }, collections: { nodes: [{ handle: 'wrist-tattoos' }, { handle: 'flower-tattoos' }] } });
   assert.match(h, /Lotus &amp; Vine Tattoo comes in Small 5.5 x 5.5 cm/);
-  assert.match(h, /the wrist/); assert.match(h, /collections\/flower-tattoos/); assert.match(h, /ik-more/);
+  assert.match(h, /sits best on the wrist./); assert.match(h, /collections\/flower-tattoos/); assert.match(h, /ik-more/);
 });

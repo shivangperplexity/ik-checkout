@@ -144,20 +144,21 @@ export async function productAudit(env) {
 }
 
 /* ---- product descriptions: keep the existing copy, add facts that answer what shoppers (and AI search) ask ---- */
-const PLACE = { 'wrist-tattoos': 'the wrist', 'neck-tattoos': 'the side or back of the neck', 'forearm-tattoos-1': 'the forearm', 'arm-band-tattoos': 'around the bicep or forearm',
-  'full-sleeve-tattoos': 'the full arm, shoulder to wrist', 'full-chest-tattoos': 'the chest or upper back', 'small-2-inch-tattoos': 'the wrist, ankle, hand or behind the ear',
-  '4-inch-tattoos': 'the forearm, calf, shoulder or collarbone', 'large-statement-tattoos': 'the forearm, chest, back or thigh', 'small-finger-tattoos': 'fingers, wrist or behind the ear' };
+const PLACE = { 'wrist-tattoos': ['wrist'], 'neck-tattoos': ['side of the neck', 'back of the neck'], 'forearm-tattoos-1': ['forearm'], 'arm-band-tattoos': ['bicep', 'forearm'],
+  'full-sleeve-tattoos': ['full arm'], 'full-chest-tattoos': ['chest', 'upper back'], 'small-2-inch-tattoos': ['wrist', 'ankle', 'hand', 'behind the ear'],
+  '4-inch-tattoos': ['forearm', 'calf', 'shoulder', 'collarbone'], 'large-statement-tattoos': ['forearm', 'chest', 'back', 'thigh'], 'small-finger-tattoos': ['fingers', 'wrist', 'behind the ear'] };
 const STYLE = { 'minimal-fineline': 'Minimal & Fineline', 'blackwork-bold': 'Blackwork & Bold', 'script-cursive': 'Script & Cursive', 'flower-tattoos': 'Flower', 'animal-tattoos': 'Animal',
   'dark-edgy': 'Dark & Edgy', 'cyber-tattoos': 'Cyber', 'couple-matching': 'Couple & Matching', 'navratri-collection': 'Navratri', 'tattoos-for-him': 'Tattoos for Him', 'tattoos-for-her': 'Tattoos for Her' };
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 export function extraCopy(p) {
   const handles = (p.collections?.nodes || []).map((c) => c.handle);
-  const places = [...new Set(handles.map((h) => PLACE[h]).filter(Boolean))].slice(0, 3);
+  const places = [...new Set(handles.flatMap((h) => PLACE[h] || []))].slice(0, 4);
+  const list = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} or ${a[a.length - 1]}`);
   const styles = handles.filter((h) => STYLE[h]).slice(0, 4);
   const sizes = (p.variants?.nodes || []).map((v) => v.title).filter((t) => t && t !== 'Default Title').slice(0, 4);
   const t = esc(p.title);
   const out = ['<div class="ik-more">'];
-  out.push(`<h3>Size and placement</h3><p>${sizes.length ? `The ${t} comes in ${sizes.map(esc).join(', ')}.` : `The ${t} is printed at the size shown in the photos.`} ${places.length ? `It sits best on ${places.join(', or ')}.` : 'Place it anywhere with smooth, clean skin, such as the forearm, wrist or shoulder.'}</p>`);
+  out.push(`<h3>Size and placement</h3><p>${sizes.length ? `The ${t} comes in ${sizes.map(esc).join(', ')}.` : `The ${t} is printed at the size shown in the photos.`} ${places.length ? `It sits best on the ${list(places)}.` : 'Place it anywhere with smooth, clean skin, such as the forearm, wrist or shoulder.'}</p>`);
   if (styles.length) out.push(`<h3>Style</h3><p>Part of our ${styles.map((h) => `<a href="/collections/${h}">${STYLE[h]}</a>`).join(', ')} ${styles.length > 1 ? 'collections' : 'collection'}.</p>`);
   out.push(`<h3>How long does the ${t} last?</h3><p>About 1–2 weeks. It is a needle-free semi-permanent tattoo: the plant-based ink develops into a realistic blue-black over 24–48 hours and then fades naturally as your skin renews. It may fade sooner on hands, fingers or sensitive skin.</p>`);
   out.push('<h3>How do you apply it?</h3><p>Clean and dry the skin, place the design face down, press it with a wet tissue for 30 seconds and peel slowly. Keep it dry for the first few hours. See the full <a href="/pages/how-to-apply">how-to-apply guide</a>.</p>');
