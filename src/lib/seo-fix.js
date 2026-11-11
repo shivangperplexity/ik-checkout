@@ -56,3 +56,40 @@ export async function applyCollections(env, { dry = true } = {}) {
   }
   return { updated: done.length, errors };
 }
+
+/** Fetches store pages (optionally a theme preview) and reports what search engines see: title, description,
+ *  canonical, H1s, JSON-LD types (and parse errors) and any Liquid errors. Only www.inkkulture.in URLs. */
+export function inspectHtml(html) {
+  const pick = (re) => (html.match(re) || [])[1] || '';
+  const ld = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => {
+    try {
+      const j = JSON.parse(m[1]);
+      const nodes = j['@graph'] || [j];
+      return nodes.map((n) => n['@type'] + (n.aggregateRating ? `(rating ${n.aggregateRating.ratingValue}/${n.aggregateRating.reviewCount})` : '') + (n.mainEntity?.length ? `(${n.mainEntity.length})` : '')).join('+');
+    } catch (e) { return 'PARSE ERROR: ' + e.message.slice(0, 80) + ' :: ' + m[1].slice(0, 120); }
+  });
+  return {
+    title: pick(/<title>([\s\S]*?)<\/title>/i).replace(/\s+/g, ' ').trim(),
+    description: pick(/<meta\s+name="description"\s+content="([^"]*)"/i),
+    canonical: pick(/<link\s+rel="canonical"\s+href="([^"]*)"/i),
+    og_image: !!pick(/property="og:image"\s+content="([^"]*)"/i),
+    h1: [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map((m) => m[1].replace(/<[^>]+>/g, '').trim()).slice(0, 3),
+    jsonld: ld,
+    liquid_errors: [...html.matchAll(/Liquid (?:syntax )?error[^<]{0,160}/gi)].map((m) => m[0]).slice(0, 5),
+    has_crumbs: html.includes('ikl-crumbs'), has_reviews: html.includes('ikl-prv__sum'), has_copy: html.includes('ikl-ccopy'), has_pages: html.includes('ikl-cpages'),
+    bytes: html.length,
+  };
+}
+export async function seoCheck(env, { urls = [], theme = '' } = {}) {
+  const out = [];
+  for (const u of urls.slice(0, 8)) {
+    const url = new URL(u, 'https://www.inkkulture.in');
+    if (url.hostname !== 'www.inkkulture.in') { out.push({ url: u, error: 'host not allowed' }); continue; }
+    if (theme) url.searchParams.set('preview_theme_id', String(theme).replace(/\D/g, ''));
+    try {
+      const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; IK-SEO-check)' }, redirect: 'follow' });
+      out.push({ url: url.pathname, status: r.status, ...inspectHtml(await r.text()) });
+    } catch (e) { out.push({ url: u, error: e.message }); }
+  }
+  return { pages: out };
+}

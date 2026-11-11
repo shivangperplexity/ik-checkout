@@ -40,5 +40,5 @@
   </style>
 {%- endif -%}
 {% schema %}
-{ "name": "IK — Product reviews (server)", "tag": "div", "settings": [ { "type": "text", "id": "heading", "label": "Heading", "default": "Reviews of this design" } ], "presets": [{ "name": "IK — Product reviews (server)" }] }
+{ "name": "IK — Product reviews", "tag": "div", "settings": [ { "type": "text", "id": "heading", "label": "Heading", "default": "Reviews of this design" } ], "presets": [{ "name": "IK — Product reviews" }] }
 {% endschema %}
