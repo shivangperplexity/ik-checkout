@@ -142,3 +142,45 @@ export async function productAudit(env) {
     long_seo_title: rows.filter((r) => r.st > 65).length, long_seo_desc: rows.filter((r) => r.sd > 165).length, handle_mismatch: rows.filter((r) => !slug(r.title).startsWith(r.handle.replace(/-\d+$/, '')) && r.handle !== slug(r.title)).length,
     thin: rows.filter((r) => r.words < 80).slice(0, 15).map((r) => [r.handle, r.words]) };
 }
+
+/* ---- product descriptions: keep the existing copy, add facts that answer what shoppers (and AI search) ask ---- */
+const PLACE = { 'wrist-tattoos': 'the wrist', 'neck-tattoos': 'the side or back of the neck', 'forearm-tattoos-1': 'the forearm', 'arm-band-tattoos': 'around the bicep or forearm',
+  'full-sleeve-tattoos': 'the full arm, shoulder to wrist', 'full-chest-tattoos': 'the chest or upper back', 'small-2-inch-tattoos': 'the wrist, ankle, hand or behind the ear',
+  '4-inch-tattoos': 'the forearm, calf, shoulder or collarbone', 'large-statement-tattoos': 'the forearm, chest, back or thigh', 'small-finger-tattoos': 'fingers, wrist or behind the ear' };
+const STYLE = { 'minimal-fineline': 'Minimal & Fineline', 'blackwork-bold': 'Blackwork & Bold', 'script-cursive': 'Script & Cursive', 'flower-tattoos': 'Flower', 'animal-tattoos': 'Animal',
+  'dark-edgy': 'Dark & Edgy', 'cyber-tattoos': 'Cyber', 'couple-matching': 'Couple & Matching', 'navratri-collection': 'Navratri', 'tattoos-for-him': 'Tattoos for Him', 'tattoos-for-her': 'Tattoos for Her' };
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+export function extraCopy(p) {
+  const handles = (p.collections?.nodes || []).map((c) => c.handle);
+  const places = [...new Set(handles.map((h) => PLACE[h]).filter(Boolean))].slice(0, 3);
+  const styles = handles.filter((h) => STYLE[h]).slice(0, 4);
+  const sizes = (p.variants?.nodes || []).map((v) => v.title).filter((t) => t && t !== 'Default Title').slice(0, 4);
+  const t = esc(p.title);
+  const out = ['<div class="ik-more">'];
+  out.push(`<h3>Size and placement</h3><p>${sizes.length ? `The ${t} comes in ${sizes.map(esc).join(', ')}.` : `The ${t} is printed at the size shown in the photos.`} ${places.length ? `It sits best on ${places.join(', or ')}.` : 'Place it anywhere with smooth, clean skin, such as the forearm, wrist or shoulder.'}</p>`);
+  if (styles.length) out.push(`<h3>Style</h3><p>Part of our ${styles.map((h) => `<a href="/collections/${h}">${STYLE[h]}</a>`).join(', ')} ${styles.length > 1 ? 'collections' : 'collection'}.</p>`);
+  out.push(`<h3>How long does the ${t} last?</h3><p>About 1–2 weeks. It is a needle-free semi-permanent tattoo: the plant-based ink develops into a realistic blue-black over 24–48 hours and then fades naturally as your skin renews. It may fade sooner on hands, fingers or sensitive skin.</p>`);
+  out.push('<h3>How do you apply it?</h3><p>Clean and dry the skin, place the design face down, press it with a wet tissue for 30 seconds and peel slowly. Keep it dry for the first few hours. See the full <a href="/pages/how-to-apply">how-to-apply guide</a>.</p>');
+  out.push('<h3>Offer and delivery</h3><p>Buy 1 Get 1 Free on every tattoo, free delivery across India, and Cash on Delivery on most PIN codes.</p>');
+  out.push('</div>');
+  return out.join('');
+}
+export async function fixDescriptions(env, { dry = true, limit = 300 } = {}) {
+  const todo = []; let after = null;
+  for (let pg = 0; pg < 10; pg++) {
+    const d = await gql(env, `query($after:String){ products(first:50, after:$after, query:"status:active"){ nodes{ id title descriptionHtml
+      variants(first:6){ nodes{ title } } collections(first:20){ nodes{ handle } } } pageInfo{ hasNextPage endCursor } } }`, { after });
+    for (const p of d.products.nodes) if (!String(p.descriptionHtml || '').includes('ik-more')) todo.push(p);
+    if (!d.products.pageInfo.hasNextPage) break; after = d.products.pageInfo.endCursor;
+  }
+  const words = (h) => h.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+  if (dry) { const s = todo[0]; return { dry: true, todo: todo.length, sample: s ? { title: s.title, before: words(s.descriptionHtml), after: words(s.descriptionHtml + extraCopy(s)), html: extraCopy(s) } : null }; }
+  let ok = 0; const errors = [];
+  for (const p of todo.slice(0, limit)) {
+    try {
+      const d = await gql(env, 'mutation($p:ProductUpdateInput!){ productUpdate(product:$p){ product{ id } userErrors{ message } } }', { p: { id: p.id, descriptionHtml: `${p.descriptionHtml || ''}${extraCopy(p)}` } });
+      if (d.productUpdate.userErrors?.length) errors.push(`${p.title}: ${d.productUpdate.userErrors[0].message}`); else ok++;
+    } catch (e) { errors.push(`${p.title}: ${e.message.slice(0, 120)}`); }
+  }
+  return { todo: todo.length, updated: ok, errors: errors.slice(0, 5) };
+}
