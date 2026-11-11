@@ -204,6 +204,8 @@ export const SCHEMA = [
   /* ShipPrime keeps a failed Delhivery attempt at OUT_FOR_DELIVERY; its Manage NDR list says it failed (lib/sp-ndr.js) */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_ndr_at BIGINT`,
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_ndr_reason TEXT`,
+  /* which courier we asked for and why, and what ShipPrime did instead (lib/shipprime.js spBook) */
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS book_note TEXT`,
   /* Dashboard assistant conversation (lib/assistant.js) */
   `CREATE TABLE IF NOT EXISTS assistant_msgs (id SERIAL PRIMARY KEY, ts BIGINT, role TEXT, content TEXT)`,
   /* Reviews (lib/reviews.js): one ask per delivered order, the reviews, their photos (JPEG base64) */

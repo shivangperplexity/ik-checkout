@@ -487,7 +487,7 @@ export async function srOrderAmount(env, srOrderId) {
 export function publicRec(r) {
   if (!r) return null;
   let pack = null; try { pack = JSON.parse(r.pack || 'null'); } catch { /* ignore */ }
-  return { order_id: r.order_id, order_name: r.order_name, provider: r.provider === 'shipprime' ? 'shipprime' : 'shiprocket', awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: trackUrlOf(r), sr_order_id: r.sr_order_id || '' };
+  return { order_id: r.order_id, order_name: r.order_name, provider: r.provider === 'shipprime' ? 'shipprime' : 'shiprocket', awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: trackUrlOf(r), sr_order_id: r.sr_order_id || '', book_note: r.book_note || '' };
 }
 
 export async function cancelShipment(env, rec) {

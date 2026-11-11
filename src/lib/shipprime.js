@@ -236,6 +236,13 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
       if (alloc?.pick) pick = alloc.pick;
     }
   } catch (e) { console.error('smart alloc', e.message); }
+  /* Shadowfax test (owner, 11 Nov): it never won on price or ranking, so it had no parcels of ours to judge. A share of
+     orders goes to it until the test ends; Blue Dart states below still win. shipping.shadowfax_test { share, until, off } */
+  try {
+    const sf = shadowfaxTurn(s, String(row?.order_id || order.id || ''), now());
+    const r = sf && rates.find((x) => /^SHADOWFAX$/i.test(x.code) && x.ok !== false && Number(x.charge) > 0);
+    if (r) { pick = r; alloc = { ...(alloc || {}), note: `Shadowfax test (1 in ${sf} orders, ₹${r.charge})` }; }
+  } catch (e) { console.error('shadowfax test', e.message); }
   /* Blue Dart for COD (Nov 2026): 27% RTO against 55-59% on Xpressbees / Delhivery, about ₹40 more per parcel.
      Default: the states that pay (SP_BLUEDART_STATES, Settings shipping.bluedart_states) + the RJ/MP/UP test until
      16 Nov (shipping.bluedart_test { states, until }). Off with shipping.bluedart_cod_off. No automatic rebook on a
@@ -250,6 +257,16 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
     }
   } catch (e) { console.error('bluedart route', e.message); }
   return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint, alloc_note: alloc?.note || '', alloc_table: alloc?.table || null };
+}
+
+/** Shadowfax test: 0 = not this order, else the share (1 in N). Same order -> same answer (order id), so a rebook agrees. */
+export function shadowfaxTurn(s = {}, orderId = '', t = now()) {
+  const c = { share: 3, until: Date.UTC(2026, 10, 25) / 1000, ...(s.shadowfax_test || {}) };
+  const n = Math.round(Number(c.share) || 0);
+  if (c.off === true || n < 1 || t >= Number(c.until)) return 0;
+  const d = String(orderId).replace(/\D/g, '');
+  if (!d) return 0;
+  return Number(d.slice(-6)) % n === 0 ? n : 0;
 }
 
 /**
@@ -289,7 +306,7 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
     if (e.code === 'NOT_SERVICEABLE' && body.preferredTpls?.length === 1) {
       const rest = spFallbacks(plan.rates, spPrefer(env.SETTINGS?.shipping || {}), body.preferredTpls[0]);
       if (rest.length) {
-        try { j = await sp(env, 'POST', '/v1/forward', { ...body, preferredTpls: rest }); e = null; note = `${courierLabel(body.preferredTpls[0])} does not deliver to ${plan.pin}, so ShipPrime used the next courier`; }
+        try { j = await sp(env, 'POST', '/v1/forward', { ...body, preferredTpls: rest }); e = null; note = `${courierLabel(body.preferredTpls[0])} refused (${String(e0.message || '').slice(0, 160)}), so ShipPrime used the next courier`; }
         catch (e2) { e = e2; }
       }
     }
@@ -308,9 +325,13 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
   if (!awb) throw new Error('ShipPrime did not return an AWB: ' + JSON.stringify(j).slice(0, 200));
   const courier = courierLabel(d.courier || d.tpl || d.tplVendor || d.tpl_vendor || (chosen && chosen.code) || '');
   const charge = (plan.rates.find((r) => r.code.toUpperCase() === String(d.courier || d.tpl || (chosen && chosen.code) || '').toUpperCase()) || chosen || {}).charge;
-  await db.prepare(`UPDATE shipments SET provider='shipprime', sp_ref=?, sp_order_id=?, awb=?, courier=?, charge_paise=?, cod_paise=?, label_url=?, pickup=?, status='booked', stage='pickup_pending', updated_at=? WHERE order_id=?`)
+  /* asked for one courier, got another without an error: ShipPrime allocated it itself. Keep the evidence. */
+  if (!note && chosen && courier && courierLabel(chosen.code) !== courier) note = `Asked ShipPrime for ${courierLabel(chosen.code)}, it booked ${courier}`;
+  if (note) console.warn('sp booking courier', row.order_name, note);
+  const want_note = [chosen ? `asked ${courierLabel(chosen.code)}` : '', plan.alloc_note || '', note].filter(Boolean).join(' · ').slice(0, 500);
+  await db.prepare(`UPDATE shipments SET provider='shipprime', sp_ref=?, sp_order_id=?, awb=?, courier=?, charge_paise=?, cod_paise=?, label_url=?, pickup=?, status='booked', stage='pickup_pending', updated_at=?, book_note=? WHERE order_id=?`)
     .bind(ref, String(d.orderId || d.order_id || ''), awb, courier, Math.round((charge || 0) * 100), plan.cod ? Math.round(plan.codAmount) * 100 : 0, String(d.labelUrl || d.label_url || ''),
-      'ShipPrime asks the courier for the pickup', now(), id).run();
+      'ShipPrime asks the courier for the pickup', now(), want_note, id).run();
   rec = await db.prepare('SELECT * FROM shipments WHERE order_id=?').bind(id).first();
   return { ok: true, rec, pack: plan.pack, note };
 }

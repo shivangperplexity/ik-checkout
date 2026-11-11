@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { courierLabel, parseRates, spPick, spFallbacks, spPrefer, arrivalDate, spItems, spBody, spToSrShape, trackUrlOf, handleSpWebhook, spWebhookSecret } from './shipprime.js';
+import { courierLabel, parseRates, spPick, spFallbacks, spPrefer, arrivalDate, spItems, spBody, spToSrShape, trackUrlOf, handleSpWebhook, spWebhookSecret, shadowfaxTurn } from './shipprime.js';
+
+test('Shadowfax test: 1 in N orders by order id, stable, ends on its date, can be switched off', () => {
+  const t = Date.UTC(2026, 10, 12) / 1000;
+  const ids = Array.from({ length: 300 }, (_, i) => String(19004000000000 + i * 7919));
+  const hits = ids.filter((id) => shadowfaxTurn({}, id, t)).length;
+  assert.ok(hits > 80 && hits < 120, 'about a third: ' + hits);
+  assert.equal(shadowfaxTurn({}, ids[0], t), shadowfaxTurn({}, ids[0], t));
+  assert.equal(shadowfaxTurn({}, '19004000000003', Date.UTC(2026, 10, 26) / 1000), 0);
+  assert.equal(shadowfaxTurn({ shadowfax_test: { off: true } }, '19004000000003', t), 0);
+  assert.equal(shadowfaxTurn({ shadowfax_test: { share: 1 } }, '19004000000001', t), 1);
+  assert.equal(shadowfaxTurn({}, '', t), 0);
+});
 import { summarize } from './sr-scan.js';
 import { adaptTrack } from './shiprocket.js';
 import { classify } from './wa-ship.js';
