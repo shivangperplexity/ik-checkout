@@ -15,6 +15,6 @@ export async function spPnl(env) {
       SUM(CASE WHEN s.stage='delivered' AND NOT COALESCE(s.rto,false) THEN 1 ELSE 0 END) d, SUM(CASE WHEN COALESCE(s.rto,false) OR s.stage='rto' THEN 1 ELSE 0 END) r,
       SUM(CASE WHEN NOT (COALESCE(s.rto,false) OR COALESCE(s.stage,'') IN ('rto','delivered')) THEN 1 ELSE 0 END) t
     FROM shipments s LEFT JOIN orders o ON o.order_id = s.order_id WHERE s.provider='shipprime' AND COALESCE(s.status,'') <> 'cancelled'
-    GROUP BY 1, 2 ORDER BY (d + r) DESC`).all()).results.map((x) => ({ state: x.st, pay: x.pay, delivered: Number(x.d), rto: Number(x.r), open: Number(x.t), rto_pct: Number(x.d) + Number(x.r) ? Math.round((Number(x.r) / (Number(x.d) + Number(x.r))) * 100) : null }));
+    GROUP BY 1, 2 ORDER BY 1, 2`).all()).results.map((x) => ({ state: x.st, pay: x.pay, delivered: Number(x.d), rto: Number(x.r), open: Number(x.t), rto_pct: Number(x.d) + Number(x.r) ? Math.round((Number(x.r) / (Number(x.d) + Number(x.r))) * 100) : null }));
   return { by_state: st, first_booking: new Date(first * 1000).toISOString().slice(0, 10), rows: rows.map(fix), orders_since: { total: Number(all.n), shipprime: Number(all.sp), other_carrier: Number(all.other), cancelled: Number(all.cancelled) } };
 }
