@@ -129,7 +129,7 @@
       foot.innerHTML = top + '<button type="button" class="ikx-btn" disabled><i class="ikx-spin ikx-spin--sm"></i>Confirming your total…</button>';
       return;
     }
-    if ((state.method !== 'cod' || pcx) && !((state.method === 'upi' || pcx) && IS_MOBILE)) loadBolt(false).catch(function () {});
+    if (!PAYU_HOSTED && (state.method !== 'cod' || pcx) && !((state.method === 'upi' || pcx) && IS_MOBILE)) loadBolt(false).catch(function () {});
     /* Build 036: one button everywhere, worded like Shopify ("Pay now" / "Complete order").
        Set SLIDE_TO_PAY = true to bring back the phone slider. */
     if (!IS_MOBILE || !SLIDE_TO_PAY) {
@@ -282,7 +282,7 @@
   function codGone(msg) {
     if (state.quote) state.quote.cod_on = false;
     QC = {}; saveQC(); state.idem = uuid(); state.otpSkip = false;
-    if (state.method === 'cod') state.method = 'upi';
+    if (state.method === 'cod') state.method = methods()[0];
     paintPay(); paintShip(); paintBill(); paintFoot();
     showErr(msg || 'Cash on delivery is not available right now. Please pay by UPI or card.');
   }
@@ -313,11 +313,11 @@
     state.busy = true;
     if (!IS_MOBILE) paintFoot();
     if (!otp) {
-      overlay(state.method === 'cod' && !pcx ? 'Placing your order…' : (state.method === 'upi' || pcx) && IS_MOBILE ? 'Opening your UPI app…' : 'Opening secure payment…');
+      overlay(state.method === 'cod' && !pcx ? 'Placing your order…' : !PAYU_HOSTED && (state.method === 'upi' || pcx) && IS_MOBILE ? 'Opening your UPI app…' : 'Opening secure payment…');
       tk('submit', { phone: d.phone, name: d.name, method: state.method });
       track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
     }
-    var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
+    var upiApp = !PAYU_HOSTED && (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
     api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, pv: 2, dupask: 1, confirm_new: state.confirmNew ? 1 : undefined, otp: otp || undefined }).then(function (r) {
       state.confirmNew = false;
       if (!r.ok && r.otp_invalid) { state.busy = false; return otpError(r.error, r.expired); }
@@ -353,6 +353,8 @@
         return showErr(r.error || 'Could not place the order. Please try again.');
       }
       if (r.method === 'prepaid' && PAYU_ONLY[state.method] && r.payu && r.payu.fields) r.payu.fields.enforce_paymethod = PAYU_ONLY[state.method];
+      /* Build 065: PayU's own full page (a normal redirect: works in the Instagram / Facebook browser, all its options) */
+      if (PAYU_HOSTED && (r.method === 'prepaid' || r.method === 'partial') && r.payu) { tk('method', { method: state.method, data: { payu: 'hosted' } }); return redirectPayu(r.payu); }
       if (r.method === 'prepaid' || r.method === 'partial') return (r.upi && upiApp) ? goUpi(r, upiApp) : goPayu(r.payu);
       fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
       track('Purchase', { currency: 'INR', value: r.value }, r.eventId); tk('done');
@@ -549,7 +551,8 @@
     if (!(save > 0)) return false;
     COD_ASKED = true; try { sessionStorage.setItem('ikx_codask', '1'); } catch (e) {}
     closeAsk();
-    var pay = IS_MOBILE
+    var pay = PAYU_HOSTED ? '<button type="button" class="ikx-btn ikx-ca__go" data-ikx-method="payu" data-ikx-go data-ikx-ca="online">Pay ' + money(pre.total) + ' online</button>'
+      : IS_MOBILE
       ? '<div class="ikx-po__apps ikx-ca__apps" role="group" aria-label="Pay with a UPI app">' + ['gpay', 'phonepe', 'paytm'].map(function (k) {
           return '<button type="button" class="ikx-po__app ikx-po__app--' + k + '" data-ikx-upi="' + k + '" data-ikx-go data-ikx-ca="online" aria-label="Pay ' + esc(money(pre.total)) + ' with ' + UPI_TILE[k] + '"><span class="ikx-po__logo">' + upiIcon(k) + '</span><span>' + UPI_TILE[k] + '</span></button>';
         }).join('') + '</div>' +

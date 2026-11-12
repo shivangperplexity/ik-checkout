@@ -223,9 +223,13 @@
   var UPI_TILE = { gpay: 'G Pay', phonepe: 'PhonePe', paytm: 'Paytm' };
   /* PayU page method for each row (PayU "enforce_paymethod"; not part of the hash) */
   var PAYU_ONLY = { card: 'creditcard|debitcard', nb: 'netbanking', upiid: 'upi' };
+  /* Build 065 (12 Nov 2026): one "Pay online" button that opens PayU's own full payment page (UPI apps, QR, UPI ID,
+     cards, netbanking, wallets), instead of our GPay / PhonePe / Paytm tiles. The tiles' app links often do nothing
+     inside the Instagram / Facebook browser, so people tapped again and again and left. false = the tiles are back. */
+  var PAYU_HOSTED = true;
   function qk(m) { return m === 'cod' ? 'cod' : 'prepaid'; }
   function codOn() { return !state.quote || state.quote.cod_on !== false; }
-  function methods() { return ['upi', 'upiid', 'card', 'nb'].concat(codOn() ? ['cod'] : []); }
+  function methods() { return (PAYU_HOSTED ? ['payu'] : ['upi', 'upiid', 'card', 'nb']).concat(codOn() ? ['cod'] : []); }
   function payWord() { return codOn() ? 'choose Cash on delivery' : 'pay another way'; }
   var LOGO_URL = { gpay: script && script.getAttribute('data-logo-gpay'), phonepe: script && script.getAttribute('data-logo-phonepe'), paytm: script && script.getAttribute('data-logo-paytm') };
   var PI = {
@@ -253,7 +257,7 @@
       box.innerHTML = '<p class="ikx-m">Getting your price… one moment. If it takes long, tap Try again below.</p>';
       return;
     }
-    if (methods().indexOf(state.method) < 0) state.method = 'upi';
+    if (methods().indexOf(state.method) < 0) state.method = methods()[0];
     var cod = state.quote.cod, pre = state.quote.prepaid, pc = codOn() && pcOn(), dis = state.busy ? ' disabled' : '';
     var preOff = (pre.prepaid || 0) + (pre.ref || 0) + (pre.credit || 0);
     var save = preOff ? '<span class="ikx-po__save">Save ' + money(preOff) + '</span>' : '';
@@ -273,9 +277,15 @@
     }
     upi += '</div>';
     var codSub = pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : (cod.cod ? 'Incl. ' + money(cod.cod) + ' COD fee' + (cod.total > pre.total ? ' · pay online, save ' + money(cod.total - pre.total) : '') : (preOff ? 'Pay at your door · no ' + money(preOff) + ' discount' : 'Pay at your door'));
+    if (PAYU_HOSTED) {
+      var logos = '<span class="ikx-logos" aria-hidden="true">' + ['gpay', 'phonepe', 'paytm'].map(function (k) { var u = (state.logos || {})[k] || LOGO_URL[k]; return u ? '<img src="' + esc(u) + '" alt="">' : ''; }).join('') + '</span>';
+      upi = '<button type="button" class="ikx-po__row ikx-po__row--dark ikx-po__row--payu' + (state.method === 'payu' ? ' is-on' : '') + '" data-ikx-method="payu" data-ikx-go' + dis + '>' +
+        '<span class="ikx-po__ic">' + PI.upi + '</span><span class="ikx-po__t"><b>Pay online</b><small style="color:#cfc9be">UPI, cards, netbanking &amp; wallets</small>' + logos + '</span>' +
+        '<span class="ikx-po__amt">' + money(pre.total) + (save ? '<br>' + save : '') + '</span><span class="ikx-po__chev">' + ICON.chev + '</span></button>';
+    }
     box.innerHTML = '<div class="ikx-po">' + upi +
-      poRow('card', PI.card, 'Debit/Credit Cards', money(pre.total), '', ' ikx-po__row--dark') +
-      poRow('nb', PI.bank, 'Netbanking', money(pre.total), '', ' ikx-po__row--dark') +
+      (PAYU_HOSTED ? '' : poRow('card', PI.card, 'Debit/Credit Cards', money(pre.total), '', ' ikx-po__row--dark') +
+      poRow('nb', PI.bank, 'Netbanking', money(pre.total), '', ' ikx-po__row--dark')) +
       (codOn() ? poRow('cod', PI.cash, 'Cash on delivery', pc ? money(pcAdv()) + ' now' : money(cod.total), codSub, ' ikx-po__row--cod') : '') +
       '</div>' + (codOn() ? pcNote() : '') +
     ((state.method === 'cod' && pc) && IS_MOBILE ? '<p class="ikx-m ikx-po__pick">Pay the ' + money(pcAdv()) + ' with</p><div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_APPS.map(function (a) {
