@@ -118,6 +118,26 @@ export function spPick(rates, prefer = SP_DEFAULT_PREFER) {
   const sorted = [...list].sort((a, b) => (Number(b.ok === true) - Number(a.ok === true)) || (rank(a) - rank(b)) || (bd(a) - bd(b)) || ((a.charge ?? 9e9) - (b.charge ?? 9e9)));
   return sorted[0];
 }
+/* Courier priority (owner, 13 Nov 2026): Delhivery Air first, then Blue Dart or Ekart (cheaper of the two), then
+   Xpressbees. Overrides smart allocation, the Shadowfax test and the Blue Dart COD route. Groups split by "|", couriers
+   in one group by ","; Settings shipping.sp_priority ('' or 'off' = old logic). */
+export const SP_PRIORITY = 'DELHIVERY_AIR|BLUEDART,EKART|XPRESSBEES';
+export const spPriority = (s = {}) => { const v = s.sp_priority ?? SP_PRIORITY; return !v || v === 'off' ? [] : String(v).split('|').map((g) => g.split(/[,\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean)).filter((g) => g.length); };
+const usable = (r) => r && r.code && r.ok !== false && r.serviceable !== false && Number(r.charge) > 0;
+/** Pure: the courier the priority list gives, or null (none of them serves this PIN). */
+export function spPriorityPick(rates, groups) {
+  for (const g of groups || []) {
+    const c = (rates || []).filter((r) => usable(r) && g.includes(r.code.toUpperCase())).sort((a, b) => a.charge - b.charge)[0];
+    if (c) return c;
+  }
+  return null;
+}
+/** Pure: courier codes in priority order (each group cheapest first), without `first`. */
+export function spPriorityOrder(rates, groups, first) {
+  const out = [];
+  for (const g of groups || []) for (const r of (rates || []).filter((x) => usable(x) && x.code !== first && g.includes(x.code.toUpperCase())).sort((a, b) => a.charge - b.charge)) out.push(r.code);
+  return out;
+}
 /** The order ShipPrime should try couriers in, after `first` failed: the same ranking, without `first`. */
 export function spFallbacks(rates, prefer, first) {
   /* Blue Dart is never an automatic fallback (pickup delays): choose it by hand if you want it */
@@ -256,6 +276,8 @@ export async function spPlan(env, order, row, { hint = null } = {}) {
       if (bd) { pick = bd; alloc = { ...(alloc || {}), note: `Blue Dart for COD to ${st} (₹${bd.charge}; ${inTest && !spBluedartStates(s).includes(st) ? 'RTO test' : 'low-RTO state'})` }; }
     }
   } catch (e) { console.error('bluedart route', e.message); }
+  const pri = spPriorityPick(rates, spPriority(s));
+  if (pri) { pick = pri; alloc = { ...(alloc || {}), note: `Priority courier: ${courierLabel(pri.code)} (₹${pri.charge})` }; }
   return { ...base, pickup, rates, pick, error, edd, range, hinted: !!hint, alloc_note: alloc?.note || '', alloc_table: alloc?.table || null };
 }
 
@@ -304,7 +326,9 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
     let e = e0;
     /* the chosen courier does not deliver there: let ShipPrime try the others in our order (nothing was created) */
     if (e.code === 'NOT_SERVICEABLE' && body.preferredTpls?.length === 1) {
-      const rest = spFallbacks(plan.rates, spPrefer(env.SETTINGS?.shipping || {}), body.preferredTpls[0]);
+      const ss = env.SETTINGS?.shipping || {}, first = body.preferredTpls[0];
+      const pr = spPriorityOrder(plan.rates, spPriority(ss), first);
+      const rest = [...pr, ...spFallbacks(plan.rates, spPrefer(ss), first).filter((c) => !pr.includes(c))];
       if (rest.length) {
         try { j = await sp(env, 'POST', '/v1/forward', { ...body, preferredTpls: rest }); e = null; note = `${courierLabel(body.preferredTpls[0])} refused (${String(e0.message || '').slice(0, 160)}), so ShipPrime used the next courier`; }
         catch (e2) { e = e2; }
