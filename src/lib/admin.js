@@ -1497,6 +1497,13 @@ const ACTIONS = {
   async seo_products(env) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.productAudit(env)) }; },
   async seo_descriptions(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.fixDescriptions(env, { dry: b?.dry !== false, limit: Math.min(300, Number(b?.limit) || 300), redo: !!b?.redo })) }; },
   async sp_pnl(env) { const R = await import('./sp-pnl.js'); return { ok: true, ...(await R.spPnl(env)) }; },
+  /** Read-only: recent ShipPrime bookings with the courier asked vs booked (book_note). */
+  async sp_book_notes(env, b) {
+    const since = Math.floor(Date.now() / 1000) - Math.min(7, Math.max(1, Number(b?.days) || 1)) * 86400;
+    const rows = (await env.DB.prepare(`SELECT s.order_name, s.courier, s.book_note, COALESCE(s.cod_paise,0) > 0 AS cod, s.created_at, s.stage, o.state_code, o.pincode
+      FROM shipments s LEFT JOIN orders o ON o.order_id = s.order_id WHERE s.provider='shipprime' AND s.created_at >= ? ORDER BY s.created_at DESC LIMIT 200`).bind(since).all()).results;
+    return { ok: true, n: rows.length, rows };
+  },
   async review_seo_sync(env, b) { const R = await import('./review-seo.js'); return { ok: true, ...(await R.reviewSeoSync(env, { force: true, dry: !!b?.dry })) }; },
   async review_set(env, b) { const R = await import('./reviews.js'); return R.adminSet(env, b); },
   async review_delete(env, b) { const R = await import('./reviews.js'); return R.adminDelete(env, b); },
