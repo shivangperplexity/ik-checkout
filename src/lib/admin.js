@@ -174,13 +174,34 @@ async function runRates(env, { pin, cod, amount, weight_g }) {
   const { compareRates } = await import('./rates.js');
   const fresh = await withSettingsFresh(env);
   if (weight_g) fresh.SETTINGS = { ...fresh.SETTINGS, shipping: { ...fresh.SETTINGS.shipping, weight_g } };
-  return { pin, cod, amount, ...(await compareRates(fresh, { pin, cod, amount })) };
+  const [sr, sp] = await Promise.all([compareRates(fresh, { pin, cod, amount }), spRateOptions(fresh, { pin, cod, amount })]);
+  /* ShipPrime couriers listed next to Shiprocket's (price per courier; ShipPrime's delivery estimate is one range for
+     the PIN, not per courier). The "use this" pick stays Shiprocket's rule; cheapest / fastest look at both. */
+  const options = [...sr.options, ...sp.options].sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
+  const dated = options.filter((o) => o.eddDate).sort((a, b) => a.eddDate - b.eddDate);
+  return { pin, cod, amount, ...sr, options, cheapest: options.find((o) => o.charge != null) || null, fastest: dated[0] || sr.fastest,
+    errors: [...sr.errors, ...sp.errors], connected: [...sr.connected, ...(sp.connected ? ['shipprime'] : [])], sp_days: sp.days };
+}
+async function spRateOptions(env, { pin, cod, amount }) {
+  if (!spConnected(env)) return { options: [], errors: [], connected: false, days: null };
+  try {
+    const SP = await import('./shipprime.js');
+    const pickup = await spPickup(env);
+    const w = Number(env.SETTINGS?.shipping?.weight_g) || 50;
+    const [r, e] = await Promise.allSettled([SP.spRates(env, { from: pickup.pincode, pin, weightGrams: w, cod, amount }), SP.spEdd(env, pickup.pincode, pin)]);
+    if (r.status === 'rejected') return { options: [], errors: ['ShipPrime: ' + String(r.reason?.message || r.reason)], connected: true, days: null };
+    const edd = e.status === 'fulfilled' ? e.value : null;
+    const at = edd ? new Date(SP.arrivalDate(edd.max) + 'T12:00:00+05:30') : null;
+    const options = r.value.filter((x) => x.serviceable !== false).map((x) => ({ courier: x.courier, code: x.code, charge: x.charge, freight: x.forward, cod: x.cod || 0,
+      eddDate: at, provider: 'shipprime', providerLabel: 'ShipPrime' }));
+    return { options, errors: [], connected: true, days: edd ? { min: edd.min, max: edd.max } : null };
+  } catch (err) { return { options: [], errors: ['ShipPrime: ' + String(err.message || err)], connected: true, days: null }; }
 }
 const dayOut = (d) => (d ? d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }) : '');
 function ratesOut(r) {
   const tag = (o) => o && `${o.provider}|${o.courier}`;
   return {
-    ok: true, pin: r.pin, cod: r.cod, policy: r.policy, tolerance_days: r.toleranceDays, connected: r.connected, errors: r.errors,
+    ok: true, pin: r.pin, cod: r.cod, sp_days: r.sp_days || null, policy: r.policy, tolerance_days: r.toleranceDays, connected: r.connected, errors: r.errors,
     pick: tag(r.pick), cheapest: tag(r.cheapest), fastest: tag(r.fastest),
     options: r.options.map((o) => ({ key: tag(o), provider: o.providerLabel, courier: o.courier, charge: o.charge, freight: o.freight, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null })),
     saving_vs_dearest: r.options.length > 1 ? Math.round((Math.max(...r.options.map((o) => o.charge ?? 0)) - (r.pick?.charge ?? 0)) * 100) / 100 : 0,

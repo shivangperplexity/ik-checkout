@@ -851,6 +851,7 @@ function ratesTable(r){
  var h='';
  if(r.errors&&r.errors.length)h+='<p style="color:#b45309;margin:4px 0">'+r.errors.map(esc).join('<br>')+'</p>';
  if(!r.options.length)return h+'<p>No connected carrier returned a price for '+esc(r.pin)+'.</p>';
+ if(r.sp_days)h+='<p class="small mut" style="margin:4px 0">ShipPrime estimate for this PIN: '+r.sp_days.min+'–'+r.sp_days.max+' days after pickup (same for every ShipPrime courier; Air ones are usually at the short end).</p>';
  h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(o){var pick=o.key===r.pick;return '<tr style="border-top:1px solid #eee'+(pick?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(o.courier)+'<div class="mut" style="font-weight:400">'+esc(o.provider)+(pick?' · <b style="color:#16a34a">use this</b>':'')+(o.key===r.cheapest&&!pick?' · cheapest':'')+'</div></td><td>'+(o.charge==null?'-':rup(o.charge))+(o.cod_fee?'<div class="mut" style="font-weight:400">incl. COD '+rup(o.cod_fee)+'</div>':'')+'</td><td>'+(esc(o.edd)||'-')+(o.days?'<div class="mut" style="font-weight:400">'+o.days+' d</div>':'')+'</td></tr>'}).join('')+'</table>';
  if(r.saving_vs_dearest>0)h+='<p style="margin:6px 0 0"><b>Saves '+rup(r.saving_vs_dearest)+'</b> against the dearest option.</p>';
  return h}
