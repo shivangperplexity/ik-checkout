@@ -1,0 +1,8 @@
+/* IK Express — Build 064: the UPI countdown ring starts full and empties as the 5 minutes run out
+   (part 5 sets --ikx-p = share of time left, 1 → 0). It was a fixed border with only the top and right sides
+   green, so it always looked a quarter/half done and never moved. */
+@property --ikx-p{syntax:'<number>';inherits:false;initial-value:1}
+.ikx-ring{position:relative;border:0!important;background:conic-gradient(var(--ikx-green,#15803d) calc(var(--ikx-p,1) * 1turn),#e4e0d8 0);transition:--ikx-p 1s linear}
+.ikx-ring::before{content:"";position:absolute;inset:8px;border-radius:50%;background:#fff}
+.ikx-ring>*{position:relative}
+@media (prefers-reduced-motion:reduce){.ikx-ring{transition:none}}

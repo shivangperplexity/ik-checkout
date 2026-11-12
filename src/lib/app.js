@@ -243,31 +243,31 @@ async function handleOrder(req, env, ctx) {
 
   if (partial) {
     /* Only the advance goes through PayU now; the Shopify order is created when PayU confirms it (completePaid). */
-    await saveOrder(env, row, null, 'pending_payment');
     const payu = await buildPayuForm(env, {
       txnid, amount: rupees(partial.advance), productinfo: `Ink Kulture ${draft.name} advance`.slice(0, 100), firstname: buyer.firstName.slice(0, 60),
       email: buyer.email || `orders+${buyer.phone}@inkkulture.in`, phone: buyer.phone,
       surl: `${env.WORKER_URL}/api/payu/return`, furl: `${env.WORKER_URL}/api/payu/return`, udf1: draft.id.split('/').pop(),
     });
-    let upi = null;
-    if (b.upi) { try { upi = await upiIntent(env, payu.fields, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent')); } catch (e) { console.error('upi intent', e); } }
+    const intent = b.upi
+      ? upiIntent(env, payu.fields, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent')).catch((e) => { console.error('upi intent', e); return null; })
+      : Promise.resolve(null);
+    const [, upi] = await Promise.all([saveOrder(env, row, null, 'pending_payment'), intent]);
     return json({ ok: true, method: 'partial', payu, upi, txnid, advance: partial.advance, balance: draft.total - partial.advance });
   }
 
   if (method === 'prepaid') {
-    await saveOrder(env, row, null, 'pending_payment');
+    /* Build 064 (speed): the PayU form is built locally, so the UPI intent request to PayU runs while the order row is
+       saved instead of after it; the shopper's UPI app opens one database round trip sooner. Both must finish before
+       we answer, exactly as before (a failed save still fails the request). */
     const payu = await buildPayuForm(env, {
       txnid, amount: rupees(draft.total), productinfo: `Ink Kulture ${draft.name}`.slice(0, 100), firstname: buyer.firstName.slice(0, 60),
       email: buyer.email || `orders+${buyer.phone}@inkkulture.in`, phone: buyer.phone,
       surl: `${env.WORKER_URL}/api/payu/return`, furl: `${env.WORKER_URL}/api/payu/return`, udf1: draft.id.split('/').pop(),
     });
-    let upi = null;
-    if (b.upi) {
-      try {
-        const f = payu.fields;
-        upi = await upiIntent(env, f, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent'));
-      } catch (e) { console.error('upi intent', e); }
-    }
+    const intent = b.upi
+      ? upiIntent(env, payu.fields, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent')).catch((e) => { console.error('upi intent', e); return null; })
+      : Promise.resolve(null);
+    const [, upi] = await Promise.all([saveOrder(env, row, null, 'pending_payment'), intent]);
     return json({ ok: true, method, payu, upi, txnid });
   }
 
@@ -288,10 +288,13 @@ async function saveOrder(env, r, order, status) {
   )
     .bind(r.idem, r.txnid, r.eventId, r.draftId, order?.legacyResourceId || null, order?.id || null, order?.name || null, order?.statusPageUrl || null, r.method, r.total, r.buyer.phone, r.buyer.email, r.buyer.firstName, r.buyer.lastName, r.buyer.city, stateCode(r.buyer.state), r.buyer.pincode, r.a.fbp || null, r.a.fbc || null, r.sourceUrl, JSON.stringify(r.contents), status, now(), r.advance || null, r.partialReason || null)
     .run();
-  await env.DB.prepare("UPDATE leads SET status='ordered', updated_at=? WHERE phone=?").bind(now(), r.buyer.phone).run();
-  if (r.sid) await env.DB.prepare('UPDATE orders SET sid=? WHERE idem=?').bind(r.sid, r.idem).run();
-  /* the shopper's own IP / browser, for the Meta server event (the PayU return may come from PayU's servers) */
-  if (r.ua || r.ip) await env.DB.prepare('UPDATE orders SET client_ip=?, client_ua=? WHERE idem=?').bind(r.ip || null, r.ua || null, r.idem).run();
+  /* Build 064 (speed): these three writes don't depend on each other, so they run together (was one after another) */
+  await Promise.all([
+    env.DB.prepare("UPDATE leads SET status='ordered', updated_at=? WHERE phone=?").bind(now(), r.buyer.phone).run(),
+    r.sid ? env.DB.prepare('UPDATE orders SET sid=? WHERE idem=?').bind(r.sid, r.idem).run() : null,
+    /* the shopper's own IP / browser, for the Meta server event (the PayU return may come from PayU's servers) */
+    r.ua || r.ip ? env.DB.prepare('UPDATE orders SET client_ip=?, client_ua=? WHERE idem=?').bind(r.ip || null, r.ua || null, r.idem).run() : null,
+  ]);
 }
 
 /** Pixel ID for the browser Purchase in IK checkout (same dataset as the server event, so Meta de-duplicates). */
