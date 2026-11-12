@@ -23,6 +23,7 @@
 {{ 'ik-express-2.css' | asset_url | stylesheet_tag }}
 {{ 'ik-express-3.css' | asset_url | stylesheet_tag }}
 {{ 'ik-express-4.css' | asset_url | stylesheet_tag }}
+{{ 'ik-express-5.css' | asset_url | stylesheet_tag }}
 {{ 'ikl-fit.css' | asset_url | stylesheet_tag }}
 <script type="application/json" id="ikx-picks">
   [
@@ -61,3 +62,17 @@
 {% render 'ik-site' %}
 {%- comment -%} Build 057: rolling 7-day sale countdown at the top of every page (snippets/ikl-sale-timer.liquid) {%- endcomment -%}
 {% render 'ikl-sale-timer' %}
+{%- comment -%} Build 064: the UPI wait ring (part 5) starts full and empties with its clock; the clock text "m:ss" sets
+  --ikx-p (time left, 1 → 0) used by assets/ik-express-5.css. 300 s = part 5's WINDOW. {%- endcomment -%}
+<script>
+(function () {
+  var W = 300;
+  function upd() {
+    var r = document.querySelector('.ikx-ring'), b = r && r.querySelector('b');
+    var m = b && /(\d+):(\d{2})/.exec(b.textContent || '');
+    if (m) r.style.setProperty('--ikx-p', Math.max(0, Math.min(1, (m[1] * 60 + +m[2]) / W)).toFixed(4));
+  }
+  function start() { new MutationObserver(upd).observe(document.body, { subtree: true, childList: true, characterData: true }); upd(); }
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+</script>
