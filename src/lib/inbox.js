@@ -9,6 +9,7 @@
  * within 24 h of the customer's last message, and only from the number they wrote to).
  */
 import { logMsg, sendText } from './whatsapp.js';
+import { hiddenSet, assertVisible } from './inbox-hide.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 export const PAUSE = 24 * 3600;           /* assistant stays quiet this long after a handoff / a team reply */
@@ -50,9 +51,12 @@ export async function resolveHandoff(env, phone) {
 
 /** Chats for the list: open handoffs, unanswered messages, chats the customer wrote in, or every number we messaged
  *  (filter 'every': automatic messages too, newest first, like WhatsApp itself). */
-export async function inboxList(env, { filter = 'needs', q = '' } = {}) {
+export async function inboxList(env, { filter = 'needs', q = '', hiddenView = false } = {}) {
   const t = now();
-  const every = filter === 'every', days = every ? 60 : 30;
+  /* Build 066: hidden chats (lib/inbox-hide.js) show only in the unlocked hidden view (the caller checks the code) */
+  const hidden = await hiddenSet(env);
+  if (hiddenView) { if (!hidden.size) return []; filter = 'every'; }
+  const every = filter === 'every', days = every ? (hiddenView ? 365 : 60) : 30;
   /* search: by phone digits, or by name / order number from the orders table */
   let only = null;
   if (q) {
@@ -62,6 +66,7 @@ export async function inboxList(env, { filter = 'needs', q = '' } = {}) {
     only = [...new Set(hit)].filter((p) => p.length >= 10);
     if (!only.length) return [];
   }
+  if (hiddenView) { only = (only || [...hidden]).filter((p) => hidden.has(p)); if (!only.length) return []; }
   const rows = (await env.DB.prepare(`SELECT m.phone, MAX(m.ts) AS last_ts, MAX(CASE WHEN m.direction='in' AND m.trigger<>'ticket' THEN m.ts END) AS last_in,
       MAX(CASE WHEN m.direction='out' AND m.trigger IN ('ai','agent') AND COALESCE(m.status,'') NOT IN ('failed','capped','queued','expired') THEN m.ts END) AS last_answer,
       MAX(CASE WHEN m.direction='out' AND m.trigger IN ('ai','agent') AND COALESCE(m.status,'') NOT IN ('failed','capped','queued','expired') THEN m.id END) AS last_answer_id
@@ -78,6 +83,7 @@ export async function inboxList(env, { filter = 'needs', q = '' } = {}) {
     return { phone: String(r.phone), last_ts: Number(r.last_ts), last_in: Number(r.last_in) || null, in_window: Number(r.last_in) > t - WINDOW, handoff: open ? (h.reason || 'handoff') : '',
       unanswered, unread: unanswered && pl.id > (Number(h?.seen_id) || 0), ai_paused: open && Number(h.ai_paused_until) > t, opened_at: open ? Number(h.opened_at) : null };
   });
+  if (!hiddenView && hidden.size) list = list.filter((x) => !hidden.has(x.phone));
   if (filter === 'needs') list = list.filter((x) => x.handoff || (x.unanswered && x.last_in > t - 7 * 86400));
   else if (filter === 'handoff') list = list.filter((x) => x.handoff);
   else if (!every) list = list.filter((x) => x.last_in);   /* 'all': conversations where the customer wrote at least once */
@@ -107,9 +113,10 @@ export async function inboxCount(env) {
 }
 
 /** One chat: messages, the customer's orders with shipment state, and the handoff row. Marks it seen. */
-export async function inboxThread(env, phone) {
+export async function inboxThread(env, phone, pin) {
   const p = clean(phone);
   if (p.length !== 10) throw new Error('Phone number needed');
+  await assertVisible(env, p, pin);
   const msgs = (await env.DB.prepare('SELECT id, ts, direction, trigger, template, status, order_name, error, preview FROM messages WHERE phone=? AND ts>? ORDER BY id DESC LIMIT 200').bind(p, now() - 90 * 86400).all()).results.reverse();
   const orders = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.method, o.total_paise, o.advance_paise, o.converted_at, o.confirmed_at, o.shipped_at, o.packed_at, o.tracking, o.created_at, o.first_name, o.last_name, o.city, o.pincode, o.status_url,
       s.awb, s.courier, s.stage, s.sr_status, s.edd, s.delivered_at, s.ndr_choice, s.ndr_date, s.ndr_by, s.ndr_reason
@@ -146,9 +153,10 @@ export async function inboxThread(env, phone) {
 }
 
 /** A reply typed in the dashboard. Keeps the chat with the team (assistant paused) unless done is set. */
-export async function inboxSend(env, phone, text, { done = false } = {}) {
+export async function inboxSend(env, phone, text, { done = false, pin } = {}) {
   const p = clean(phone), body = String(text || '').trim().slice(0, 3000);
   if (p.length !== 10) throw new Error('Phone number needed');
+  await assertVisible(env, p, pin);
   if (!body) throw new Error('Type a message');
   const lastIn = await env.DB.prepare("SELECT ts, wamid FROM messages WHERE phone=? AND direction='in' AND trigger<>'ticket' ORDER BY id DESC LIMIT 1").bind(p).first();
   const ticket = await env.DB.prepare("SELECT id FROM tickets WHERE phone=? AND status='open' ORDER BY id DESC LIMIT 1").bind(p).first().catch(() => null);

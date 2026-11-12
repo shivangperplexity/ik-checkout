@@ -626,13 +626,30 @@ const ACTIONS = {
     return { ok: true, sent: res.ok, via: res.via || (viaG4w(e2) ? 'g4w' : 'meta'), id: res.id || '', error: res.error || '', last_in: Number(lastIn?.ts) || null };
   },
   /* ---- Chats tab (lib/inbox.js): chats the assistant handed off, unanswered messages, manual replies ---- */
-  async inbox_list(env, b) { const { inboxList } = await import('./inbox.js'); return { ok: true, chats: await inboxList(env, { filter: ['needs', 'handoff', 'all', 'every'].includes(b.filter) ? b.filter : 'needs', q: String(b.q || '').slice(0, 60) }) }; },
+  async inbox_list(env, b) {
+    const { inboxList } = await import('./inbox.js');
+    const { checkPin, hasPin } = await import('./inbox-hide.js');
+    /* Build 066: filter 'hidden' = the locked chats, only with the right lock code */
+    if (b.filter === 'hidden') {
+      const c = await checkPin(env, b.pin);
+      if (!c.ok) return { ok: false, locked: true, error: c.error };
+      return { ok: true, hidden: true, chats: (await inboxList(env, { hiddenView: true, q: String(b.q || '').slice(0, 60) })).map((x) => ({ ...x, hidden: true })) };
+    }
+    return { ok: true, has_lock: await hasPin(env), chats: await inboxList(env, { filter: ['needs', 'handoff', 'all', 'every'].includes(b.filter) ? b.filter : 'needs', q: String(b.q || '').slice(0, 60) }) };
+  },
+  /** Build 066: hide / unhide a chat behind the lock code (first hide sets the code: new_pin). */
+  async inbox_hide(env, b) { const { setHidden } = await import('./inbox-hide.js'); return setHidden(env, { phone: b.phone, hide: b.hide !== false, pin: b.pin, new_pin: b.new_pin }); },
   async inbox_count(env) { const { inboxCount } = await import('./inbox.js'); return { ok: true, ...(await inboxCount(env)) }; },
-  async inbox_thread(env, b) { const { inboxThread } = await import('./inbox.js'); return { ok: true, ...(await inboxThread(await withSettingsFresh(env), b.phone)) }; },
+  async inbox_thread(env, b) {
+    const { inboxThread } = await import('./inbox.js');
+    const { hiddenSet } = await import('./inbox-hide.js');
+    const th = await inboxThread(await withSettingsFresh(env), b.phone, b.pin);
+    return { ok: true, ...th, hidden: (await hiddenSet(env)).has(th.phone) };
+  },
   async inbox_send(env, b) {
     const { inboxSend } = await import('./inbox.js');
     const { withSettings } = await import('./settings.js');
-    return inboxSend(await withSettings(await withSettingsFresh(env)), b.phone, b.text, { done: !!b.done });
+    return inboxSend(await withSettings(await withSettingsFresh(env)), b.phone, b.text, { done: !!b.done, pin: b.pin });
   },
   /** done: hand the chat back to the assistant. takeover: keep the assistant quiet on it (24 h, renewed by each reply). */
   async inbox_state(env, b) {
@@ -644,7 +661,9 @@ const ACTIONS = {
   async ai_backlog(env) {
     const { backlog, budget } = await import('./wa-ai.js');
     const fresh = await withSettingsFresh(env);
-    return { ok: true, rows: await backlog(fresh), budget: await budget(fresh) };
+    const { hiddenSet } = await import('./inbox-hide.js');
+    const hidden = await hiddenSet(env);
+    return { ok: true, rows: (await backlog(fresh)).filter((r) => !hidden.has(String(r.phone || '').replace(/\D/g, '').slice(-10))), budget: await budget(fresh) };
   },
   /** Queue these phones for an answer (only those still inside WhatsApp's window are accepted). */
   async ai_enqueue(env, b) {
@@ -897,7 +916,11 @@ const ACTIONS = {
     return { ok: true, days, by };
   },
   async messages(env) {
-    return { messages: (await env.DB.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 150').all()).results };
+    /* Build 066: hidden chats stay out of the message log too */
+    const { hiddenSet } = await import('./inbox-hide.js');
+    const hidden = await hiddenSet(env);
+    const rows = (await env.DB.prepare(`SELECT * FROM messages ORDER BY id DESC LIMIT ${150 + hidden.size * 50}`).all()).results;
+    return { messages: rows.filter((m) => !hidden.has(String(m.phone || '').replace(/\D/g, '').slice(-10))).slice(0, 150) };
   },
   async settings(env) {
     const cronAt = Number((await env.DB.prepare("SELECT v FROM settings WHERE k='cron_at'").first().catch(() => null))?.v) || 0, cronVia = String((await env.DB.prepare("SELECT v FROM settings WHERE k='cron_via'").first().catch(() => null))?.v || '').replace(/"/g, '');
