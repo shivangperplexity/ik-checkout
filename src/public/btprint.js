@@ -163,8 +163,8 @@
       var tmp = document.createElement('canvas'); tmp.width = Math.ceil(vp.width); tmp.height = Math.ceil(vp.height);
       var tg = tmp.getContext('2d'); tg.fillStyle = '#fff'; tg.fillRect(0, 0, tmp.width, tmp.height);
       await page.render({ canvasContext: tg, viewport: vp }).promise;
-      /* moved 12 mm down (8 dots/mm), full size: the printer loses the label's first mm, which cut the AWB off the top */
-      g.drawImage(tmp, Math.round((cv.width - tmp.width) / 2), Math.round((cv.height - tmp.height) / 2) + 96);
+      /* moved 6 mm down (8 dots/mm), full size: the printer loses the label's first mm, which cut the AWB off the top */
+      g.drawImage(tmp, Math.round((cv.width - tmp.width) / 2), Math.round((cv.height - tmp.height) / 2) + 48);
       out.push(cv);
     }
     return out;
