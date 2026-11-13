@@ -37,12 +37,14 @@
           return '<div class="ads-set"><div class="ads-h"><b style="font-weight:600">' + esc(s.name) + '</b>' + chip(s.status, s.eff) + (s.daily ? '<span class="ads-m">' + inr(s.daily) + '/day</span>' : '') + '</div>' + m(s.m) +
             s.ads.map(function (a) {
               return '<div class="ads-ad">' + (a.thumb ? '<img src="' + esc(a.thumb) + '" alt="" loading="lazy">' : '<img alt="">') + '<div class="t"><div>' + esc(a.name) + ' ' + chip(a.status, a.eff) + '</div>' + m(a.m) + '</div>' +
-                '<button class="ads-btn" data-st="' + a.id + '" data-to="' + (a.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE') + '">' + (a.status === 'ACTIVE' ? 'Pause' : 'Turn on') + '</button>' +
+                (a.video ? '<button class="ads-btn" data-rv="' + a.id + '">Copyright check</button>' : '') + '<button class="ads-btn" data-st="' + a.id + '" data-to="' + (a.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE') + '">' + (a.status === 'ACTIVE' ? 'Pause' : 'Turn on') + '</button>' +
                 '<button class="ads-btn red" data-del="' + a.id + '" data-n="' + esc(a.name) + '">Delete</button></div>';
             }).join('') + '</div>';
         }).join('') + '</div>';
     }).join('') || '<p class="mut">No campaigns.</p>';
     box.onclick = function (e) {
+      var rv = e.target.closest('[data-rv]');
+      if (rv) { rv.disabled = true; rv.textContent = 'Checking…'; rpc('ads_review', { ad_id: rv.dataset.rv }).then(function (r) { rv.textContent = r.verdict; rv.title = r.notes || ''; if (r.notes) toast(r.notes); }).catch(function (e) { rv.disabled = false; rv.textContent = 'Copyright check'; toast(e.message); }); return; }
       var b = e.target.closest('[data-st],[data-del]'); if (!b) return;
       if (b.dataset.del && !confirm('Delete the ad "' + b.dataset.n + '"? This cannot be undone.')) return;
       b.disabled = true;
@@ -124,7 +126,7 @@
         for (var i = 0; i < ch.length; i += 50) { var x = Math.abs(ch[i]); s += x * x; n++; if (x > peak) peak = x; }
         var rms = Math.sqrt(s / Math.max(1, n));
         if (peak < 0.01) return li('✗ The sound track is silent. Add voice or music before running it.');
-        li((rms < 0.02 ? '⚠ The sound is very quiet. ' : '✓ Has sound. ') + 'Meta checks music for copyright: a film / trending song can get the ad muted or rejected. Your own voice, original audio or music from Meta’s Sound Collection is safe. Meta’s own check shows after the upload.');
+        li('♪ Has sound. Copyright: Meta checks the music when it reviews the ad; its answer (OK / audio muted / rejected) shows here after the ad is made, and on the ad’s “Copyright check” button.');
       };
       try { var p = ctx.decodeAudioData(buf, done, function () { done(null); }); if (p && p.catch) p.catch(function () { done(null); }); } catch (e) { done(null); }
     }).catch(function () { li('Sound not checked.'); });
@@ -173,7 +175,17 @@
       prog(1);
       say('Ad created' + (r.copied_from ? ' like “' + r.copied_from.name + '”' : '') + ' · ' + ($('#ads-on').value === 'ACTIVE' ? 'active (Meta reviews it first)' : 'paused') + (r.copyright ? ' · copyright check: ' + r.copyright.replace(/_/g, ' ') : ''));
       toast('Reel ad created'); P.file = null; $('#ads-f').value = ''; $('#ads-ck').innerHTML = ''; tree();
+      review(r.ad_id, 0);
     }).catch(function (e) { say('✗ ' + e.message); toast(e.message); btn.disabled = false; });
+  }
+  /* Meta tells about copyright music when it reviews the ad: follow it for up to 15 minutes */
+  function review(id, n) {
+    var msg = $('#ads-msg2'); if (!msg) return;
+    rpc('ads_review', { ad_id: id }).then(function (r) {
+      var done = !/in review/.test(r.verdict) || n >= 60;
+      msg.innerHTML = esc('Meta review (copyright / music): ' + r.verdict + (r.notes ? ' · ' + r.notes : '') + (done ? '' : ' · checking again in 15 s'));
+      if (!done) setTimeout(function () { review(id, n + 1); }, 15000);
+    }).catch(function () { if (n < 60) setTimeout(function () { review(id, n + 1); }, 15000); });
   }
   window.IKAds = { load: load };
 })();

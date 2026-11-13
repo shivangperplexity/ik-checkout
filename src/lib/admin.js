@@ -2079,6 +2079,7 @@ const ACTIONS = {
   async ads_video_chunk(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoChunk(await withSettingsFresh(env), b)) }; },
   async ads_video_finish(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoFinish(await withSettingsFresh(env), b)) }; },
   async ads_video_info(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoInfo(await withSettingsFresh(env), b)) }; },
+  async ads_review(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.adReview(await withSettingsFresh(env), b)) }; },
   async ads_video_ad(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.createVideoAd(await withSettingsFresh(env), b)) }; },
   async ads_probe(env) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.probe(await withSettingsFresh(env))) }; },
   async ads_overview(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.overview(await withSettingsFresh(env), { preset: String(b.preset || 'last_7d'), all: !!b.all })) }; },

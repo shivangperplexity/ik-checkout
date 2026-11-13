@@ -517,7 +517,7 @@ function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){r
  ({ads:loadAds,revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,ig:loadIg,webchat:loadWebchat,barter:loadBarter,broadcast:loadBroadcast,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 /* ---- Meta ads studio (public/ads-admin.js, lib/ads-studio.js) ---- */
 function loadAds(){window.IKA={rpc:rpc,esc:esc,inr:inr,toast:toast};var m=$('#main');
- if(window.IKAds)return IKAds.load(m);var sc=document.createElement('script');sc.src='/ads-admin.js?v=1';sc.onload=function(){IKAds.load(m)};sc.onerror=function(){m.innerHTML='<p class="mut">Could not load the ads page.</p>'};document.head.appendChild(sc)}
+ if(window.IKAds)return IKAds.load(m);var sc=document.createElement('script');sc.src='/ads-admin.js?v=2';sc.onload=function(){IKAds.load(m)};sc.onerror=function(){m.innerHTML='<p class="mut">Could not load the ads page.</p>'};document.head.appendChild(sc)}
 /* ---- creator program (lib/creators.js) ---- */
 var CRF='pending';
 function loadCreators(){rpc('creators').then(function(r){

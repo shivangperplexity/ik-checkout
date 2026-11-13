@@ -148,3 +148,27 @@ export async function createVideoAd(env, { adset_id, video_id, cover, name, temp
   const ad = await graph(env, 'POST', `${c.account}/ads`, { name: nm, adset_id: String(adset_id), creative: { creative_id: cr.id }, status: status === 'ACTIVE' ? 'ACTIVE' : 'PAUSED' });
   return { ad_id: ad.id, creative_id: cr.id, copied_from: tplAd ? { id: tplAd.id, name: t.name } : null, text: video_data.message, cta: video_data.call_to_action.type, link: t.link };
 }
+
+/** Meta's review of one ad: approved / in review / audio muted / rejected, with Meta's own words. Copyright music is
+ *  reported here (Meta checks the sound when it reviews the ad, not at upload). */
+export async function adReview(env, { ad_id }) {
+  if (!/^\d{6,25}$/.test(String(ad_id))) throw new Error('bad ad id');
+  const a = await graph(env, 'GET', String(ad_id), { fields: 'name,status,effective_status,ad_review_feedback,issues_info,recommendations,creative{video_id}' });
+  const notes = [];
+  const fb = a.ad_review_feedback || {};
+  for (const grp of Object.values(fb)) for (const [k, v] of Object.entries(grp || {})) notes.push(`${k}: ${v}`);
+  for (const i of a.issues_info || []) notes.push(i.error_summary || i.error_message || '');
+  for (const r of a.recommendations || []) notes.push(r.title ? `${r.title}: ${r.message || ''}` : r.message || '');
+  let copyright = '';
+  const vid = a.creative?.video_id;
+  if (vid) { try { copyright = String((await graph(env, 'GET', String(vid), { fields: 'copyright_monitoring_status' })).copyright_monitoring_status || ''); } catch (e) { copyright = ''; } }
+  const text = notes.filter(Boolean).join(' · ');
+  const music = /music|audio|sound|copyright|intellectual property|rights/i.test(text) || /match|blocked|muted/i.test(copyright);
+  const eff = a.effective_status || '';
+  const verdict = eff === 'DISAPPROVED' ? (music ? 'rejected: music / copyright' : 'rejected')
+    : music ? 'audio problem: Meta may mute the sound'
+    : /PENDING_REVIEW|IN_PROCESS/.test(eff) ? 'in review'
+    : eff === 'ACTIVE' ? 'approved: audio OK'
+    : /PAUSED/.test(eff) ? 'paused (Meta reviews it when it is turned on)' : eff.toLowerCase();
+  return { ad_id: String(ad_id), status: eff, verdict, music, notes: text.slice(0, 600), copyright };
+}
