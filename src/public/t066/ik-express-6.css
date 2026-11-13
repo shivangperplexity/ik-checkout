@@ -1,0 +1,57 @@
+/* IK Express — Build 066: two payment choices (Pay online / Cash on delivery), the "Pay online" page, phone shake. */
+.ikx-pms{display:grid;gap:10px}
+.ikx-pm{display:flex;align-items:center;gap:12px;width:100%;min-height:68px;padding:10px 14px;border:1.5px solid #d9d4ca;border-radius:16px;background:#fff;color:var(--ikx-ink,#0a0a0c);font:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:border-color .15s ease,transform .1s ease}
+.ikx-pm.is-on{border:2px solid var(--ikx-ink,#0a0a0c);padding:9px 13px;background:#fbfaf7}
+.ikx-pm:active:not(:disabled){transform:scale(.99)}
+.ikx-pm:disabled{opacity:.6;cursor:progress}
+.ikx-pm__radio{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--ikx-ink,#0a0a0c);display:grid;place-items:center}
+.ikx-pm.is-on .ikx-pm__radio::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--ikx-ink,#0a0a0c)}
+.ikx-pm__ic{display:grid;place-items:center;width:26px;height:26px;flex:none}
+.ikx-pm__ic svg{width:24px;height:24px}
+.ikx-pm__t{display:grid;gap:3px;flex:1;min-width:0}
+.ikx-pm__n{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:16px;font-weight:700}
+.ikx-pm__t small{font-size:12.5px;color:#5c5a55}
+.ikx-pm__amt{display:grid;justify-items:end;font-size:16.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ikx-pm__amt s{font-size:12px;font-weight:500;color:#8a857c}
+.ikx-pb{display:inline-block;padding:3px 8px;border-radius:999px;font-style:normal;font-size:11px;font-weight:800;letter-spacing:.02em;white-space:nowrap}
+.ikx-pb--green{background:#dcf3e3;color:#11632f}
+.ikx-pb--red{background:#fde4e2;color:#b42318}
+
+/* "Pay online" page */
+.ikx-op{position:absolute;inset:0;z-index:55;display:flex;flex-direction:column;background:#fff;transform:translateX(100%);transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+.ikx-op.is-in{transform:none}
+.ikx-op__top{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #eee9df}
+.ikx-op__top b{font-size:18px;font-weight:800}
+.ikx-op__amt{margin-left:auto;font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+.ikx-op__x{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:50%;background:#f4f2ee;cursor:pointer}
+.ikx-op__x svg{width:18px;height:18px;transform:rotate(180deg);stroke-width:2.4}
+.ikx-op__body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:14px 16px 24px;display:grid;align-content:start;gap:18px}
+.ikx-op__s{display:grid;gap:10px}
+.ikx-op__s h4{margin:0;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#5c5a55}
+.ikx-op__apps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.ikx-op__app{display:grid;justify-items:center;align-content:start;gap:6px;padding:10px 2px 8px;border:1px solid #eee9df;border-radius:14px;background:#fff;color:var(--ikx-ink,#0a0a0c);font:inherit;font-size:11.5px;font-weight:600;line-height:1.15;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .1s ease}
+.ikx-op__app:active{transform:scale(.95);background:#f7f5f0}
+.ikx-op__logo{position:relative;display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#f4f2ee;overflow:hidden}
+.ikx-op__logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff}
+.ikx-op__logo b{font-size:12px;font-weight:800;color:#5c5a55}
+.ikx-op__logo svg{width:20px;height:20px}
+.ikx-op__row{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:0 14px;border:1.5px solid #d9d4ca;border-radius:14px;background:#fff;color:var(--ikx-ink,#0a0a0c);font:inherit;font-size:15.5px;font-weight:600;text-align:left;cursor:pointer}
+.ikx-op__row>span:nth-child(2){flex:1}
+.ikx-op__row:active{background:#f7f5f0}
+.ikx-op__ric{display:grid;place-items:center;width:24px;height:24px}
+.ikx-op__ric svg{width:22px;height:22px}
+.ikx-op__row>svg{width:18px;height:18px;stroke-width:2.4}
+.ikx-op__safe{display:flex;align-items:center;justify-content:center;gap:6px;margin:4px 0 0;font-size:12px;color:#8a857c}
+.ikx-op__safe svg{width:14px;height:14px}
+@media (min-width:420px){.ikx-op__apps{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+/* the old UPI app tiles were big: smaller everywhere */
+.ikx-po__app{min-height:84px;gap:6px;font-size:12.5px}
+.ikx-po__logo{width:40px;height:40px}
+.ikx-ca__apps .ikx-po__app{min-height:78px}
+.ikx-ca__apps .ikx-po__logo{width:36px;height:36px}
+
+/* phone number: more than 10 digits */
+.ikx-in.is-shake{animation:ikx-shake .42s cubic-bezier(.36,.07,.19,.97)}
+@keyframes ikx-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(3px)}30%,50%,70%{transform:translateX(-6px)}40%,60%{transform:translateX(6px)}}
+@media (prefers-reduced-motion:reduce){.ikx-op{transition:none}.ikx-in.is-shake{animation:none}}

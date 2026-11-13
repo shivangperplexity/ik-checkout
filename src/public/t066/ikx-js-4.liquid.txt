@@ -1,0 +1,642 @@
+/* ik-express.js part 4 of 5 (rendered inline by snippets/ik-checkout.liquid) */
+      return '<button type="button" class="ikx-upib' + (a[0] === state.upiApp ? ' is-on' : '') + '" data-ikx-upi="' + a[0] + '" aria-pressed="' + (a[0] === state.upiApp) + '"><span class="ikx-upib__ic">' + upiIcon(a[0]) + '</span>' + a[1] + '</button>';
+    }).join('') + '</div>' : '');
+  }
+
+  function paintBill() {
+    var box = $('.ikx-bill__rows', root); if (!box) return;
+    if (!state.quote) { box.innerHTML = ''; $('.ikx-bill', root).hidden = true; return; }
+    $('.ikx-bill', root).hidden = false;
+    var p = state.quote[qk(state.method)], rows = [];
+    function row(l, v, cls) { rows.push('<div class="ikx-r' + (cls ? ' ' + cls : '') + '"><span>' + l + '</span><span>' + v + '</span></div>'); }
+    row('Item total', money(p.subtotal));
+    if (p.bogo) row('Buy 1 Get 1 Free', '−' + money(p.bogo), 'is-save');
+    if (p.upsell) row('Add-on offer', '−' + money(p.upsell), 'is-save');
+    if (p.prepaid) row('Online payment discount', '−' + money(p.prepaid), 'is-save');
+    if (p.ref) { var rk = (state.quote.ref && state.quote.ref.kind) || 'referral', rn = state.quote.ref && state.quote.ref.name ? ' (' + esc(state.quote.ref.name) + ')' : '';
+      row(rk === 'creator' ? 'Creator code' + rn : rk === 'voucher' ? 'Creator voucher' : 'Referral' + rn, '−' + money(p.ref), 'is-save'); }
+    if (p.credit) row('Store credit', '−' + money(p.credit), 'is-save');
+    row('Delivery', p.shipping ? money(p.shipping) : 'FREE', p.shipping ? '' : 'is-save');
+    if (p.cod) row('COD fee', money(p.cod));
+    row('To pay', money(p.total), 'is-total');
+    if (state.method === 'cod' && pcOn()) { row('Pay now', money(pcAdv())); row('Rest after delivery', money(p.total - pcAdv())); }
+    var pq = state.quote.prepaid || {}, ri = state.refInfo;
+    if (state.method === 'cod' && (pq.ref || 0) > 0) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">Referral ₹' + pq.ref / 100 + ' off when you pay online</p>');
+    if (ri && ri.credit > 0 && !ri.verified && ri.otp !== false) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">You have ₹' + Math.round(ri.credit / 100) + ' store credit · <button type="button" class="ikx-link" data-ikx-credit-claim>Use it</button></p>');
+    if (ri && ri.note) rows.push('<p class="ikx-m" style="margin:6px 2px 0;font-size:12.5px">' + esc(ri.note) + '</p>');
+    var nudge = p.shipping && p.afterBogo > 0 ? '<p class="ikx-nudge">' + ICON.truck + 'Add ' + money(49900 - p.afterBogo) + ' more for FREE delivery</p>' : '';
+    box.innerHTML = rows.join('') + nudge;
+    paintCode();
+  }
+
+  /* Build 050: one box for a creator code, a friend's referral code or a creator credit voucher. The code rides on
+     every quote / order as attribution.ref (REF, part 1); the API decides what it is worth (online payment only). */
+  function paintCode() {
+    var bill = $('.ikx-bill', root); if (!bill) return;
+    var box = $('.ikx-code', bill);
+    if (!box) { box = el('div', { class: 'ikx-code', style: 'margin:10px 2px 0;font-size:13.5px' }); bill.appendChild(box); }
+    if (box.contains(document.activeElement)) return;
+    var p = state.quote && state.quote.prepaid || {}, err = state.codeErr ? '<p class="ikx-err" style="margin:6px 0 0">' + esc(state.codeErr) + '</p>' : '';
+    if (REF) box.innerHTML = '<span>Code <b>' + esc(REF) + '</b>' + (p.ref ? ' · ' + money(p.ref) + ' off when you pay online' : '') + '</span> <button type="button" class="ikx-link" data-ikx-code-x>Remove</button>' + err;
+    else if (state.codeOpen) box.innerHTML = '<div style="display:flex;gap:8px"><input data-ikx-code-in autocomplete="off" autocapitalize="characters" placeholder="Creator, referral or voucher code" style="flex:1;min-width:0;border:1px solid #d9d4cb;border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;text-transform:uppercase"><button type="button" class="ikx-btn" data-ikx-code-go style="width:auto;padding:0 16px;min-height:42px">Apply</button></div>' + err;
+    else box.innerHTML = '<button type="button" class="ikx-link" data-ikx-code-open>Have a creator or referral code?</button>' + err;
+  }
+  function setCode(c) {
+    c = String(c || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
+    REF = c; state.codeErr = '';
+    try { if (c) localStorage.setItem('ik_ref', JSON.stringify({ c: c, at: Date.now() })); else localStorage.removeItem('ik_ref'); } catch (e) {}
+    state.refInfo = null; state.refPhone = ''; QC = {}; saveQC();
+    if (!CART) return paintCode();
+    var phone = (form() && formData().phone) || '';
+    fetchQuote(state.lines).then(function (q) {
+      if (c && !q.ref) { state.codeErr = 'This code is not valid'; REF = ''; try { localStorage.removeItem('ik_ref'); } catch (e) {} QC = {}; saveQC(); return fetchQuote(state.lines); }
+      return q;
+    }).then(function (q) {
+      setQuote(q, true); state.codeOpen = false; paintPay(); paintBill(); paintFoot();
+      if (phone) refCheck(phone);
+    }).catch(function () { state.codeErr = 'Could not check the code, try again'; paintCode(); });
+  }
+
+  /* ---------- partial COD: pay the advance (₹99) online now, the rest on delivery ----------
+     /api/quote says partial.mode: 'off' (never), 'all' (every COD order) or 'check' (the API decides per address:
+     a vague address with no house / flat / shop number, a high-return PIN, a number with past returns...). In 'check'
+     mode the sheet asks /api/cod-check once the delivery details are complete, and the COD tile, bill and button
+     follow the answer. The API checks again when the order is placed (lib/partial-cod.js). */
+  function pcFlag() { return (state.quote && state.quote.partial) || { mode: 'off', advance: 9900 }; }
+  function pcAdv() { return state.pcAdvance || pcFlag().advance || 9900; }
+  function pcKeyNow() { var d = form() ? formData() : {}; return [d.phone, d.pincode, d.address1, d.address2, state.quote && state.quote.cod ? state.quote.cod.total : ''].join('|'); }
+  function pcOn() {
+    var f = pcFlag();
+    if (!state.quote || state.quote.estimate || f.mode === 'off' || state.quote.cod.total <= pcAdv()) return false;
+    if (f.mode === 'all') return true;
+    return state.pcKey === pcKeyNow() && !!state.pcNeed;
+  }
+  /* The check runs in the background as soon as mobile, PIN and address are typed; nothing waits for it. If it has not
+     answered when the shopper places a COD order, the API decides then (partial_required) and the sheet switches. */
+  function pcInputs() { var d = form() ? formData() : null; return !!(d && /^[6-9]\d{9}$/.test(d.phone) && /^\d{6}$/.test(d.pincode) && d.address1.length >= 5); }
+  function pcWaiting() { return pcFlag().mode === 'check' && !!state.quote && !state.quote.estimate && pcInputs() && state.pcKey !== pcKeyNow(); }
+  function pcCheck() {
+    if (!pcWaiting()) return;
+    var key = pcKeyNow(); if (state.pcAsk === key) return;
+    clearTimeout(state.pcT);
+    state.pcT = setTimeout(function () {
+      if (pcKeyNow() !== key || state.pcAsk === key || !pcInputs()) return;
+      state.pcAsk = key; var d = formData();
+      function done(j) {
+        if (state.pcAsk === key) state.pcAsk = '';
+        if (pcKeyNow() !== key || state.busy) return;
+        state.pcKey = key; state.pcNeed = !!(j && j.partial); state.pcHint = (j && j.hint) || '';
+        if (j && j.advance) state.pcAdvance = j.advance;
+        if (state.pcNeed) tk('method', { method: 'cod', data: { partial: true } });
+        paintPay(); paintBill(); paintFoot();
+      }
+      api('/api/cod-check', { phone: d.phone, pincode: d.pincode, address1: d.address1, address2: d.address2, total: state.quote.cod.total, attribution: attrNow() }).then(done, function () { done(null); });
+    }, 250);
+  }
+  function pcNote() {
+    if (state.method !== 'cod' || !pcOn()) return '';
+    var a = money(pcAdv()), bits = [];
+    if (state.pcHint) bits.push('Tip: ' + esc(state.pcHint) + ' to pay the full amount after delivery.');
+    if (IS_MOBILE) bits.push('Pay the ' + a + ' with:');
+    return bits.length ? '<p class="ikx-m ikx-pc" style="margin:10px 2px 0;font-size:13px;line-height:1.45">' + bits.join('<br>') + '</p>' : '';
+  }
+
+  /* ---------- footer: total + (Add delivery details | Slide to pay) ---------- */
+  function savings(p) { return (p.bogo || 0) + (p.prepaid || 0) + (p.upsell || 0) + (p.ref || 0) + (p.credit || 0); }
+  var SLIDE_TO_PAY = false;
+  function paintFoot() {
+    var foot = $('.ikx-foot', root); if (!foot || !state.built) return;
+    if (!state.quote) {
+      var t = CART ? money(CART.total_price) : '';
+      foot.innerHTML = '<p class="ikx-err" role="alert" hidden></p><a class="ikx-btn" href="' + R + 'checkout">Checkout on Shopify · ' + t + '</a>';
+      return;
+    }
+    pcCheck(); /* background: starts once mobile, PIN and address are in */
+    var p = state.quote[qk(state.method)], save = savings(p), was = p.subtotal + (p.shipping || 0) + (p.cod || 0);
+    var pcx = state.method === 'cod' && pcOn();
+    var label = pcx ? 'Slide to pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Slide to place order · ' + money(p.total) : 'Slide to pay ' + money(p.total) + payVia();
+    var btnLabel = pcx ? 'Pay ' + money(pcAdv()) + ' & place order' : state.method === 'cod' ? 'Complete order · ' + money(p.total) : 'Pay ' + money(p.total) + payVia();
+    var unclaimed = false; /* Build 039: the offer lives in the bar above the items only */
+    var top = (unclaimed ? '<button type="button" class="ikx-freenote" data-ikx-gofree>🎁 1 FREE tattoo unclaimed · <u>Pick one</u></button>' : '') +
+      '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.shipping ? 'Delivery ' + money(p.shipping) : 'Free delivery')) + '</span>' +
+      '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>';
+    if (!ready()) {
+      var bad = invalid(formData()), where = bad && bad[0] === 'phone' ? 'Add your mobile number' : 'Add delivery details';
+      foot.innerHTML = top + '<button type="button" class="ikx-btn" data-ikx-next>' + where + '<span class="ikx-ic">' + ICON.down + '</span></button>';
+      return;
+    }
+    if (!state.final) {
+      foot.innerHTML = top + '<button type="button" class="ikx-btn" disabled><i class="ikx-spin ikx-spin--sm"></i>Confirming your total…</button>';
+      return;
+    }
+    if ((state.method !== 'cod' || pcx) && !((state.method === 'upi' || pcx) && IS_MOBILE)) loadBolt(false).catch(function () {});
+    /* Build 036: one button everywhere, worded like Shopify ("Pay now" / "Complete order").
+       Set SLIDE_TO_PAY = true to bring back the phone slider. */
+    if (!IS_MOBILE || !SLIDE_TO_PAY) {
+      foot.innerHTML = top + '<button type="button" class="ikx-btn ikx-paybtn" data-ikx-pay' + (state.busy ? ' disabled' : '') + '>' + ICON.lock + esc(state.busy ? (state.method === 'cod' && !pcx ? 'Placing order…' : 'Opening payment…') : btnLabel) + '</button>';
+      return;
+    }
+    foot.innerHTML = top +
+      '<div class="ikx-slide' + (state.busy ? ' is-busy' : '') + '" role="button" tabindex="0" aria-label="' + esc(label) + '. Press Enter to confirm.">' +
+        '<i class="ikx-slide__fill" aria-hidden="true"></i><span class="ikx-slide__label" aria-hidden="true">' + esc(label) + '</span>' +
+        '<span class="ikx-slide__knob" aria-hidden="true">' + ICON.dbl + '</span></div>';
+    bindSlide($('.ikx-slide', foot));
+  }
+
+  /* Slide to pay (phones). Moves on the compositor (translate3d, one paint per frame), eases back with a soft
+     spring, accepts a quick flick, and gives a light buzz when it locks in. */
+  function bindSlide(track) {
+    var knob = $('.ikx-slide__knob', track), fill = $('.ikx-slide__fill', track), label = $('.ikx-slide__label', track);
+    var x = 0, startX = 0, drag = false, max = 1, kw = 50, tw = 1, frame = 0, armed = false, lastX = 0, lastT = 0, vel = 0;
+    function measure() { kw = knob.offsetWidth || 50; tw = track.clientWidth || 1; max = Math.max(1, tw - kw - 10); }
+    function paint() {
+      frame = 0;
+      knob.style.transform = 'translate3d(' + x + 'px,0,0)';
+      fill.style.transform = 'translate3d(' + (x + kw + 10 - tw) + 'px,0,0)';
+      label.style.opacity = String(Math.max(0, 1 - x / (max * 0.55)));
+    }
+    function set(v, anim) {
+      x = v;
+      var t = anim ? 'transform .34s cubic-bezier(.22,1,.36,1)' : 'none';
+      knob.style.transition = fill.style.transition = t;
+      label.style.transition = anim ? 'opacity .34s ease' : 'none';
+      if (anim) { if (frame) cancelAnimationFrame(frame); paint(); }
+      else if (!frame) frame = requestAnimationFrame(paint);
+    }
+    function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+    function commit() {
+      if (state.busy) return;
+      measure(); set(max, true); track.classList.add('is-done'); buzz(18);
+      label.textContent = state.method === 'cod' ? 'Placing order…' : 'Opening payment…';
+      label.style.transition = 'none'; label.style.opacity = '1';
+      submit();
+    }
+    knob.addEventListener('pointerdown', function (e) {
+      if (state.busy) return;
+      measure(); drag = true; armed = false;
+      startX = e.clientX - x; lastX = e.clientX; lastT = e.timeStamp; vel = 0;
+      try { knob.setPointerCapture(e.pointerId); } catch (er) {}
+      track.classList.add('is-drag');
+      knob.style.transition = fill.style.transition = label.style.transition = 'none';
+    });
+    knob.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var dt = e.timeStamp - lastT;
+      if (dt > 0) vel = 0.6 * vel + 0.4 * ((e.clientX - lastX) / dt);
+      lastX = e.clientX; lastT = e.timeStamp;
+      set(Math.max(0, Math.min(max, e.clientX - startX)));
+      var ok = x >= max * 0.8;
+      if (ok !== armed) { armed = ok; track.classList.toggle('is-release', ok); if (ok) buzz(8); }
+    });
+    function end() {
+      if (!drag) return;
+      drag = false; track.classList.remove('is-drag', 'is-release');
+      if (x >= max * 0.8 || (vel > 0.8 && x > max * 0.35)) commit(); else set(0, true);
+    }
+    knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
+    track.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); commit(); } });
+    measure(); set(0);
+  }
+
+  function showErr(msg) {
+    var e = root && $('.ikx-err', root); if (!e) return;
+    e.textContent = msg || ''; e.hidden = !msg;
+    /* Build 053: a payment that didn't go through gets one-tap ways to finish the order */
+    if (msg && /payment|didn\u2019t go through|not completed|payment window/i.test(msg) && state.method !== 'cod') {
+      e.innerHTML = esc(msg) + '<span style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+        (state.method !== 'upiid' ? '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-method="upiid" data-ikx-go style="margin:0;flex:1;min-width:140px">Pay by UPI QR / UPI ID</button>' : '') +
+        (codOn() ? '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-method="cod" data-ikx-go style="margin:0;flex:1;min-width:140px">Cash on delivery instead</button>' : '') + '</span>';
+    }
+  }
+
+  /* Scroll to the delivery form and focus the first missing field. */
+  function goCheckout(focus) {
+    var f = form(); if (!f) return;
+    var bad = invalid(formData());
+    f.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    if (focus && bad) { var inp = f.elements[bad[0]]; if (inp) setTimeout(function () { inp.focus({ preventScroll: true }); }, 350); }
+  }
+
+  /* ---------- clicks inside the sheet ---------- */
+  function onClick(e) {
+    var t = e.target instanceof Element ? e.target : null; if (!t) return;
+    if (t.closest('[data-ikx-close]')) { e.preventDefault(); closeSheet(); return; }
+    /* Build 056: buttons in the "pay online, save" sheet: log the answer; the pay buttons then work as usual */
+    var ca = t.closest('[data-ikx-ca]');
+    if (ca) { var cav = ca.getAttribute('data-ikx-ca'); tk('method', { method: cav === 'online' ? 'upi' : 'cod', data: { codask: cav } }); if (cav === 'online') closeAsk(); }
+    var q = t.closest('[data-ikx-qty]');
+    if (q) { e.preventDefault(); if (!state.busy) changeQty(q.closest('[data-key]').getAttribute('data-key'), parseInt(q.getAttribute('data-ikx-qty'), 10)); return; }
+    var a = t.closest('[data-ikx-add]');
+    if (a) { e.preventDefault(); if (!state.busy) { closeAsk(); addPick(a.getAttribute('data-ikx-add')); } return; }
+    if (t.closest('[data-ikx-askx]')) { e.preventDefault(); closeAsk(); return; }
+    if (t.closest('[data-otp-x]')) { e.preventDefault(); if (OTP && OTP.credit) { creditClose(); return; } otpClose(); state.busy = false; paintFoot(); return; }
+    if (t.closest('[data-ikx-credit-claim]')) { e.preventDefault(); var cp = form() ? formData().phone : ''; if (state.refInfo && /^[6-9]\d{9}$/.test(cp)) creditOpen(cp, state.refInfo.credit); return; }
+    if (t.closest('[data-credit-skip]')) { e.preventDefault(); creditClose(); return; }
+    if (t.closest('[data-ikx-code-open]')) { e.preventDefault(); state.codeOpen = true; state.codeErr = ''; paintCode(); var ci = $('[data-ikx-code-in]', root); if (ci) ci.focus(); return; }
+    if (t.closest('[data-ikx-code-go]')) { e.preventDefault(); var cv = ($('[data-ikx-code-in]', root) || {}).value || ''; if (document.activeElement) document.activeElement.blur(); if (cv.trim()) setCode(cv); return; }
+    if (t.closest('[data-ikx-code-x]')) { e.preventDefault(); setCode(''); return; }
+    if (t.closest('[data-otp-re]')) { e.preventDefault(); otpSend(true); return; }
+    if (t.closest('[data-otp-skip]')) { e.preventDefault(); if (!OTP || state.busy || OTP.credit) return; var sd = OTP.d; state.otpSkip = true; otpClose(); tk('otp_skip'); placeOrder(sd, false, ''); return; }
+    if (t.closest('[data-otp-paste]')) { e.preventDefault(); otpPaste(); return; }
+    if (t.closest('[data-otp-edit]')) { e.preventDefault(); otpClose(); state.busy = false; paintFoot(); var pf = form() && form().elements.phone; goCheckout(false); if (pf) setTimeout(function () { pf.focus(); pf.select && pf.select(); }, 350); return; }
+    if (t.closest('[data-ikx-skip]')) { e.preventDefault(); tk('method', { method: state.method, data: { freeask: 'skip' } }); SKIP_FREE = true; try { sessionStorage.setItem('ikx_skipfree', '1'); } catch (er) {} closeAsk(); paintFoot(); submit(); return; }
+    if (t.closest('[data-ikx-gofree]')) { e.preventDefault(); var ob = $('.ikx-offer', root); if (ob) ob.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    var m = t.closest('[data-ikx-method]');
+    if (m) { e.preventDefault(); if (state.busy) return; state.method = m.getAttribute('data-ikx-method'); paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: state.method }); if (m.hasAttribute('data-ikx-go')) submit(); else if (state.method === 'cod') askCod(); return; }
+    var u = t.closest('[data-ikx-upi]');
+    if (u) {
+      e.preventDefault(); if (state.busy) return; state.upiApp = u.getAttribute('data-ikx-upi');
+      /* Build 045: a UPI app tile in the payment card pays straight away in that app; the ₹99 advance picker only selects */
+      if (u.hasAttribute('data-ikx-go')) { state.method = 'upi'; paintPay(); paintShip(); paintBill(); paintFoot(); tk('method', { method: 'upi', data: { app: state.upiApp } }); submit(true); return; }
+      paintPay(); paintFoot(); tk('method', { method: 'upi', data: { app: state.upiApp } }); return;
+    }
+    var up = t.closest('[data-ikx-up]');
+    if (up) { e.preventDefault(); if (!state.busy) toggleUp(up.getAttribute('data-ikx-up')); return; }
+    if (t.closest('[data-ikx-pay]')) { e.preventDefault(); submit(); return; }
+    if (t.closest('[data-ikx-next]')) { e.preventDefault(); var bad = invalid(formData()); goCheckout(true); if (bad && formTouched()) { fieldError(bad[0]); showErr(bad[1]); } return; }
+  }
+  function formTouched() { var d = formData(); return !!(d.phone || d.pincode || d.name || d.address1); }
+
+  /* ---------- abandoned-order capture ---------- */
+  function sendLead(step, immediate) {
+    if (!form()) return;
+    clearTimeout(state.leadTimer);
+    var go = function () {
+      if (!form()) return; /* the form is gone once the order is placed */
+      var d = formData(); if (!/^[6-9]\d{9}$/.test(d.phone)) return;
+      refCheck(d.phone);
+      var a = attrNow();
+      api('/api/lead', { phone: d.phone, name: d.name, pincode: d.pincode, lines: state.lines, utm: attribution, fbp: a.fbp, fbc: a.fbc, step: step }).catch(function () {});
+    };
+    if (immediate) go(); else state.leadTimer = setTimeout(go, 1500);
+  }
+  window.addEventListener('pagehide', function () { sendLead('left', true); if (isOpen()) tk('left'); });
+
+  /* " with Google Pay" on the footer button when a UPI app is picked on a phone */
+  function payVia() {
+    if (state.method !== 'upi' || !IS_MOBILE) return '';
+    var a = (UPI_APPS.filter(function (x) { return x[0] === state.upiApp; })[0] || [])[1];
+    return a && state.upiApp !== 'any' ? ' with ' + a : ' by UPI';
+  }
+  /* The API says Cash on delivery is switched off: drop the COD option, forget the cached price, move to UPI. */
+  function codGone(msg) {
+    if (state.quote) state.quote.cod_on = false;
+    QC = {}; saveQC(); state.idem = uuid(); state.otpSkip = false;
+    if (state.method === 'cod') state.method = 'upi';
+    paintPay(); paintShip(); paintBill(); paintFoot();
+    showErr(msg || 'Cash on delivery is not available right now. Please pay by UPI or card.');
+  }
+
+  /* ---------- submit ---------- */
+  function submit(direct) {
+    if (state.busy || !state.quote || !state.final) return;
+    var d = formData(); showErr('');
+    var bad = invalid(d);
+    if (bad) { paintFoot(); fieldError(bad[0]); goCheckout(true); return showErr(bad[1]); }
+    if (SHIP.no && SHIP.pin === d.pincode) { fieldError('pincode'); goCheckout(true); return showErr('Sorry, we can\u2019t deliver to PIN code ' + d.pincode + ' yet. Please use another address.'); }
+    /* Build 056: an odd number of tattoos (one more is FREE): "add 1 more design" once per page view before paying
+       (Build 039 had dropped it; shoppers kept ordering a single tattoo). */
+    if (!FREE_ASKED && askFree()) { FREE_ASKED = true; tk('method', { method: state.method, data: { freeask: 'shown' } }); paintFoot(); return; }
+    state.draft = d; rememberBuyer(d);
+    /* Build 066: every online payment starts on the online page (UPI apps, card, net banking) */
+    if (state.method !== 'cod' && !direct) return openOnline(d);
+    var pcx = state.method === 'cod' && pcOn();
+    /* Build 044: Cash on delivery (not part-paid) is verified with a 4-digit WhatsApp code first. The code box opens
+       inside this tap (so the phone keyboard comes up) and the order is placed as soon as 4 digits are in. */
+    /* Build 058: the code typed to claim store credit already verified this number; no second code */
+    if (state.method === 'cod' && !pcx && state.quote.otp && !state.otpSkip && !(state.refInfo && state.refInfo.verified && state.refInfo.phone === d.phone)) {
+      tk('submit', { phone: d.phone, name: d.name, method: state.method });
+      track('AddPaymentInfo', { currency: 'INR', value: state.quote.cod.total / 100 });
+      return otpOpen(d);
+    }
+    placeOrder(d, pcx, '');
+  }
+  /* Build 066: "Pay online" page inside the sheet. Top: UPI apps (phones; tap = pay in that app). Then card and net
+     banking (PayU page with only that method). Computers: UPI by QR on the PayU page. */
+  function openOnline(d) {
+    var old = $('.ikx-op', root); if (old) old.remove();
+    var pre = state.quote.prepaid, sheet = $('.ikx-sheet', root); if (!sheet) return placeOrder(d, false, '');
+    tk('method', { method: 'online', data: { page: 'open' } });
+    var apps = IS_MOBILE ? '<section class="ikx-op__s"><h4>Pay with your UPI app</h4><div class="ikx-op__apps">' + upiList().map(function (a) {
+        return '<button type="button" class="ikx-op__app" data-op="upi" data-app="' + a[0] + '"><span class="ikx-op__logo">' + upiIcon(a[0]) + '</span><span>' + esc(UPI_TILE[a[0]] || a[1]) + '</span></button>';
+      }).join('') + '<button type="button" class="ikx-op__app" data-op="upi" data-app="any"><span class="ikx-op__logo">' + upiIcon('any') + '</span><span>Other UPI</span></button></div></section>'
+      : '<section class="ikx-op__s"><h4>UPI</h4><button type="button" class="ikx-op__row" data-op="upiid"><span class="ikx-op__ric">' + PI.qr + '</span><span>Scan QR with any UPI app</span>' + ICON.chev + '</button></section>';
+    var box = el('div', { class: 'ikx-op', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pay online' },
+      '<div class="ikx-op__top"><button type="button" class="ikx-op__x" data-op="x" aria-label="Back">' + ICON.chev + '</button><b>Pay online</b><span class="ikx-op__amt">' + money(pre.total) + '</span></div>' +
+      '<div class="ikx-op__body">' + apps +
+      '<section class="ikx-op__s"><h4>Debit / Credit card</h4><button type="button" class="ikx-op__row" data-op="card"><span class="ikx-op__ric">' + PI.card + '</span><span>Pay with card</span>' + ICON.chev + '</button></section>' +
+      '<section class="ikx-op__s"><h4>Net banking</h4><button type="button" class="ikx-op__row" data-op="nb"><span class="ikx-op__ric">' + PI.bank + '</span><span>All Indian banks</span>' + ICON.chev + '</button></section>' +
+      '<p class="ikx-op__safe">' + ICON.lock + '100% secure payment by PayU</p></div>');
+    sheet.appendChild(box);
+    requestAnimationFrame(function () { box.classList.add('is-in'); });
+    box.onclick = function (e) {
+      var b = e.target instanceof Element && e.target.closest('[data-op]'); if (!b || state.busy) return;
+      var op = b.getAttribute('data-op');
+      box.remove();
+      if (op === 'x') { tk('method', { method: 'online', data: { page: 'back' } }); paintFoot(); return; }
+      state.method = op; if (op === 'upi') state.upiApp = b.getAttribute('data-app') || 'any';
+      tk('method', { method: op, data: op === 'upi' ? { app: state.upiApp, page: 'online' } : { page: 'online' } });
+      placeOrder(d, false, '');
+    };
+  }
+  function placeOrder(d, pcx, otp) {
+    state.busy = true;
+    if (!IS_MOBILE) paintFoot();
+    if (!otp) {
+      overlay(state.method === 'cod' && !pcx ? 'Placing your order…' : (state.method === 'upi' || pcx) && IS_MOBILE ? 'Opening your UPI app…' : 'Opening secure payment…');
+      tk('submit', { phone: d.phone, name: d.name, method: state.method });
+      track('AddPaymentInfo', { currency: 'INR', value: state.quote[qk(state.method)].total / 100 });
+    }
+    var upiApp = (state.method === 'upi' || pcx) && IS_MOBILE ? (state.upiApp || 'any') : '';
+    api('/api/order', { idem: state.idem, method: pcx ? 'partial' : qk(state.method), lines: state.lines, buyer: d, attribution: attrNow(), upi: !!upiApp, pc: 1, pv: 2, dupask: 1, confirm_new: state.confirmNew ? 1 : undefined, otp: otp || undefined }).then(function (r) {
+      state.confirmNew = false;
+      if (!r.ok && r.otp_invalid) { state.busy = false; return otpError(r.error, r.expired); }
+      otpClose();
+      if (!r.ok && r.cod_off) { state.busy = false; hideOverlay(); tk('fail', { data: { error: 'cod_off' } }); return codGone(r.error); }
+      if (!r.ok && r.partial_required) {
+        /* the API wants the advance for this address (the check had not run, or the rules changed): show it */
+        state.busy = false; hideOverlay(); state.idem = uuid();
+        state.pcKey = pcKeyNow(); state.pcNeed = true; state.pcHint = r.hint || ''; if (r.advance) state.pcAdvance = r.advance;
+        paintPay(); paintBill(); paintFoot(); tk('fail', { data: { error: 'partial_required' } });
+        return showErr(r.error);
+      }
+      /* Build 054: same number, another open order in the last 24 h -> ask once; exact repeat -> say so */
+      if (!r.ok && (r.existing || r.duplicate)) {
+        state.busy = false; hideOverlay(); paintFoot(); state.idem = uuid(); tk('fail', { data: { error: r.existing ? 'existing_order' : 'duplicate' } });
+        var ord = esc(r.existing || r.duplicate), trk = '/pages/track';
+        var box = el('div', { class: 'ikx-otpw', role: 'dialog', 'aria-modal': 'true', style: 'position:absolute;inset:0;z-index:60;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;box-sizing:border-box' },
+          '<div style="width:100%;max-width:420px;background:#fff;border-radius:18px;padding:22px 18px 18px;box-shadow:0 12px 32px rgba(16,24,40,.25);box-sizing:border-box">' +
+          '<h3 style="margin:0 0 8px;font-size:19px">' + (r.existing ? 'You already have an order' : 'Already ordered') + '</h3>' +
+          '<p class="ikx-m" style="margin:0 0 14px;font-size:14.5px;line-height:1.45">' + esc(r.error) + '</p>' +
+          (r.existing ? '<button type="button" class="ikx-btn" data-dup-new style="width:100%;margin:0 0 10px">Yes, place this as a new order</button>' : '') +
+          '<a class="ikx-btn ikx-btn--ghost" href="' + trk + '" style="display:flex;justify-content:center;width:100%;margin:0;box-sizing:border-box;text-decoration:none">See my order ' + ord + '</a>' +
+          '<button type="button" class="ikx-link" data-dup-x style="display:block;margin:12px auto 0">Close</button></div>');
+        $('.ikx-sheet', root).appendChild(box);
+        var nb = $('[data-dup-new]', box), xb = $('[data-dup-x]', box);
+        if (nb) nb.onclick = function () { box.remove(); state.confirmNew = true; placeOrder(d, pcx, otp); };
+        xb.onclick = function () { box.remove(); };
+        return;
+      }
+      if (!r.ok) {
+        state.busy = false; hideOverlay(); paintFoot(); tk('fail', { data: { error: r.error || r._status } });
+        if (r._status === 409) { state.idem = uuid(); QC = {}; saveQC(); state.pcKey = ''; return refresh().then(function () { showErr('Your cart changed. Please check the total and confirm again.'); }); }
+        return showErr(r.error || 'Could not place the order. Please try again.');
+      }
+      if (r.method === 'prepaid' && PAYU_ONLY[state.method] && r.payu && r.payu.fields) r.payu.fields.enforce_paymethod = PAYU_ONLY[state.method];
+      if (r.method === 'prepaid' || r.method === 'partial') return (r.upi && upiApp) ? goUpi(r, upiApp) : goPayu(r.payu);
+      fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+      track('Purchase', { currency: 'INR', value: r.value }, r.eventId); tk('done');
+      hideOverlay(); showSuccess(r);
+    }).catch(function () {
+      state.busy = false;
+      if (otp && OTP) return otpError('Network problem. Please check your connection and type the code again.');
+      hideOverlay(); paintFoot(); showErr('Network problem. Please check your connection and try again.');
+    });
+  }
+
+  /* ---------- Build 044: WhatsApp OTP for Cash on delivery ---------- */
+  var OTP = null;
+  function otpPhone(p) { return String(p || '').replace(/^(\d{5})(\d{5})$/, '$1 $2'); }
+  function otpClose() { var o = root && $('.ikx-otpw', root); if (o) o.remove(); if (OTP) { clearInterval(OTP.timer); clearTimeout(OTP.watch); } OTP = null; }
+  function otpErr(m) { var e = root && $('[data-otp-err]', root); if (e) e.textContent = m || ''; }
+  function otpSentText() { return 'We sent a 4-digit code to WhatsApp <b>+91 ' + esc(otpPhone(OTP.d.phone)) + '</b>.'; }
+  function otpOpen(d, opt) {
+    otpClose(); opt = opt || {};
+    OTP = { d: d, left: 0, timer: null, watch: null, sent: false, credit: opt.credit || 0 };
+    var kicker = OTP.credit ? 'Store credit' : 'Cash on Delivery', rs = OTP.credit ? '₹' + Math.round(OTP.credit / 100) : '';
+    var o = el('div', { class: 'ikx-otpw', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Enter the OTP sent on WhatsApp',
+      style: 'position:absolute;inset:0;z-index:60;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:14px;box-sizing:border-box' },
+      '<div style="position:relative;width:100%;max-width:420px;background:#fff;border-radius:18px;padding:22px 18px 18px;box-shadow:0 12px 32px rgba(16,24,40,.25);box-sizing:border-box">' +
+        '<button type="button" class="ikx-x" data-otp-x aria-label="Close" style="position:absolute;top:10px;right:10px">' + ICON.close + '</button>' +
+        '<p style="margin:0 0 4px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#05603a">' + kicker + '</p>' +
+        '<h3 data-otp-h style="margin:0 0 6px;font-size:19px;line-height:1.3;padding-right:32px">' + (OTP.credit ? 'Use your ' + rs + ' store credit' : 'Sending a code to your WhatsApp…') + '</h3>' +
+        (OTP.credit ? '<p class="ikx-m" style="margin:0 0 10px;font-size:13.5px;line-height:1.45">Enter the OTP we send on WhatsApp and ' + rs + ' comes off this order, Cash on delivery or online. No second code needed for the order.</p>' : '') +
+        '<p class="ikx-m" data-otp-st style="margin:0 0 14px;font-size:14px;line-height:1.45"><i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking it reaches WhatsApp <b>+91 ' + esc(otpPhone(d.phone)) + '</b></p>' +
+        '<input data-otp-in type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="4" aria-label="4-digit code" ' +
+          'style="display:block;width:100%;box-sizing:border-box;height:60px;border:1.5px solid #d0d5dd;border-radius:12px;text-align:center;font:inherit;font-size:30px;font-weight:700;letter-spacing:.55em;padding:0 0 0 .55em;outline:none;background:#fff;color:#101828">' +
+        '<p data-otp-err role="alert" style="min-height:18px;margin:8px 0 0;color:#d92d20;font-size:13px;line-height:1.4"></p>' +
+        '<div data-otp-more style="display:none"><p class="ikx-m" style="margin:4px 0 14px;font-size:12.5px;line-height:1.45">In WhatsApp tap <b>Copy code</b>, come back and tap the code above your keyboard (or Paste). Your order is placed as soon as the 4 digits are in.</p>' +
+        '<div style="display:flex;gap:10px"><button type="button" class="ikx-btn ikx-btn--ghost" data-otp-paste style="flex:1;margin:0">Paste code</button>' +
+        '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-re style="flex:1;margin:0" disabled>Resend in 30s</button></div></div>' +
+        (OTP.credit ? '<button type="button" class="ikx-link" data-credit-skip style="display:block;margin:12px auto 0">Skip, order without the credit</button>'
+          : '<button type="button" class="ikx-btn ikx-btn--ghost" data-otp-skip style="display:none;width:100%;margin:12px 0 0">Code not coming? Place order, confirm on WhatsApp</button>' +
+            '<button type="button" class="ikx-link" data-otp-edit style="display:block;margin:12px auto 0">Change mobile number</button>') +
+      '</div>');
+    $('.ikx-sheet', root).appendChild(o);
+    var inp = $('[data-otp-in]', o);
+    try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+    inp.addEventListener('input', function () {
+      var v = inp.value.replace(/\D/g, '').slice(0, 4); if (v !== inp.value) inp.value = v;
+      otpErr(''); inp.style.borderColor = v ? '#101828' : '#d0d5dd';
+      if (v.length === 4) otpGo(v);
+    });
+    otpSend(false);
+  }
+  function otpTimer(n) {
+    if (!OTP) return; clearInterval(OTP.timer); OTP.left = Math.max(1, Math.round(n || 30));
+    var tick = function () {
+      var re = root && $('[data-otp-re]', root); if (!OTP || !re) return;
+      if (OTP.left <= 0) { clearInterval(OTP.timer); re.disabled = false; re.textContent = 'Resend code'; return; }
+      re.disabled = true; re.textContent = 'Resend in ' + (OTP.left--) + 's';
+    };
+    tick(); OTP.timer = setInterval(tick, 1000);
+  }
+  function otpSend(again) {
+    if (!OTP) return; var d = OTP.d, re = $('[data-otp-re]', root);
+    if (re) { re.disabled = true; re.textContent = 'Sending…'; }
+    api('/api/otp/send', { phone: d.phone, attribution: attrNow() }).then(function (r) {
+      if (!OTP) return;
+      var st = $('[data-otp-st]', root);
+      /* WhatsApp took it: ask for the code only once it says the message reached the phone */
+      if (r.ok || r.wait) { if (again && r.ok) otpErr(''); return otpWatch(r.ok ? r.resend_in : r.wait, again); }
+      /* WhatsApp could not send it (template not live yet, number not on WhatsApp...): place the order the old way */
+      if (r.fallback && !OTP.sent) { if (OTP.credit) return creditClose(); state.otpSkip = true; otpClose(); return placeOrder(d, false, ''); }
+      if (r.cod_off) { otpClose(); state.busy = false; return codGone(r.error); }
+      otpErr(r.error || 'Could not send the code. Please try again.');
+      if (re) { re.disabled = false; re.textContent = 'Resend code'; }
+    }).catch(function () {
+      if (!OTP) return; otpErr('Network problem. Check your connection and tap Resend.');
+      if (re) { re.disabled = false; re.textContent = 'Resend code'; }
+    });
+  }
+  /* Poll the delivery status (WhatsApp's webhook): delivered/read = ask for the code; failed, or nothing within 15 s =
+     the code can't reach this number, so place the order the old way (WhatsApp confirmation after). */
+  function otpWatch(resendIn, again) {
+    if (!OTP) return; clearTimeout(OTP.watch);
+    var started = Date.now(), d = OTP.d;
+    var poll = function () {
+      if (!OTP) return;
+      api('/api/otp/status', { phone: d.phone }).then(function (j) {
+        if (!OTP) return;
+        if (j && j.state === 'delivered') return otpReady(Math.max(1, (resendIn || 30) - Math.round((Date.now() - started) / 1000)));
+        if ((j && j.state === 'failed') || Date.now() - started > 15000) return otpUndelivered(again);
+        OTP.watch = setTimeout(poll, 1200);
+      }).catch(function () { if (!OTP) return; if (Date.now() - started > 15000) return otpUndelivered(again); OTP.watch = setTimeout(poll, 1500); });
+    };
+    OTP.watch = setTimeout(poll, 900);
+  }
+  function otpReady(resendIn) {
+    if (!OTP) return; OTP.sent = true;
+    var h = $('[data-otp-h]', root), st = $('[data-otp-st]', root), more = $('[data-otp-more]', root);
+    if (h) h.textContent = OTP.credit ? 'Use your ₹' + Math.round(OTP.credit / 100) + ' store credit' : 'Enter the OTP sent on WhatsApp';
+    if (st) st.innerHTML = otpSentText();
+    if (more) more.style.display = '';
+    otpTimer(resendIn);
+    /* Build 053: some shoppers get the code but never come back to type it; after 25 s let them place the order anyway
+       (it then gets the WhatsApp confirmation like before) */
+    setTimeout(function () { var sk = root && $('[data-otp-skip]', root); if (OTP && sk) sk.style.display = 'block'; }, 25000);
+    var inp = $('[data-otp-in]', root); if (inp && !inp.disabled) { try { inp.focus({ preventScroll: true }); } catch (e) {} }
+  }
+  function otpUndelivered(again) {
+    if (!OTP) return;
+    if (again && OTP.sent) { otpErr('The new code did not reach WhatsApp. Please use the code you got earlier.'); var re = $('[data-otp-re]', root); if (re) { re.disabled = false; re.textContent = 'Resend code'; } return; }
+    if (OTP.credit) { otpErr('The code is not reaching WhatsApp right now. You can order without the credit.'); return; }
+    var d = OTP.d; state.otpSkip = true; otpClose(); placeOrder(d, false, '');
+  }
+  /* Build 058: claim store credit with the WhatsApp code. Same box as the COD code; on success the credit shows on
+     the bill (COD too) and the order needs no second code. */
+  function creditOpen(phone, paise) {
+    if (OTP || state.busy || !$('.ikx-sheet', root) || !form()) return false;
+    otpOpen({ phone: phone }, { credit: paise });
+    tk('credit_ask', { phone: phone, data: { credit: paise } });
+    return true;
+  }
+  function creditClose() { otpClose(); if (state.quote) { setQuote(state.quote, state.final); paintPay(); paintBill(); paintFoot(); } }
+  function creditGo(code) {
+    var d = OTP.d, inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
+    api('/api/credit/verify', { phone: d.phone, otp: code }).then(function (r) {
+      if (!OTP) return;
+      if (!r.ok) { if (r.otp_invalid) return otpError(r.error, r.expired); inp.disabled = false; return otpErr(r.error || 'Could not check the code. Please try again.'); }
+      state.refInfo = state.refInfo || {}; state.refInfo.verified = true; state.refInfo.phone = d.phone; state.refInfo.credit = r.credit || state.refInfo.credit || 0;
+      tk('credit_ok', { phone: d.phone, data: { credit: state.refInfo.credit } });
+      if (st) st.innerHTML = '<b style="color:#05603a">Done!</b> ₹' + Math.round(state.refInfo.credit / 100) + ' store credit is on your bill.';
+      setTimeout(creditClose, 900);
+    }).catch(function () { if (OTP) otpError('Network problem. Please check your connection and type the code again.'); });
+  }
+  function otpGo(code) {
+    if (!OTP || state.busy) return;
+    var inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
+    inp.disabled = true; inp.blur();
+    if (OTP.credit) { if (st) st.innerHTML = '<i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking the code…'; return creditGo(code); }
+    if (st) st.innerHTML = '<i class="ikx-spin ikx-spin--sm" style="vertical-align:-3px;margin-right:6px"></i>Checking the code and placing your order…';
+    placeOrder(OTP.d, false, code);
+  }
+  function otpError(msg, expired) {
+    if (!OTP) return;
+    var inp = $('[data-otp-in]', root), st = $('[data-otp-st]', root);
+    if (st) st.innerHTML = otpSentText();
+    inp.disabled = false; inp.value = ''; inp.style.borderColor = '#d92d20';
+    otpErr(msg || 'Wrong code. Please try again.');
+    if (expired) { OTP.left = 0; var re = $('[data-otp-re]', root); if (re) { clearInterval(OTP.timer); re.disabled = false; re.textContent = 'Resend code'; } }
+    try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+  }
+  function otpPaste() {
+    if (!OTP || !navigator.clipboard || !navigator.clipboard.readText) { var i0 = root && $('[data-otp-in]', root); if (i0) i0.focus(); return; }
+    navigator.clipboard.readText().then(function (t) {
+      var v = String(t || '').replace(/\D/g, '').slice(0, 4), inp = root && $('[data-otp-in]', root);
+      if (!inp) return;
+      if (v.length !== 4) { otpErr('Copy the code in WhatsApp first (Copy code button).'); return inp.focus(); }
+      inp.value = v; inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }).catch(function () { var inp = root && $('[data-otp-in]', root); if (inp) inp.focus(); });
+  }
+  /* back from WhatsApp: put the cursor in the code box so the keyboard offers the copied code */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || !OTP) return;
+    var inp = root && $('[data-otp-in]', root);
+    if (inp && !inp.disabled && !inp.value) setTimeout(function () { try { inp.focus({ preventScroll: true }); } catch (e) {} }, 250);
+  });
+
+  /* Build 038: one last chance before paying with an unclaimed free tattoo (once per visit; "Continue without"
+     is remembered for this browser tab only). */
+  var SKIP_FREE = false, FREE_ASKED = false;
+  try { SKIP_FREE = sessionStorage.getItem('ikx_skipfree') === '1'; } catch (e) {}
+  function closeAsk() { var a = root && $('.ikx-ask', root); if (a) a.remove(); }
+  function askFree() {
+    if (SKIP_FREE || !CART || !state.quote) return false;
+    var b = bogo(CART.items), fp = freePicks(CART, b).slice(0, 4);
+    if (!fp.length) return false;
+    closeAsk();
+    var o = el('div', { class: 'ikx-ask', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your free tattoo' },
+      '<div class="ikx-ask__card"><button type="button" class="ikx-x ikx-ask__x" data-ikx-askx aria-label="Close">' + ICON.close + '</button>' +
+        '<p class="ikx-ask__k">Buy 1 Get 1 · don’t miss it</p>' +
+        '<h3>Wait! Add 1 more design, get it FREE</h3>' +
+        '<p class="ikx-m">Your Buy 1 Get 1 has a free tattoo left. Tap a design to add it, you still pay ' + money(state.quote[qk(state.method)].total) + '.</p>' +
+        '<div class="ikx-fp ikx-fp--ask">' + fp.map(freeTile).join('') + '</div>' +
+        '<button type="button" class="ikx-ask__skip" data-ikx-skip>Continue without free tattoo</button></div>');
+    $('.ikx-sheet', root).appendChild(o);
+    var first = $('.ikx-fp__i', o); if (first) first.focus({ preventScroll: true });
+    return true;
+  }
+
+  /* Build 056: choosing Cash on delivery opens a short sheet, once per visit: how much paying online saves and that
+     prepaid orders are dispatched first. Its UPI app tiles (phones) / "Pay online" (computers) pay straight away;
+     "Continue with Cash on delivery" keeps COD. Not shown after a failed payment ("Cash on delivery instead"). */
+  var COD_ASKED = false;
+  try { COD_ASKED = sessionStorage.getItem('ikx_codask') === '1'; } catch (e) {}
+  function askCod() {
+    if (COD_ASKED || !state.quote || !state.final || state.busy || !root) return false;
+    var cod = state.quote.cod, pre = state.quote.prepaid, save = cod.total - pre.total;
+    if (!(save > 0)) return false;
+    COD_ASKED = true; try { sessionStorage.setItem('ikx_codask', '1'); } catch (e) {}
+    closeAsk();
+    var pay = IS_MOBILE
+      ? '<div class="ikx-po__apps ikx-ca__apps" role="group" aria-label="Pay with a UPI app">' + ['gpay', 'phonepe', 'paytm'].map(function (k) {
+          return '<button type="button" class="ikx-po__app ikx-po__app--' + k + '" data-ikx-upi="' + k + '" data-ikx-go data-ikx-ca="online" aria-label="Pay ' + esc(money(pre.total)) + ' with ' + UPI_TILE[k] + '"><span class="ikx-po__logo">' + upiIcon(k) + '</span><span>' + UPI_TILE[k] + '</span></button>';
+        }).join('') + '</div>' +
+        '<button type="button" class="ikx-po__line" data-ikx-upi="any" data-ikx-go data-ikx-ca="online"><span>Other UPI apps</span>' + ICON.chev + '</button>'
+      : '<button type="button" class="ikx-btn ikx-ca__go" data-ikx-method="upi" data-ikx-go data-ikx-ca="online">Pay ' + money(pre.total) + ' online</button>';
+    var o = el('div', { class: 'ikx-ask ikx-ask--cod', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pay online and save' },
+      '<div class="ikx-ask__card"><button type="button" class="ikx-x ikx-ask__x" data-ikx-askx data-ikx-ca="close" aria-label="Close">' + ICON.close + '</button>' +
+        '<p class="ikx-ask__k ikx-ca__k">Pay online · save ' + money(save) + '</p>' +
+        '<h3>Wait! Save ' + money(save) + ' by paying online</h3>' +
+        '<ul class="ikx-ca__l"><li>Pay <b>' + money(pre.total) + '</b> instead of <s>' + money(cod.total) + '</s></li>' +
+          '<li>Prepaid orders are packed and dispatched first</li>' +
+          (cod.cod ? '<li>No ' + money(cod.cod) + ' COD fee</li>' : '') + '</ul>' + pay +
+        '<button type="button" class="ikx-ask__skip" data-ikx-askx data-ikx-ca="cod">Continue with Cash on delivery</button></div>');
+    $('.ikx-sheet', root).appendChild(o);
+    tk('method', { method: 'cod', data: { codask: 'shown', save: save } });
+    var first = $('.ikx-po__app, .ikx-ca__go', o); if (first) first.focus({ preventScroll: true });
+    return true;
+  }
+
+  /* PayU Bolt overlay; falls back to the redirect form if Bolt cannot load. */
+  function redirectPayu(p) {
+    var f = el('form', { method: 'POST', action: p.action });
+    for (var k in p.fields) { var i = el('input', { type: 'hidden', name: k }); i.value = p.fields[k]; f.appendChild(i); }
+    document.body.appendChild(f); f.submit();
+  }
+  function loadBolt(test) {
+    if (window.bolt) return Promise.resolve();
+    if (loadBolt.p) return loadBolt.p;
+    return (loadBolt.p = new Promise(function (ok, bad) {
+      var s = el('script', { src: test ? 'https://sboxcheckout-static.citruspay.com/bolt/run/bolt.min.js' : 'https://jssdk.payu.in/bolt/bolt.min.js', id: 'bolt', 'bolt-color': '16a34a' });
+      s.onload = function () { window.bolt ? ok() : bad(new Error('bolt missing')); };
+      s.onerror = function () { loadBolt.p = null; s.remove(); bad(new Error('bolt load failed')); };
+      document.head.appendChild(s);
+    }));
+  }
+  function payFailed(msg) {
+    msg = String(msg || '').replace('choose Cash on delivery', payWord()); /* Build 045: COD may be switched off */
+    hideOverlay(); root.style.visibility = ''; state.busy = false; state.idem = uuid();
+    if (!state.built) { refresh().then(function () { showErr(msg); }); return; }
+    paintFoot(); showErr(msg);
+  }
+  function goPayu(p) {
+    loadBolt(/test\.payu\.in/.test(p.action)).then(function () {
+      hideOverlay(); root.style.visibility = 'hidden';
+      var done = false;
+      window.bolt.launch(p.fields, {
+        responseHandler: function (B) {
+          if (done) return; done = true;
+          var r = (B && B.response) || {}, st = String(r.txnStatus || r.status || '').toUpperCase();
+          if (st === 'CANCEL' || (!r.hash && st !== 'SUCCESS')) return payFailed('Payment cancelled. You can try again or ' + payWord() + '.');
+          root.style.visibility = '';
+          screen('<i class="ikx-spin"></i><h3>Confirming your payment…</h3><p>Please don’t close this window.</p>');
+          var fd = new URLSearchParams(); for (var k in r) fd.append(k, r[k]);
+          fetch(API + '/api/payu/return?json=1', { method: 'POST', body: fd }).then(function (x) { return x.json(); }).then(function (j) {
+            if (j.ok) {
+              fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+              track('Purchase', { currency: 'INR', value: j.value }, j.eventId); tk('done');
+              return showSuccess({ orderName: j.orderName, statusUrl: j.statusUrl, method: j.partial ? 'partial' : 'prepaid', value: j.value, advance: j.advance, balance: j.balance });
+            }
+/* end of part 4 */

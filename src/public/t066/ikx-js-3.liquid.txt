@@ -1,0 +1,290 @@
+/* ik-express.js part 3 of 5 (rendered inline by snippets/ik-checkout.liquid) */
+        '<a class="ikx-item__img" href="' + esc(it.url) + '">' + (it.image ? '<img src="' + esc(img(it.image, 160)) + '" alt="" loading="lazy">' : '') + '</a>' +
+        '<span class="ikx-item__main"><a class="ikx-item__t" href="' + esc(it.url) + '">' + esc(it.product_title) + '</a>' + variant +
+          '<span class="ikx-step" role="group" aria-label="Quantity of ' + esc(it.product_title) + '">' +
+            '<button type="button" data-ikx-qty="-1" aria-label="Decrease quantity"' + (state.busy || /^tmp-/.test(it.key) ? ' disabled' : '') + '>' + (it.quantity > 1 ? '−' : ICON.trash) + '</button>' +
+            '<span aria-live="polite">' + it.quantity + '</span>' +
+            '<button type="button" data-ikx-qty="1" aria-label="Increase quantity"' + (state.busy || /^tmp-/.test(it.key) ? ' disabled' : '') + '>+</button>' +
+          '</span></span>' +
+        '<span class="ikx-item__p">' + price + '</span></li>';
+    }).join('');
+
+    /* Build 039: the offer is one bar above the items ("Add 1 more tattoo, get it FREE"), nothing to pick inside it.
+       The free designs to add are in the rail below the items. */
+    if (b.count && box) {
+      box.classList.remove('is-free');
+      box.setAttribute('style', 'padding:0;border:0;background:none;box-shadow:none;margin-bottom:10px');
+      box.innerHTML = '<div role="status" style="position:relative;overflow:hidden;border-radius:999px;background:#f1ece2;height:36px">' +
+        '<i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:' + (b.odd ? 50 : 100) + '%;background:' + (b.odd ? '#f6d77e' : '#cfe9d4') + ';transition:width .4s ease"></i>' +
+        '<span style="position:relative;display:flex;align-items:center;justify-content:center;height:100%;padding:0 14px;font-size:13px;font-weight:700;color:#1d1a14;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+        (b.odd ? '🎁 Add 1 more tattoo, get it FREE' : '✓ ' + b.free + ' FREE unlocked · add 2 more for 1 more free') + '</span></div>';
+    }
+    /* Build 039: the State select's empty option repeated the word "State" under the floating label (overlapping text) */
+    var stSel = form() && form().elements.state;
+    if (stSel && stSel.options[0] && stSel.options[0].value === '' && stSel.options[0].text) stSel.options[0].text = '';
+
+    var inCart = {}; c.items.forEach(function (i) { inCart[i.product_id] = 1; });
+    /* Odd count: this rail shows the designs that are free right now. */
+    var picks = b.odd ? freePicks(c, b).slice(0, 8) : PICKS.filter(function (p) { return !inCart[p.id]; }).slice(0, 8);
+    var pb = $('.ikx-picks', root);
+    if (!picks.length) { pb.innerHTML = ''; return; }
+    pb.innerHTML = '<p class="ikx-h3">' + (b.odd ? 'Pick your FREE tattoo' : 'You might have missed') + '<small>' + (b.odd ? 'Swipe →' : 'Add 2 · 1 free') + '</small></p>' +
+      '<div class="ikx-rail">' + picks.map(function (p) {
+        return '<div class="ikx-pick"><a class="ikx-pick__img" href="' + esc(p.u) + '">' + (p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '') + (b.odd ? '<span>FREE</span>' : '') + '</a>' +
+          '<span class="ikx-pick__t">' + esc(p.t) + '</span>' +
+          '<span class="ikx-pick__p">' + (b.odd ? '<s>' + money(p.p) + '</s> <b class="ikx-green">FREE</b>' : '<b>' + money(p.p) + '</b>') + '</span>' +
+          '<button type="button" class="ikx-pick__b' + (b.odd ? ' is-free' : '') + '" data-ikx-add="' + p.v + '" aria-label="Add ' + esc(p.t) + (b.odd ? ' free' : '') + '"' + (state.busy ? ' disabled' : '') + '>' + (b.odd ? '+ Add FREE' : '+ Add') + '</button></div>';
+      }).join('') +
+      '<a class="ikx-pick ikx-pick--all" href="' + R + 'collections/all"><span class="ikx-pick__all-ic">' + ICON.chev + '</span><b>View all products</b><span class="ikx-m">Buy 1 Get 1 on every design</span></a></div>';
+  }
+
+  /* Build 038: designs that are truly free right now, bestsellers first (PICKS order). With an odd number of
+     tattoos, one more is free only if it costs no more than the cheapest tattoo still being paid for (Buy 1 Get 1
+     frees the cheapest half); a pricier one would add the difference, so it is not offered as free. */
+  function freePicks(c, b) {
+    if (!c || !b || !b.odd) return [];
+    var units = [], inCart = {};
+    c.items.forEach(function (i) { inCart[i.product_id] = 1; if (i.product_type === TATTOO) for (var k = 0; k < i.quantity; k++) units.push(i.original_price); });
+    units.sort(function (x, y) { return x - y; });
+    var paidMin = units[Math.floor(units.length / 2)] || 0;
+    return PICKS.filter(function (p) { return !inCart[p.id] && p.p <= paidMin; });
+  }
+  /* One tap = added (the whole tile is the button). */
+  function freeTile(p) {
+    return '<button type="button" class="ikx-fp__i" data-ikx-add="' + p.v + '" aria-label="Add ' + esc(p.t) + ' for free"' + (state.busy ? ' disabled' : '') + '>' +
+      '<span class="ikx-fp__img">' + (p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '') + '<em>FREE</em></span>' +
+      '<span class="ikx-fp__t">' + esc(p.t) + '</span>' +
+      '<span class="ikx-fp__p"><s>' + money(p.p) + '</s><b>+ Add</b></span></button>';
+  }
+
+  /* Optimistic: the sheet updates on tap; Shopify's cart and the price catch up in the background. */
+  var cartQ = Promise.resolve(), pending = 0;
+  function clone(c) { return JSON.parse(JSON.stringify(c)); }
+  /* A request started just before the shopper switched to a UPI app can hang forever on some phones;
+     give each cart change 12 s so one stuck request never blocks the + / − / delete buttons after it. */
+  function within(ms, p) { return Promise.race([p, new Promise(function (_, bad) { setTimeout(function () { bad(new Error('timeout')); }, ms); })]); }
+  function cartOp(run) {
+    pending++; ownUntil = Date.now() + 4000;
+    cartQ = cartQ.then(function () { return within(12000, run()); }).then(function (real) {
+      if (--pending === 0) {
+        ownUntil = Date.now() + 1500;
+        /* Never redraw the cart over a payment in progress (that showed a locked cart); just keep the data. */
+        if (state.busy) { CART = real; return; }
+        render(real); notify();
+      }
+    }).catch(function (err) {
+      pending = Math.max(0, pending - 1);
+      showErr(err && err.message === 'add' ? 'That design just sold out. Please pick another.' : 'Could not update your cart. Please try again.');
+      if (state.busy) return;
+      return refresh();
+    });
+  }
+  function changeQty(key, delta) {
+    var c = clone(CART), it = c.items.filter(function (i) { return i.key === key; })[0]; if (!it) return;
+    var q = Math.max(0, it.quantity + delta);
+    it.quantity = q; it.original_line_price = it.original_price * q;
+    c.items = c.items.filter(function (i) { return i.quantity > 0; }); recount(c);
+    render(c);
+    cartOp(function () {
+      return fetch(R + 'cart/change.js', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ id: key, quantity: q }) })
+        .then(function (r) { if (!r.ok) throw new Error('change'); return r.json(); });
+    });
+  }
+  function addPick(v) {
+    var p = PICKS.filter(function (x) { return String(x.v) === String(v); })[0];
+    if (p) {
+      var c = clone(CART);
+      c.items.push({ key: 'tmp-' + v, variant_id: Number(v), product_id: p.id, quantity: 1, original_price: p.p, original_line_price: p.p, final_price: p.p, product_title: p.t, variant_title: '', product_type: TATTOO, image: p.img, url: p.u });
+      recount(c); render(c);
+    }
+    tk('method', { method: state.method, data: { pick: true } });
+    cartOp(function () {
+      return fetch(R + 'cart/add.js', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ items: [{ id: Number(v), quantity: 1 }] }) })
+        .then(function (r) { if (!r.ok) throw new Error('add'); return fetch(R + 'cart.js', { headers: { Accept: 'application/json' } }); })
+        .then(function (r) { return r.json(); });
+    });
+  }
+  /* Let the header cart count and any other listeners know the cart changed. */
+  function notify() {
+    document.dispatchEvent(new CustomEvent('cart:update', { bubbles: true }));
+    document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
+  }
+
+  /* ---------- delivery form ---------- */
+  /* Build 066: digits only, +91 / leading 0 dropped, NOT cut to 10 (more than 10 is shown as an error) */
+  function phoneDigits(v) {
+    var d = String(v || '').replace(/\D/g, '');
+    if (d.length >= 12 && d.indexOf('91') === 0) d = d.slice(2);
+    if (d.length === 11 && d.charAt(0) === '0') d = d.slice(1);
+    return d;
+  }
+  function tenDigits(v) { return phoneDigits(v).slice(0, 10); }
+  /* PIN fills city + state; when it works, they collapse into one confirmed line (design: "Baner, Pune ✓"). */
+  var pinSeq = 0, PINS = {}; /* this page view only, never stored */
+  function onPin() {
+    var f = form(), pin = f.elements.pincode.value.trim();
+    if (!/^\d{6}$/.test(pin)) { state.pinOk = false; return; }
+    var seq = ++pinSeq;
+    function apply(d) {
+      if (seq !== pinSeq) return;
+      if (!d.ok) { state.pinOk = false; return; }
+      var match = STATES.filter(function (s) { return s.toLowerCase() === String(d.state).toLowerCase(); })[0];
+      f.elements.city.value = d.city || f.elements.city.value;
+      if (match) f.elements.state.value = match;
+      state.pinOk = !!(f.elements.city.value && f.elements.state.value);
+      if (match) f.elements.state.closest('.ikx-in').classList.add('is-filled');
+      paintShip(); paintFoot();
+    }
+    if (PINS[pin]) return apply(PINS[pin]);
+    fetch(API + '/api/pincode/' + pin).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) PINS[pin] = { ok: true, city: d.city, state: d.state };
+      apply(d);
+    }).catch(function () {});
+  }
+  function paintPinOk(text, checking) {
+    var ok = $('.ikx-pinok', root), cs = $('.ikx-cityst', root); if (!ok) return;
+    if (checking) { ok.innerHTML = '<i class="ikx-spin ikx-spin--pin"></i><span>Checking PIN…</span>'; ok.hidden = false; cs.hidden = true; return; }
+    if (text) { ok.innerHTML = '<span class="ikx-ic">' + ICON.check + '</span><span>' + esc(text) + '</span><button type="button" class="ikx-link" data-ikx-city>Change</button>'; ok.hidden = false; cs.hidden = true; }
+    else { ok.hidden = true; cs.hidden = false; }
+  }
+
+  /* What the shopper typed is kept in memory for this page only (never saved), so coming back from the UPI app,
+     "Pay another way" or a failed payment shows the same filled-in form instead of an empty one. */
+  function restoreDraft(d) {
+    var f = form(); if (!f || !d) return;
+    ['phone', 'first_name', 'last_name', 'pincode', 'city', 'state', 'address1', 'address2', 'email'].forEach(function (k) { if (d[k] && f.elements[k]) f.elements[k].value = d[k]; });
+    if (!d.first_name && d.name) { var nm = d.name.split(' '); f.elements.first_name.value = nm.shift(); f.elements.last_name.value = nm.join(' '); }
+    if (f.elements.state.value) f.elements.state.closest('.ikx-in').classList.add('is-filled');
+    if (d.city && d.state && /^\d{6}$/.test(d.pincode)) { state.pinOk = true; paintPinOk(d.city + ', ' + d.state); }
+    paintShip();
+  }
+  function formData() {
+    var f = form(), o = {};
+    ['phone', 'first_name', 'last_name', 'pincode', 'city', 'state', 'address1', 'address2', 'email'].forEach(function (k) { o[k] = (f.elements[k] && f.elements[k].value || '').trim(); });
+    o.phone = phoneDigits(o.phone);
+    /* The API takes name + email + phone: derive the name from Shopify's first/last fields. */
+    o.name = (o.first_name + ' ' + o.last_name).trim();
+    o.news = !!(f.elements.news && f.elements.news.checked);
+    o.edd = SHIP.edd || '';
+    return o;
+  }
+  /* Same checks and messages Shopify checkout shows: mobile first, then delivery, email last (optional). */
+  function invalid(d) {
+    return d.first_name.length < 1 ? ['first_name', 'Enter a first name'] :
+      d.last_name.length < 1 ? ['last_name', 'Enter a last name'] :
+      !d.phone ? ['phone', 'Enter your mobile number'] :
+      d.phone.length > 10 ? ['phone', 'Only 10 digits allowed'] :
+      !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
+      d.address1.length < 5 ? ['address1', 'Enter your house / flat no. and street'] :
+      /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i.test(d.address1) ? ['address1', 'Please type your address. Links are not accepted'] :
+      d.address2.length < 3 ? ['address2', 'Enter a landmark, it helps the courier find you'] :
+      /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i.test(d.address2) ? ['address2', 'Please type a landmark. Links are not accepted'] :
+      !d.city ? ['city', 'Enter a city'] :
+      !d.state ? ['state', 'Select a state'] :
+      !/^\d{6}$/.test(d.pincode) ? ['pincode', 'Enter a valid 6-digit PIN code'] :
+      (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) ? ['email', 'Enter a valid email, or leave it empty'] : null;
+  }
+  function ready() { return !!form() && !invalid(formData()); }
+  function stepWatch() {
+    var d = formData();
+    if (/^[6-9]\d{9}$/.test(d.phone)) tkOnce('phone', { phone: d.phone, name: d.name });
+    if (/^\d{6}$/.test(d.pincode)) tkOnce('pin');
+    if (d.name.length > 1 && d.address1.length > 4) tkOnce('address');
+    if (!invalid(d)) tkOnce('pay', { phone: d.phone, name: d.name });
+  }
+
+  /* ---------- add-on offers (set in the admin dashboard) ---------- */
+  function paintUps() {
+    var box = $('.ikx-ups', root); if (!box) return;
+    if (!state.quote) { box.innerHTML = ''; return; }
+    var added = state.lines.filter(function (l) { return l.upsell; }).map(function (l) { return String(l.variant_id); });
+    box.innerHTML = (state.ups || []).slice(0, 2).map(function (u) {
+      var on = added.indexOf(String(u.variantId)) >= 0, now = Math.round(u.price * (100 - u.pct) / 100);
+      return '<div class="ikx-up' + (on ? ' is-on' : '') + '">' + (u.image ? '<img src="' + esc(u.image) + '" alt="" loading="lazy">' : '') +
+        '<span class="ikx-up__t"><b>' + esc(u.headline || 'Add this to your order') + '</b><span>' + esc(u.title) + '</span><span>' + (u.pct ? '<s>' + money(u.price) + '</s> ' : '') + '<b>' + money(now) + '</b>' + (u.pct ? ' <em>' + u.pct + '% OFF</em>' : '') + '</span></span>' +
+        '<button type="button" class="ikx-up__b" data-ikx-up="' + u.variantId + '">' + (on ? 'Remove' : '+ Add') + '</button></div>';
+    }).join('');
+  }
+  function toggleUp(id) {
+    var i = state.lines.findIndex(function (l) { return String(l.variant_id) === String(id) && l.upsell; });
+    if (i >= 0) state.lines.splice(i, 1); else state.lines.push({ variant_id: id, quantity: 1, upsell: true });
+    state.busy = true; overlay('Updating your total…');
+    fetchQuote(state.lines).then(function (q) {
+      state.busy = false; hideOverlay();
+      setQuote(q, true); paintUps(); paintPay(); paintBill(); paintFoot();
+      tk('method', { method: state.method, data: { upsell: i < 0 } });
+    }).catch(function () { state.busy = false; hideOverlay(); if (i < 0) state.lines.pop(); paintUps(); showErr('Could not update the offer. Please try again.'); });
+  }
+
+  /* ---------- payment options (Build 045) ----------
+     One UPI card on top: the shopper's UPI apps as big tiles (tap = pay straight away in that app), "All UPI apps"
+     (the phone's own app picker) and "Pay via UPI ID" (PayU's page, where the UPI ID is typed). Under it one row
+     each for cards and netbanking (tap = PayU opens on that method), then Cash on delivery when it is switched on
+     in IK Checkout (Settings > Cash on delivery). COD is the only option picked first and paid with the footer
+     button, because it goes through the WhatsApp code. On a computer the UPI card is one "Scan QR" row instead. */
+  /* Build 066: UPI apps in order of use (NPCI app shares, 2026: PhonePe and Google Pay ~80%, Paytm ~8%, then Navi,
+     super.money, CRED, BHIM ...). Phones only; iPhones get the apps that have their own link (others: "Other UPI apps"). */
+  var UPI_APPS = [['phonepe', 'PhonePe'], ['gpay', 'Google Pay'], ['paytm', 'Paytm'], ['navi', 'Navi'], ['supermoney', 'super.money'], ['cred', 'CRED'],
+    ['bhim', 'BHIM'], ['amazonpay', 'Amazon Pay'], ['mobikwik', 'MobiKwik'], ['slice', 'slice'], ['any', 'Other UPI']];
+  var UPI_TILE = { gpay: 'G Pay', phonepe: 'PhonePe', paytm: 'Paytm', navi: 'Navi', supermoney: 'super.money', cred: 'CRED', bhim: 'BHIM', amazonpay: 'Amazon Pay', mobikwik: 'MobiKwik', slice: 'slice' };
+  var UPI_SITE = { navi: 'navi.com', supermoney: 'super.money', cred: 'cred.club', bhim: 'bhimupi.org.in', amazonpay: 'amazon.in', mobikwik: 'mobikwik.com', slice: 'sliceit.com' };
+  var UPI_IOS = { phonepe: 1, gpay: 1, paytm: 1 };
+  var IS_ANDROID = /Android/i.test(navigator.userAgent);
+  function upiList() { return UPI_APPS.filter(function (a) { return a[0] !== 'any' && (IS_ANDROID || UPI_IOS[a[0]]); }); }
+  var UPI_PICK = UPI_APPS.filter(function (a) { return /^(phonepe|gpay|paytm|any)$/.test(a[0]); });
+  /* PayU page method for each row (PayU "enforce_paymethod"; not part of the hash) */
+  var PAYU_ONLY = { card: 'creditcard|debitcard', nb: 'netbanking', upiid: 'upi' };
+  function qk(m) { return m === 'cod' ? 'cod' : 'prepaid'; }
+  function codOn() { return !state.quote || state.quote.cod_on !== false; }
+  function methods() { return ['online', 'upi', 'upiid', 'card', 'nb'].concat(codOn() ? ['cod'] : []); }
+  function payWord() { return codOn() ? 'choose Cash on delivery' : 'pay another way'; }
+  var LOGO_URL = { gpay: script && script.getAttribute('data-logo-gpay'), phonepe: script && script.getAttribute('data-logo-phonepe'), paytm: script && script.getAttribute('data-logo-paytm') };
+  var PI = {
+    upi: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3l7 9-7 9M13 3l7 9-7 9"/></svg>',
+    card: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19M7 15h3"/></svg>',
+    bank: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5M4 20h16M6 10.5v7M10 10.5v7M14 10.5v7M18 10.5v7"/></svg>',
+    cash: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01M18 14.5v.01"/></svg>',
+    qr: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17.5 20.5H21V17"/></svg>'
+  };
+  function upiIcon(k) {
+    var u = (state.logos || {})[k] || LOGO_URL[k];
+    if (u) return '<img src="' + esc(u) + '" alt="">';
+    if (UPI_SITE[k]) return '<b>' + esc(UPI_TILE[k].slice(0, 2)) + '</b><img src="https://www.google.com/s2/favicons?sz=64&domain=' + UPI_SITE[k] + '" alt="" loading="lazy" onerror="this.remove()">';
+    if (k === 'any') return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>';
+    return '<b>' + (k === 'gpay' ? 'G' : k === 'phonepe' ? 'P' : k === 'paytm' ? 'Pt' : '') + '</b>';
+  }
+  function poRow(m, icon, name, amt, sub, cls) {
+    var on = state.method === m;
+    return '<button type="button" class="ikx-po__row' + (cls || '') + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (m === 'cod' ? ' role="radio" aria-checked="' + on + '"' : ' data-ikx-go') + (state.busy ? ' disabled' : '') + '>' +
+      '<span class="ikx-po__ic">' + icon + '</span><span class="ikx-po__t"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span>' +
+      '<span class="ikx-po__amt">' + amt + '</span>' + (m === 'cod' ? '<i class="ikx-po__radio" aria-hidden="true"></i>' : '<span class="ikx-po__chev">' + ICON.chev + '</span>') + '</button>';
+  }
+  function paintPay() {
+    var box = $('.ikx-pay', root); if (!box) return;
+    if (!state.quote) {
+      box.innerHTML = '<p class="ikx-m">Getting your price… one moment. If it takes long, tap Try again below.</p>';
+      return;
+    }
+    if (methods().indexOf(state.method) < 0) state.method = 'online';
+    var cod = state.quote.cod, pre = state.quote.prepaid, pc = codOn() && pcOn(), dis = state.busy ? ' disabled' : '';
+    var preOff = (pre.prepaid || 0) + (pre.ref || 0) + (pre.credit || 0);
+    var save = preOff ? '<span class="ikx-po__save">Save ' + money(preOff) + '</span>' : '';
+    /* Build 066: two choices only. Pay online (green badge) opens the online page (UPI apps, card, net banking);
+       Cash on delivery (red fee badge) keeps the old flow (pay-online nudge, WhatsApp code). */
+    var base = pre.total + preOff, pct = base ? (pre.prepaid || 0) * 100 / base : 0;
+    var off = pre.prepaid ? (Math.abs(pct - 10) < 1.5 ? '10% OFF' : money(pre.prepaid) + ' OFF') : (preOff ? 'Save ' + money(preOff) : '');
+    var onl = state.method !== 'cod';
+    var row = function (m, ic, name, badge, sub, amt, was) {
+      var on = m === 'cod' ? !onl : onl;
+      return '<button type="button" class="ikx-pm' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (m === 'online' ? ' data-ikx-go' : '') + ' role="radio" aria-checked="' + on + '"' + dis + '>' +
+        '<i class="ikx-pm__radio" aria-hidden="true"></i><span class="ikx-pm__ic">' + ic + '</span>' +
+        '<span class="ikx-pm__t"><span class="ikx-pm__n">' + name + badge + '</span><small>' + sub + '</small></span>' +
+        '<span class="ikx-pm__amt">' + (was ? '<s>' + was + '</s>' : '') + amt + '</span></button>';
+    };
+    var codFee = cod.cod ? '<em class="ikx-pb ikx-pb--red">+' + money(cod.cod) + ' fee</em>' : '';
+    box.innerHTML = '<div class="ikx-pms" role="radiogroup" aria-label="Payment">' +
+      row('online', PI.upi, 'Pay online', off ? '<em class="ikx-pb ikx-pb--green">' + off + '</em>' : '', 'UPI, Cards, Net banking', money(pre.total), cod.total > pre.total ? money(cod.total) : '') +
+      (codOn() ? row('cod', PI.cash, 'Cash on delivery', pc ? '' : codFee, pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : 'Pay at your door', pc ? money(pcAdv()) + ' now' : money(cod.total), '') : '') +
+      '</div>' + (codOn() ? pcNote() : '') +
+    ((state.method === 'cod' && pc) && IS_MOBILE ? '<p class="ikx-m ikx-po__pick">Pay the ' + money(pcAdv()) + ' with</p><div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_PICK.map(function (a) {
+/* end of part 3 */
