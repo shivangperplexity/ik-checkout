@@ -39,6 +39,20 @@ export async function upiIntent(env, f, ip, ua) {
   return { uri: 'upi://pay?' + String(data).replace(/^upi:\/\/pay\?/, '') };
 }
 
+/** UPI collect (request to a UPI ID) via PayU server-to-server. Returns { status, ref } or throws with PayU's message.
+ *  The raw answer is logged (no secrets in it) so the first live tests can be checked in the runtime logs. */
+export async function upiCollect(env, f, vpa, ip, ua) {
+  const body = new URLSearchParams({ ...f, pg: 'UPI', bankcode: 'UPI', vpa, txn_s2s_flow: '4', s2s_client_ip: ip || '0.0.0.0', s2s_device_info: (ua || 'Mozilla/5.0').slice(0, 250) });
+  const res = await fetch(payuAction(env), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body, redirect: 'manual' });
+  const text = await res.text();
+  let j = null; try { j = JSON.parse(text); } catch (e) { j = null; }
+  console.log('payu collect', f.txnid, res.status, text.slice(0, 600));
+  const st = String(j?.metaData?.txnStatus || j?.metaData?.unmappedStatus || j?.status || '').toLowerCase();
+  const msg = String(j?.metaData?.message || j?.error_Message || j?.result?.message || j?.message || '').slice(0, 160);
+  if (!j || !st || /fail|error|bounced|dropped|cancel/.test(st)) throw new Error(msg || 'collect failed (' + res.status + ')');
+  return { status: st, ref: String(j?.metaData?.referenceId || j?.result?.paymentId || '') };
+}
+
 /** Server-side status lookup (verify_payment). Returns { status, amount } or null. */
 export async function verifyPayment(env, txnid) {
   const command = 'verify_payment';

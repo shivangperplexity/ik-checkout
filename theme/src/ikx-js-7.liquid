@@ -1,0 +1,95 @@
+/* ik-express.js part 7 (Build 066): UPI app links with a "did not open" notice, UPI ID (collect), the end of the online page.
+Rendered right after part 6 by snippets/ik-checkout.liquid. */
+  /* UPI app links: Android opens any listed app by its package; the big three keep their own links (part 5 goUpi) */
+  var UPI_PKG = { navi: 'com.naviapp', supermoney: 'money.super.payments', cred: 'com.dreamplug.androidapp', bhim: 'in.org.npci.upiapp',
+    amazonpay: 'in.amazon.mShop.android.shopping', mobikwik: 'com.mobikwik_new', slice: 'indwin.c3.shareapp' };
+  function upiLink(app, base) {
+    watchOpen(app);
+    var back = encodeURIComponent(location.href.split('#')[0] + '#ikx-noapp');
+    return UPI_SCHEME[app] ? UPI_SCHEME[app] + base : (IS_ANDROID && UPI_PKG[app]) ? 'intent://pay?' + base + '#Intent;scheme=upi;package=' + UPI_PKG[app] + ';S.browser_fallback_url=' + back + ';end' : 'upi://pay?' + base;
+  }
+  /* The app did not open (not installed, or the phone could not open it): the page never went to the background within
+     3 s, or Android came back to #ikx-noapp. Say so on the waiting screen. */
+  function watchOpen(app) {
+    var gone = false, t;
+    var off = function () { if (document.hidden) gone = true; };
+    var bye = function () { gone = true; };
+    var hash = function () { if (location.hash === '#ikx-noapp') { try { history.replaceState(null, '', location.href.split('#')[0]); } catch (e) {} done(true); } };
+    function done(force) {
+      clearTimeout(t); document.removeEventListener('visibilitychange', off); window.removeEventListener('pagehide', bye); window.removeEventListener('hashchange', hash);
+      if ((gone && !force) || (!force && document.hidden)) return;
+      var ring = $('.ikx-ring', root); if (!ring || $('.ikx-noapp', root)) return;
+      var name = app === 'any' ? 'No UPI app' : (UPI_TILE[app] || 'Your UPI app');
+      ring.parentNode.insertBefore(el('div', { class: 'ikx-noapp', role: 'alert' }, '<b>' + esc(name) + (app === 'any' ? ' opened' : ' didn’t open') + '</b><span>It may not be installed on this phone. Pick another app, or pay with UPI ID or card.</span>' +
+        '<button type="button" class="ikx-btn" data-ikx-other>Choose another way</button>'), ring);
+      tk('upi', { data: { app: app, noapp: 1 } });
+    }
+    document.addEventListener('visibilitychange', off); window.addEventListener('pagehide', bye); window.addEventListener('hashchange', hash);
+    t = setTimeout(function () { done(false); }, 3000);
+  }
+  /* UPI ID: the order call carries it; PayU's collect answer opens our waiting screen (no app to open) */
+  api = (function (orig) {
+    return function (path, body, method) {
+      if (path !== '/api/order' || !state.vpa) return orig(path, body, method);
+      var vpa = state.vpa; state.vpa = '';
+      return orig(path, Object.assign({}, body, { vpa: vpa, upi: false }), method).then(function (r) {
+        if (!r || !r.ok || r.method !== 'prepaid') return r;
+        if (r.collect) { goCollect(r, vpa); return new Promise(function () {}); }
+        state.idem = uuid(); tk('fail', { data: { error: 'collect', why: r.collect_error || '' } });
+        return { ok: false, error: 'Couldn’t send the payment request to ' + vpa + '. Check the UPI ID, or pay with a UPI app or card.' };
+      });
+    };
+  })(api);
+  function goCollect(r, vpa) {
+    hideOverlay(); state.lastTxn = r.txnid;
+    var started = Date.now(), stopped = false, timer = null, tick = null, W = 5 * 60;
+    function left() { return Math.max(0, W - Math.floor((Date.now() - started) / 1000)); }
+    function clock() { var n = left(); return Math.floor(n / 60) + ':' + ('0' + (n % 60)).slice(-2); }
+    function stop() { stopped = true; clearTimeout(timer); clearInterval(tick); root.removeEventListener('click', onc); }
+    function backTo(msg) {
+      state.idem = uuid(); state.busy = false; state.done = false; state.built = false; hideOverlay(); root.style.visibility = '';
+      if (CART && CART.item_count) render(CART); else loadingView('Loading your cart…');
+      if (msg) showErr(msg);
+    }
+    function onc(e) { var t = e.target instanceof Element ? e.target : null; if (t && t.closest('[data-ikx-cother]')) { stop(); backTo(''); } }
+    screen('<div class="ikx-ring"><b>' + clock() + '</b><span>left</span></div><h3>Approve ' + money(state.quote.prepaid.total) + ' in your UPI app</h3>' +
+      '<ol class="ikx-steps3"><li>Open the UPI app of <b>' + esc(vpa) + '</b></li><li>Tap the payment request</li><li>Enter your UPI PIN</li></ol>' +
+      '<p class="ikx-m">This page updates by itself. Please keep it open.</p>' +
+      '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-cother>Pay another way</button>');
+    root.addEventListener('click', onc);
+    tick = setInterval(function () {
+      if (stopped) return clearInterval(tick);
+      var t = $('.ikx-ring b', root); if (t) t.textContent = clock();
+      if (left() <= 0) { stop(); backTo('The payment request expired. No money was taken. Try again or pick another way.'); }
+    }, 1000);
+    function check() {
+      if (stopped) return;
+      fetch(API + '/api/payu/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txnid: r.txnid }) })
+        .then(function (x) { return x.json(); }).then(function (j) {
+          if (stopped) return;
+          if (j.state === 'paid') {
+            stop(); tk('done'); fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+            track('Purchase', { currency: 'INR', value: j.value }, j.eventId);
+            return showSuccess({ orderName: j.orderName, statusUrl: j.statusUrl, method: 'prepaid', value: j.value });
+          }
+          if (j.state === 'review') { stop(); state.done = true; return screen('<h3>Payment received</h3><p>We got your payment and are confirming your order. You’ll hear from us shortly. Please don’t pay again.</p><button type="button" class="ikx-btn" data-ikx-close>OK</button>'); }
+          if (j.state === 'failed') { stop(); return backTo('Payment didn’t go through. No money was taken. Try again or choose another method.'); }
+          timer = setTimeout(check, 3000);
+        }).catch(function () { if (!stopped) timer = setTimeout(check, 3000); });
+    }
+    tk('upi', { data: { app: 'vpa' } });
+    timer = setTimeout(check, 5000);
+  }
+  try {
+    document.head.appendChild(el('style', {}, '.ikx-op__vpa{display:flex;gap:8px}.ikx-op__vpa input{flex:1;min-width:0;height:50px;padding:0 14px;border:1.5px solid #d9d4ca;border-radius:12px;font:inherit;font-size:16px;background:#fff;color:var(--ikx-ink,#0a0a0c)}' +
+      '.ikx-op__vpa input:focus{outline:none;border-color:var(--ikx-ink,#0a0a0c)}.ikx-op__vpa button{flex:none;height:50px;padding:0 20px;border:0;border-radius:12px;background:var(--ikx-ink,#0a0a0c);color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}' +
+      '.ikx-op__vpa.is-shake{animation:ikx-shake .42s cubic-bezier(.36,.07,.19,.97)}.ikx-op__err{color:#b42318;font-size:12.5px}' +
+      '.ikx-noapp{display:grid;gap:6px;margin:0 0 14px;padding:12px 14px;border-radius:14px;background:#fde4e2;color:#7a1a12;text-align:left}.ikx-noapp b{font-size:15px}.ikx-noapp span{font-size:13px;line-height:1.35}.ikx-noapp .ikx-btn{margin:4px 0 0;width:100%}'));
+  } catch (e) {}
+  if (state.method === 'upi') state.method = 'online';
+  /* a UPI tile that pays at once (pay-online nudge, part-COD picker) skips the online page */
+  document.addEventListener('click', function (e) { var t = e.target instanceof Element ? e.target : null; if (t && t.closest('[data-ikx-upi][data-ikx-go]')) state.directPay = true; }, true);
+  /* more than 10 digits in the mobile number: say so at once, with a small shake */
+  document.addEventListener('input', function (e) { var t = e.target; if (t && t.name === 'phone' && t.closest && t.closest('.ikx-in') && phoneDigits(t.value).length > 10) setTimeout(phoneOver, 0); }, true);
+  try { document.head.appendChild(el('link', { rel: 'stylesheet', href: "{{ 'ik-express-6.css' | asset_url }}" })); } catch (e) {}
+/* end of part 7 */

@@ -113,6 +113,9 @@ same function, so these declarations replace parts 2-4's) and points goUpi's lin
         return '<button type="button" class="ikx-op__app" data-op="upi" data-app="' + a[0] + '"><span class="ikx-op__logo">' + upiIcon(a[0]) + '</span><span>' + esc(UPI_TILE[a[0]] || a[1]) + '</span></button>';
       }).join('') + '<button type="button" class="ikx-op__app" data-op="upi" data-app="any"><span class="ikx-op__logo">' + upiIcon('any') + '</span><span>Other UPI</span></button></div></section>'
       : '<section class="ikx-op__s"><h4>UPI</h4><button type="button" class="ikx-op__row" data-op="upiid"><span class="ikx-op__ric">' + PI.qr + '</span><span>Scan QR with any UPI app</span>' + ICON.chev + '</button></section>';
+    /* UPI ID: PayU sends a payment request to it (collect) */
+    apps += '<section class="ikx-op__s"><h4>Pay with UPI ID</h4><div class="ikx-op__vpa"><input type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="yourname@okhdfcbank" aria-label="UPI ID" data-op-vpa>' +
+      '<button type="button" data-op="vpa">Pay</button></div><small class="ikx-op__err" role="alert" hidden></small></section>';
     var box = el('div', { class: 'ikx-op', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pay online' },
       '<div class="ikx-op__top"><button type="button" class="ikx-op__x" data-op="x" aria-label="Back">' + ICON.chev + '</button><b>Pay online</b><span class="ikx-op__amt">' + money(pre.total) + '</span></div>' +
       '<div class="ikx-op__body">' + apps +
@@ -121,9 +124,19 @@ same function, so these declarations replace parts 2-4's) and points goUpi's lin
       '<p class="ikx-op__safe">' + ICON.lock + '100% secure payment by PayU</p></div>');
     sheet.appendChild(box);
     requestAnimationFrame(function () { box.classList.add('is-in'); });
+    var vin = $('[data-op-vpa]', box);
+    if (vin) vin.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('[data-op="vpa"]', box).click(); } });
     box.onclick = function (e) {
       var b = e.target instanceof Element && e.target.closest('[data-op]'); if (!b || state.busy) return;
       var op = b.getAttribute('data-op');
+      if (op === 'vpa') {
+        var v = (vin && vin.value || '').trim(), er = $('.ikx-op__err', box);
+        if (!/^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,64}$/.test(v)) {
+          er.textContent = v ? 'Enter a valid UPI ID, like name@okhdfcbank' : 'Enter your UPI ID'; er.hidden = false;
+          var w = vin.parentNode; w.classList.remove('is-shake'); void w.offsetWidth; w.classList.add('is-shake'); vin.focus(); return;
+        }
+        state.vpa = v; op = 'upiid';
+      }
       box.remove();
       if (op === 'x') { tk('method', { method: 'online', data: { page: 'back' } }); paintFoot(); return; }
       state.method = op; if (op === 'upi') state.upiApp = b.getAttribute('data-app') || 'any';
@@ -131,14 +144,4 @@ same function, so these declarations replace parts 2-4's) and points goUpi's lin
       placeOrder(d, false, '');
     };
   }
-  /* UPI app links: Android opens any listed app by its package; the big three keep their own links (part 5 goUpi) */
-  var UPI_PKG = { navi: 'com.naviapp', supermoney: 'money.super.payments', cred: 'com.dreamplug.androidapp', bhim: 'in.org.npci.upiapp',
-    amazonpay: 'in.amazon.mShop.android.shopping', mobikwik: 'com.mobikwik_new', slice: 'indwin.c3.shareapp' };
-  function upiLink(app, base) { return UPI_SCHEME[app] ? UPI_SCHEME[app] + base : (IS_ANDROID && UPI_PKG[app]) ? 'intent://pay?' + base + '#Intent;scheme=upi;package=' + UPI_PKG[app] + ';end' : 'upi://pay?' + base; }
-  if (state.method === 'upi') state.method = 'online';
-  /* a UPI tile that pays at once (pay-online nudge, part-COD picker) skips the online page */
-  document.addEventListener('click', function (e) { var t = e.target instanceof Element ? e.target : null; if (t && t.closest('[data-ikx-upi][data-ikx-go]')) state.directPay = true; }, true);
-  /* more than 10 digits in the mobile number: say so at once, with a small shake */
-  document.addEventListener('input', function (e) { var t = e.target; if (t && t.name === 'phone' && t.closest && t.closest('.ikx-in') && phoneDigits(t.value).length > 10) setTimeout(phoneOver, 0); }, true);
-  try { document.head.appendChild(el('link', { rel: 'stylesheet', href: "{{ 'ik-express-6.css' | asset_url }}" })); } catch (e) {}
 /* end of part 6 */

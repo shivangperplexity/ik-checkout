@@ -5,7 +5,7 @@ import { loadLines, splitSoldOut, createDraft, completeDraft, addTags, removeTag
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
 import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery, recentlyVerified } from './cod-otp.js';
-import { buildPayuForm, verifyResponse, upiIntent, verifyPayment } from './payu.js';
+import { buildPayuForm, verifyResponse, upiIntent, upiCollect, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings, codOn, codMode } from './settings.js';
@@ -264,10 +264,15 @@ async function handleOrder(req, env, ctx) {
       email: buyer.email || `orders+${buyer.phone}@inkkulture.in`, phone: buyer.phone,
       surl: `${env.WORKER_URL}/api/payu/return`, furl: `${env.WORKER_URL}/api/payu/return`, udf1: draft.id.split('/').pop(),
     });
-    const intent = b.upi
+    /* Build 066: UPI ID typed at checkout -> PayU sends a collect request to it (instead of the intent) */
+    const vpa = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,64}$/.test(String(b.vpa || '').trim()) ? String(b.vpa).trim() : '';
+    const intent = vpa
+      ? upiCollect(env, payu.fields, vpa, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent')).then((c) => ({ collect: c }), (e) => { console.error('upi collect', e.message); return { collect_error: e.message }; })
+      : b.upi
       ? upiIntent(env, payu.fields, ip === 'unknown' ? '' : ip, req.headers.get('User-Agent')).catch((e) => { console.error('upi intent', e); return null; })
       : Promise.resolve(null);
     const [, upi] = await Promise.all([saveOrder(env, row, null, 'pending_payment'), intent]);
+    if (vpa) return json({ ok: true, method, payu, txnid, vpa, ...(upi || {}) });
     return json({ ok: true, method, payu, upi, txnid });
   }
 

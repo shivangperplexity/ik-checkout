@@ -58,7 +58,8 @@
 {% render 'ikx-js-4' %}
 {%- comment -%} Build 066: part 6 goes inside part 5's function, just before takeOverDrawer(); and goUpi uses upiLink() {%- endcomment -%}
 {%- capture ikx5 -%}{% render 'ikx-js-5' %}{%- endcapture -%}
-{%- capture ikx6 -%}{% render 'ikx-js-6' %}{%- endcapture -%}
+{%- capture ikx6 -%}{% render 'ikx-js-6' %}
+{% render 'ikx-js-7' %}{%- endcapture -%}
 {%- assign ikx6 = ikx6 | append: 'takeOverDrawer();' -%}
 {%- assign ikxa = "var link = (UPI_SCHEME[app] || 'upi://pay?') + base;" -%}
 {{ ikx5 | replace_first: 'takeOverDrawer();', ikx6 | replace_first: ikxa, 'var link = upiLink(app, base);' }}
