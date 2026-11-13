@@ -1,0 +1,144 @@
+/* ik-express.js part 6 (Build 066). snippets/ik-checkout.liquid inserts it into part 5 just before the takeOverDrawer call (inside the
+same function, so these declarations replace parts 2-4's) and points goUpi's link at upiLink(). */
+  function phoneOver() {
+    var f = form(), wrap = f && $('.ikx-in[data-f="phone"]', f), msg = wrap && $('.ikx-ferr', wrap); if (!wrap || !msg) return;
+    wrap.classList.add('is-bad'); msg.textContent = 'Only 10 digits allowed'; msg.hidden = false;
+    wrap.classList.remove('is-shake'); void wrap.offsetWidth; wrap.classList.add('is-shake');
+    setTimeout(function () { wrap.classList.remove('is-shake'); }, 450);
+    try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) {}
+  }
+  function phoneDigits(v) {
+    var d = String(v || '').replace(/\D/g, '');
+    if (d.length >= 12 && d.indexOf('91') === 0) d = d.slice(2);
+    if (d.length === 11 && d.charAt(0) === '0') d = d.slice(1);
+    return d;
+  }
+  /* not cut to 10 any more: more than 10 digits stays visible and is reported */
+  function tenDigits(v) { return phoneDigits(v); }
+  function invalid(d) {
+    return d.first_name.length < 1 ? ['first_name', 'Enter a first name'] :
+      d.last_name.length < 1 ? ['last_name', 'Enter a last name'] :
+      !d.phone ? ['phone', 'Enter your mobile number'] :
+      d.phone.length > 10 ? ['phone', 'Only 10 digits allowed'] :
+      !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
+      d.address1.length < 5 ? ['address1', 'Enter your house / flat no. and street'] :
+      /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i.test(d.address1) ? ['address1', 'Please type your address. Links are not accepted'] :
+      d.address2.length < 3 ? ['address2', 'Enter a landmark, it helps the courier find you'] :
+      /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i.test(d.address2) ? ['address2', 'Please type a landmark. Links are not accepted'] :
+      !d.city ? ['city', 'Enter a city'] :
+      !d.state ? ['state', 'Select a state'] :
+      !/^\d{6}$/.test(d.pincode) ? ['pincode', 'Enter a valid 6-digit PIN code'] :
+      (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) ? ['email', 'Enter a valid email, or leave it empty'] : null;
+  }
+  /* Build 066: UPI apps in order of use (NPCI app shares, 2026: PhonePe and Google Pay ~80%, Paytm ~8%, then Navi,
+     super.money, CRED, BHIM ...). Phones only; iPhones get the apps that have their own link (others: "Other UPI apps"). */
+  UPI_APPS = [['phonepe', 'PhonePe'], ['gpay', 'Google Pay'], ['paytm', 'Paytm'], ['navi', 'Navi'], ['supermoney', 'super.money'], ['cred', 'CRED'],
+    ['bhim', 'BHIM'], ['amazonpay', 'Amazon Pay'], ['mobikwik', 'MobiKwik'], ['slice', 'slice'], ['any', 'Other UPI']];
+  UPI_TILE = { gpay: 'G Pay', phonepe: 'PhonePe', paytm: 'Paytm', navi: 'Navi', supermoney: 'super.money', cred: 'CRED', bhim: 'BHIM', amazonpay: 'Amazon Pay', mobikwik: 'MobiKwik', slice: 'slice' };
+  var UPI_SITE = { navi: 'navi.com', supermoney: 'super.money', cred: 'cred.club', bhim: 'bhimupi.org.in', amazonpay: 'amazon.in', mobikwik: 'mobikwik.com', slice: 'sliceit.com' };
+  var UPI_IOS = { phonepe: 1, gpay: 1, paytm: 1 };
+  var IS_ANDROID = /Android/i.test(navigator.userAgent);
+  function upiList() { return UPI_APPS.filter(function (a) { return a[0] !== 'any' && (IS_ANDROID || UPI_IOS[a[0]]); }); }
+  var UPI_PICK = UPI_APPS.filter(function (a) { return /^(phonepe|gpay|paytm|any)$/.test(a[0]); });
+  function methods() { return ['online', 'upi', 'upiid', 'card', 'nb'].concat(codOn() ? ['cod'] : []); }
+  function upiIcon(k) {
+    var u = (state.logos || {})[k] || LOGO_URL[k];
+    if (u) return '<img src="' + esc(u) + '" alt="">';
+    if (UPI_SITE[k]) return '<b>' + esc(UPI_TILE[k].slice(0, 2)) + '</b><img src="https://www.google.com/s2/favicons?sz=64&domain=' + UPI_SITE[k] + '" alt="" loading="lazy" onerror="this.remove()">';
+    if (k === 'any') return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>';
+    return '<b>' + (k === 'gpay' ? 'G' : k === 'phonepe' ? 'P' : k === 'paytm' ? 'Pt' : '') + '</b>';
+  }
+  function paintPay() {
+    var box = $('.ikx-pay', root); if (!box) return;
+    if (!state.quote) {
+      box.innerHTML = '<p class="ikx-m">Getting your price… one moment. If it takes long, tap Try again below.</p>';
+      return;
+    }
+    if (methods().indexOf(state.method) < 0) state.method = 'online';
+    var cod = state.quote.cod, pre = state.quote.prepaid, pc = codOn() && pcOn(), dis = state.busy ? ' disabled' : '';
+    var preOff = (pre.prepaid || 0) + (pre.ref || 0) + (pre.credit || 0);
+    var save = preOff ? '<span class="ikx-po__save">Save ' + money(preOff) + '</span>' : '';
+    /* Build 066: two choices only. Pay online (green badge) opens the online page (UPI apps, card, net banking);
+       Cash on delivery (red fee badge) keeps the old flow (pay-online nudge, WhatsApp code). */
+    var base = pre.total + preOff, pct = base ? (pre.prepaid || 0) * 100 / base : 0;
+    var off = pre.prepaid ? (Math.abs(pct - 10) < 1.5 ? '10% OFF' : money(pre.prepaid) + ' OFF') : (preOff ? 'Save ' + money(preOff) : '');
+    var onl = state.method !== 'cod';
+    var row = function (m, ic, name, badge, sub, amt, was) {
+      var on = m === 'cod' ? !onl : onl;
+      return '<button type="button" class="ikx-pm' + (on ? ' is-on' : '') + '" data-ikx-method="' + m + '"' + (m === 'online' ? ' data-ikx-go' : '') + ' role="radio" aria-checked="' + on + '"' + dis + '>' +
+        '<i class="ikx-pm__radio" aria-hidden="true"></i><span class="ikx-pm__ic">' + ic + '</span>' +
+        '<span class="ikx-pm__t"><span class="ikx-pm__n">' + name + badge + '</span><small>' + sub + '</small></span>' +
+        '<span class="ikx-pm__amt">' + (was ? '<s>' + was + '</s>' : '') + amt + '</span></button>';
+    };
+    var codFee = cod.cod ? '<em class="ikx-pb ikx-pb--red">+' + money(cod.cod) + ' fee</em>' : '';
+    box.innerHTML = '<div class="ikx-pms" role="radiogroup" aria-label="Payment">' +
+      row('online', PI.upi, 'Pay online', off ? '<em class="ikx-pb ikx-pb--green">' + off + '</em>' : '', 'UPI, Cards, Net banking', money(pre.total), cod.total > pre.total ? money(cod.total) : '') +
+      (codOn() ? row('cod', PI.cash, 'Cash on delivery', pc ? '' : codFee, pc ? 'Pay ' + money(pcAdv()) + ' now, rest on delivery' : 'Pay at your door', pc ? money(pcAdv()) + ' now' : money(cod.total), '') : '') +
+      '</div>' + (codOn() ? pcNote() : '') +
+    ((state.method === 'cod' && pc) && IS_MOBILE ? '<p class="ikx-m ikx-po__pick">Pay the ' + money(pcAdv()) + ' with</p><div class="ikx-upi" role="group" aria-label="Choose UPI app">' + UPI_PICK.map(function (a) {
+      return '<button type="button" class="ikx-upib' + (a[0] === state.upiApp ? ' is-on' : '') + '" data-ikx-upi="' + a[0] + '" aria-pressed="' + (a[0] === state.upiApp) + '"><span class="ikx-upib__ic">' + upiIcon(a[0]) + '</span>' + a[1] + '</button>';
+    }).join('') + '</div>' : '');
+  }
+  function submit(direct) {
+    var dp = direct || state.directPay; state.directPay = false;
+    if (state.busy || !state.quote || !state.final) return;
+    var d = formData(); showErr('');
+    var bad = invalid(d);
+    if (bad) { paintFoot(); fieldError(bad[0]); goCheckout(true); return showErr(bad[1]); }
+    if (SHIP.no && SHIP.pin === d.pincode) { fieldError('pincode'); goCheckout(true); return showErr('Sorry, we can’t deliver to PIN code ' + d.pincode + ' yet. Please use another address.'); }
+    /* Build 056: an odd number of tattoos (one more is FREE): "add 1 more design" once per page view before paying
+       (Build 039 had dropped it; shoppers kept ordering a single tattoo). */
+    if (!FREE_ASKED && askFree()) { FREE_ASKED = true; tk('method', { method: state.method, data: { freeask: 'shown' } }); paintFoot(); return; }
+    state.draft = d; rememberBuyer(d);
+    /* Build 066: every online payment starts on the online page (UPI apps, card, net banking) */
+    if (state.method !== 'cod' && !dp) return openOnline(d);
+    var pcx = state.method === 'cod' && pcOn();
+    /* Build 044: Cash on delivery (not part-paid) is verified with a 4-digit WhatsApp code first. The code box opens
+       inside this tap (so the phone keyboard comes up) and the order is placed as soon as 4 digits are in. */
+    /* Build 058: the code typed to claim store credit already verified this number; no second code */
+    if (state.method === 'cod' && !pcx && state.quote.otp && !state.otpSkip && !(state.refInfo && state.refInfo.verified && state.refInfo.phone === d.phone)) {
+      tk('submit', { phone: d.phone, name: d.name, method: state.method });
+      track('AddPaymentInfo', { currency: 'INR', value: state.quote.cod.total / 100 });
+      return otpOpen(d);
+    }
+    placeOrder(d, pcx, '');
+  }
+  /* Build 066: "Pay online" page inside the sheet. Top: UPI apps (phones; tap = pay in that app). Then card and net
+     banking (PayU page with only that method). Computers: UPI by QR on the PayU page. */
+  function openOnline(d) {
+    var old = $('.ikx-op', root); if (old) old.remove();
+    var pre = state.quote.prepaid, sheet = $('.ikx-sheet', root); if (!sheet) return placeOrder(d, false, '');
+    tk('method', { method: 'online', data: { page: 'open' } });
+    var apps = IS_MOBILE ? '<section class="ikx-op__s"><h4>Pay with your UPI app</h4><div class="ikx-op__apps">' + upiList().map(function (a) {
+        return '<button type="button" class="ikx-op__app" data-op="upi" data-app="' + a[0] + '"><span class="ikx-op__logo">' + upiIcon(a[0]) + '</span><span>' + esc(UPI_TILE[a[0]] || a[1]) + '</span></button>';
+      }).join('') + '<button type="button" class="ikx-op__app" data-op="upi" data-app="any"><span class="ikx-op__logo">' + upiIcon('any') + '</span><span>Other UPI</span></button></div></section>'
+      : '<section class="ikx-op__s"><h4>UPI</h4><button type="button" class="ikx-op__row" data-op="upiid"><span class="ikx-op__ric">' + PI.qr + '</span><span>Scan QR with any UPI app</span>' + ICON.chev + '</button></section>';
+    var box = el('div', { class: 'ikx-op', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pay online' },
+      '<div class="ikx-op__top"><button type="button" class="ikx-op__x" data-op="x" aria-label="Back">' + ICON.chev + '</button><b>Pay online</b><span class="ikx-op__amt">' + money(pre.total) + '</span></div>' +
+      '<div class="ikx-op__body">' + apps +
+      '<section class="ikx-op__s"><h4>Debit / Credit card</h4><button type="button" class="ikx-op__row" data-op="card"><span class="ikx-op__ric">' + PI.card + '</span><span>Pay with card</span>' + ICON.chev + '</button></section>' +
+      '<section class="ikx-op__s"><h4>Net banking</h4><button type="button" class="ikx-op__row" data-op="nb"><span class="ikx-op__ric">' + PI.bank + '</span><span>All Indian banks</span>' + ICON.chev + '</button></section>' +
+      '<p class="ikx-op__safe">' + ICON.lock + '100% secure payment by PayU</p></div>');
+    sheet.appendChild(box);
+    requestAnimationFrame(function () { box.classList.add('is-in'); });
+    box.onclick = function (e) {
+      var b = e.target instanceof Element && e.target.closest('[data-op]'); if (!b || state.busy) return;
+      var op = b.getAttribute('data-op');
+      box.remove();
+      if (op === 'x') { tk('method', { method: 'online', data: { page: 'back' } }); paintFoot(); return; }
+      state.method = op; if (op === 'upi') state.upiApp = b.getAttribute('data-app') || 'any';
+      tk('method', { method: op, data: op === 'upi' ? { app: state.upiApp, page: 'online' } : { page: 'online' } });
+      placeOrder(d, false, '');
+    };
+  }
+  /* UPI app links: Android opens any listed app by its package; the big three keep their own links (part 5 goUpi) */
+  var UPI_PKG = { navi: 'com.naviapp', supermoney: 'money.super.payments', cred: 'com.dreamplug.androidapp', bhim: 'in.org.npci.upiapp',
+    amazonpay: 'in.amazon.mShop.android.shopping', mobikwik: 'com.mobikwik_new', slice: 'indwin.c3.shareapp' };
+  function upiLink(app, base) { return UPI_SCHEME[app] ? UPI_SCHEME[app] + base : (IS_ANDROID && UPI_PKG[app]) ? 'intent://pay?' + base + '#Intent;scheme=upi;package=' + UPI_PKG[app] + ';end' : 'upi://pay?' + base; }
+  if (state.method === 'upi') state.method = 'online';
+  /* a UPI tile that pays at once (pay-online nudge, part-COD picker) skips the online page */
+  document.addEventListener('click', function (e) { var t = e.target instanceof Element ? e.target : null; if (t && t.closest('[data-ikx-upi][data-ikx-go]')) state.directPay = true; }, true);
+  /* more than 10 digits in the mobile number: say so at once, with a small shake */
+  document.addEventListener('input', function (e) { var t = e.target; if (t && t.name === 'phone' && t.closest && t.closest('.ikx-in') && phoneDigits(t.value).length > 10) setTimeout(phoneOver, 0); }, true);
+  try { document.head.appendChild(el('link', { rel: 'stylesheet', href: "{{ 'ik-express-6.css' | asset_url }}" })); } catch (e) {}
+/* end of part 6 */

@@ -10,13 +10,10 @@
 
   /* Own UPI buttons: PayU creates the intent, we open the shopper's app and poll for the result. */
   var UPI_SCHEME = { gpay: 'tez://upi/pay?', phonepe: 'phonepe://pay?', paytm: 'paytmmp://pay?' };
-  var UPI_PKG = { navi: 'com.naviapp', supermoney: 'money.super.payments', cred: 'com.dreamplug.androidapp', bhim: 'in.org.npci.upiapp',
-    amazonpay: 'in.amazon.mShop.android.shopping', mobikwik: 'com.mobikwik_new', slice: 'indwin.c3.shareapp' };
   function goUpi(r, app) {
     hideOverlay();
     var base = r.upi.uri.replace(/^upi:\/\/pay\?/, '');
-    /* Build 066: Android opens the chosen app by its package (any app in the list); the big three keep their own links */
-    var link = UPI_SCHEME[app] ? UPI_SCHEME[app] + base : (IS_ANDROID && UPI_PKG[app]) ? 'intent://pay?' + base + '#Intent;scheme=upi;package=' + UPI_PKG[app] + ';end' : 'upi://pay?' + base;
+    var link = (UPI_SCHEME[app] || 'upi://pay?') + base;
     var started = Date.now(), stopped = false, timer = null, tick = null, WINDOW = 5 * 60;
     var appName = (UPI_APPS.filter(function (a) { return a[0] === app; })[0] || [0, 'your UPI app'])[1];
     if (app === 'any') appName = 'your UPI app';

@@ -20,7 +20,7 @@
 
   /* ---------- sheet shell ---------- */
   var root = null, opener = null;
-  var state = { upiApp: 'gpay', quote: null, lines: [], method: 'online', idem: '', busy: false, done: false, leadTimer: null, built: false, ups: [], logos: {}, pinOk: false, final: false, quoteSig: '' };
+  var state = { upiApp: 'gpay', quote: null, lines: [], method: 'upi', idem: '', busy: false, done: false, leadTimer: null, built: false, ups: [], logos: {}, pinOk: false, final: false, quoteSig: '' };
   function isOpen() { return !!(root && root.classList.contains('is-open')); }
   function scroller() { return $('.ikx-scroll', root); }
   function form() { return root && $('.ikx-form', root); }
@@ -245,7 +245,7 @@
     state.built = true;
     var f = form();
     f.addEventListener('change', function (e) {
-      if (e.target.name === 'phone') { e.target.value = phoneDigits(e.target.value); if (e.target.value.length > 10) phoneOver(); }
+      if (e.target.name === 'phone') e.target.value = tenDigits(e.target.value);
       if (e.target.name === 'remember') { REMEMBER = e.target.checked; if (!REMEMBER) forgetBuyer(); }
       if (e.target.name === 'state') e.target.closest('.ikx-in').classList.toggle('is-filled', !!e.target.value);
     });
@@ -254,8 +254,6 @@
     f.addEventListener('input', function (e) {
       /* Save the phone number for follow-up the moment a full 10-digit number is in (typed, pasted or autofilled). */
       if (e.target.name === 'phone') {
-        /* Build 066: more than 10 digits -> say so at once, with a small shake */
-        if (phoneDigits(f.elements.phone.value).length > 10) { phoneOver(); stepWatch(); paintFoot(); return; }
         var ph = tenDigits(f.elements.phone.value);
         if (/^[6-9]\d{9}$/.test(ph) && ph !== state.leadPhone) { state.leadPhone = ph; sendLead('phone', true); }
       } else sendLead('typing');
@@ -283,13 +281,6 @@
   function forgetBuyer() { try { localStorage.removeItem('ikx_buyer'); } catch (e) {} }
 
   /* ---------- per-field errors (Shopify shows the message under the field, in red) ---------- */
-  function phoneOver() {
-    var f = form(), wrap = f && $('.ikx-in[data-f="phone"]', f), msg = wrap && $('.ikx-ferr', wrap); if (!wrap || !msg) return;
-    wrap.classList.add('is-bad'); msg.textContent = 'Only 10 digits allowed'; msg.hidden = false;
-    wrap.classList.remove('is-shake'); void wrap.offsetWidth; wrap.classList.add('is-shake');
-    setTimeout(function () { wrap.classList.remove('is-shake'); }, 450);
-    try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) {}
-  }
   function fieldError(name, clearOnly) {
     var f = form(); if (!f || !name) return;
     var wrap = $('.ikx-in[data-f="' + name + '"]', f), msg = wrap && $('.ikx-ferr', wrap); if (!wrap || !msg) return;
