@@ -81,7 +81,7 @@ export function inspectHtml(html) {
     bytes: html.length,
   };
 }
-export async function seoCheck(env, { urls = [], theme = '' } = {}) {
+export async function seoCheck(env, { urls = [], theme = '', grep = [], ikx = false } = {}) {
   const out = [];
   for (const u of urls.slice(0, 8)) {
     const url = new URL(u, 'https://www.inkkulture.in');
@@ -98,6 +98,14 @@ export async function seoCheck(env, { urls = [], theme = '' } = {}) {
       }
       const html = await r.text();
       out.push({ url: url.pathname, status: r.status, theme: (html.match(/Shopify\.theme\s*=\s*\{[^}]*"id":(\d+)/) || [])[1] || '', ...inspectHtml(html) });
+      /* checkout checks: needles present in the page, and does the IK Express script compile (parsed, not run) */
+      const last = out[out.length - 1];
+      if (grep.length) last.grep = Object.fromEntries(grep.slice(0, 20).map((g) => [g, html.split(String(g)).length - 1]));
+      if (ikx) {
+        const m = html.match(/<script\s+data-ikx[^>]*>([\s\S]*?)<\/script>/);
+        if (!m) last.ikx = 'script not found';
+        else { try { new Function(m[1]); last.ikx = 'compiles (' + m[1].length + ' chars)'; } catch (e) { last.ikx = 'syntax error: ' + e.message; } }
+      }
     } catch (e) { out.push({ url: u, error: e.message }); }
   }
   return { pages: out };

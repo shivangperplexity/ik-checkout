@@ -1515,7 +1515,7 @@ const ACTIONS = {
   },
   async seo_alts(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.fixAlts(env, { dry: b?.dry !== false, full: !!b?.full })) }; },
   async seo_collections(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.applyCollections(env, { dry: b?.dry !== false })) }; },
-  async seo_check(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.seoCheck(env, { urls: Array.isArray(b?.urls) ? b.urls : [], theme: b?.theme || '' })) }; },
+  async seo_check(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.seoCheck(env, { urls: Array.isArray(b?.urls) ? b.urls : [], theme: b?.theme || '', grep: Array.isArray(b?.grep) ? b.grep : [], ikx: !!b?.ikx })) }; },
   async seo_articles(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.applyArticles(env, { dry: b?.dry !== false })) }; },
   async seo_products(env) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.productAudit(env)) }; },
   async seo_descriptions(env, b) { const R = await import('./seo-fix.js'); return { ok: true, ...(await R.fixDescriptions(env, { dry: b?.dry !== false, limit: Math.min(300, Number(b?.limit) || 300), redo: !!b?.redo })) }; },
