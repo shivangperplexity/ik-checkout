@@ -1,0 +1,76 @@
+/* ik-express.js part 9 (Build 066c): never stuck on "Opening payment…", faster UPI (the order is prepared while the
+Pay online page is open), phone AutoFill, quote ready right after Add to cart. Rendered after part 8. */
+  /* 1. Stuck guard. Every second while the sheet is open: busy but nothing on screen is working for it (no spinner,
+     no waiting screen, no code box, no online page) for 3 s, or the spinner has run 25 s -> check the last payment and
+     unlock, so the shopper can pay again. Coming back from PayU / a UPI app (pageshow, focus) also unlocks. */
+  var busyAt = 0, orderAt = 0;
+  function freeNow(msg) {
+    state.busy = false; state.idem = uuid(); PRE = null; hideOverlay(); root.style.visibility = '';
+    if (state.built) { paintPay(); paintFoot(); if (msg) showErr(msg); } else if (CART && CART.item_count) { render(CART); if (msg) showErr(msg); }
+  }
+  function unstick() {
+    if (!root || !state.busy || state.done) return;
+    if (root.style.visibility === 'hidden' || $('.ikx-ring', root) || $('.ikx-otpw', root) || $('.ikx-op', root) || $('.ikx-qr', root)) return; /* PayU window / a waiting screen has it */
+    if (orderInflight && Date.now() - orderAt < 20000) return;
+    var txn = state.lastTxn;
+    if (!txn) return freeNow('');
+    fetch(API + '/api/payu/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txnid: txn }) })
+      .then(function (x) { return x.json(); }).then(function (j) {
+        if (!state.busy || state.done) return;
+        if (j.state === 'paid') {
+          state.lastTxn = ''; tk('done'); fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+          track('Purchase', { currency: 'INR', value: j.value }, j.eventId);
+          return showSuccess({ orderName: j.orderName, statusUrl: j.statusUrl, method: j.partial ? 'partial' : 'prepaid', value: j.value, advance: j.advance, balance: j.balance });
+        }
+        if (j.state === 'review') { state.done = true; return screen('<h3>Payment received</h3><p>We got your payment and are confirming your order. You’ll hear from us shortly. Please don’t pay again.</p><button type="button" class="ikx-btn" data-ikx-close>OK</button>'); }
+        state.lastTxn = ''; freeNow('Payment not completed. Tap Pay to try again.');
+      }).catch(function () { freeNow('Payment not completed. Tap Pay to try again.'); });
+  }
+  setInterval(function () {
+    if (!root || !state.busy || state.done || !isOpen()) { busyAt = 0; return; }
+    var ov = $('.ikx-ov.is-on', root), working = root.style.visibility === 'hidden' || $('.ikx-ring', root) || $('.ikx-otpw', root) || $('.ikx-op', root) || $('.ikx-qr', root);
+    if (working) { busyAt = 0; return; }
+    if (!busyAt) busyAt = Date.now();
+    if ((!ov && Date.now() - busyAt > 3000) || Date.now() - busyAt > 25000) { busyAt = 0; unstick(); }
+  }, 1000);
+  window.addEventListener('pageshow', function (e) { if (e.persisted && state.busy && !state.done) { root && (root.style.visibility = ''); hideOverlay(); setTimeout(unstick, 300); } });
+
+  /* 2. Faster UPI: when the Pay online page opens, the order + PayU UPI link are made in the background, so tapping an
+     app opens it at once. Used only for the same cart and attempt; a UPI ID payment always makes its own. */
+  var PRE = null;
+  function linesSig() { try { return JSON.stringify(state.lines); } catch (e) { return ''; } }
+  var openOnline0 = openOnline;
+  openOnline = function (d) {
+    openOnline0(d);
+    if (PRE && PRE.idem === state.idem && PRE.sig === linesSig()) return;
+    var body = { idem: state.idem, method: 'prepaid', lines: state.lines, buyer: d, attribution: attrNow(), upi: true, pc: 1, pv: 2, dupask: 1 };
+    PRE = { idem: state.idem, sig: linesSig(), p: api0('/api/order', body) };
+    PRE.p.catch(function () { PRE = null; });
+  };
+  var api0 = api;
+  api = (function (orig) {
+    return function (path, body, method) {
+      if (path === '/api/order') orderAt = Date.now();
+      if (path !== '/api/order' || !PRE || state.vpa || !body || body.method !== 'prepaid' || body.confirm_new) return orig(path, body, method);
+      if (PRE.idem !== body.idem || PRE.sig !== linesSig()) { PRE = null; state.idem = uuid(); return orig(path, Object.assign({}, body, { idem: state.idem }), method); }
+      var p = PRE.p; PRE = null;
+      if (!state.qr) return p.catch(function () { return orig(path, body, method); });
+      state.qr = false;
+      return p.then(function (r) {
+        if (!r || !r.ok || r.method !== 'prepaid') return r;
+        if (r.upi && r.upi.uri) { goWait(r, { qr: r.upi.uri }); return new Promise(function () {}); }
+        state.idem = uuid(); return { ok: false, error: 'Couldn’t make the QR code. Please pay with a UPI app or card.' };
+      });
+    };
+  })(api);
+
+  /* 3. Phone AutoFill: iPhone / Android keyboards suggest the saved number only for autocomplete="tel" (+91 is removed) */
+  function acFix() {
+    var p = root && $('input[name="phone"]', root);
+    if (p && p.getAttribute('autocomplete') !== 'tel') { p.setAttribute('autocomplete', 'tel'); p.setAttribute('name', 'phone'); }
+  }
+  try { new MutationObserver(acFix).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+
+  /* 4. Add to cart: get the cart and the server price straight away, so the sheet opens with the final total */
+  document.addEventListener('ikx:added', function () { setTimeout(function () { getCart().then(function (c) { prefetch(c); }).catch(function () {}); }, 50); });
+/* end of part 9 */
