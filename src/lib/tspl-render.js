@@ -59,7 +59,10 @@ export async function pdfToTspl(pdf, tune) {
     const v0 = page.getViewport({ scale: 1 });
     const turn = (v0.width > v0.height) !== (W > H);
     const vr = page.getViewport({ scale: 1, rotation: (v0.rotation + (turn ? 90 : 0)) % 360 });
-    const k = Math.min(W / vr.width, H / vr.height);
+    /* Nov 2026: a safe margin (Settings tune.margin, mm; default 4 top/bottom, 2 sides). Thermal printers lose the first
+       mm or two of a label (and more when the gap sensor drifts), which cut the courier name / AWB off the top. */
+    const my = Math.round((t.margin ?? 4) * 8), mx = Math.round(Math.min(2, t.margin ?? 4) * 8);
+    const k = Math.min((W - 2 * mx) / vr.width, (H - 2 * my) / vr.height);
     const vp = page.getViewport({ scale: k, rotation: (v0.rotation + (turn ? 90 : 0)) % 360 });
     const cv = createCanvas(W, H), g = cv.getContext('2d');
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
