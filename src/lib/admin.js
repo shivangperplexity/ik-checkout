@@ -2071,6 +2071,15 @@ const ACTIONS = {
     const P = await import('./pack-alert.js'); return { ok: true, ...(await P.packAlerts(await withSettingsFresh(env), { force: true })) };
   },
   /* ---------- Meta Marketing API (lib/meta-ads.js) ---------- */
+  /* ---- ads studio (lib/ads-studio.js, dashboard → More → Meta ads) ---- */
+  async ads_tree(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.tree(await withSettingsFresh(env), { preset: String(b.preset || 'last_7d') })) }; },
+  async ads_ad_status(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.adStatus(await withSettingsFresh(env), b.id, b.status)) }; },
+  async ads_template(env, b) { const A = await import('./ads-studio.js'); const f = await withSettingsFresh(env); const t = await A.bestAd(f, String(b.adset_id || '')); return { ok: true, template: t ? await A.templateOf(f, t.id) : null }; },
+  async ads_video_start(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoStart(await withSettingsFresh(env), b)) }; },
+  async ads_video_chunk(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoChunk(await withSettingsFresh(env), b)) }; },
+  async ads_video_finish(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoFinish(await withSettingsFresh(env), b)) }; },
+  async ads_video_info(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoInfo(await withSettingsFresh(env), b)) }; },
+  async ads_video_ad(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.createVideoAd(await withSettingsFresh(env), b)) }; },
   async ads_probe(env) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.probe(await withSettingsFresh(env))) }; },
   async ads_overview(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.overview(await withSettingsFresh(env), { preset: String(b.preset || 'last_7d'), all: !!b.all })) }; },
   async ads_status(env, b) { const A = await import('./meta-ads.js'); return { ok: true, ...(await A.setStatus(await withSettingsFresh(env), b.id, b.status)) }; },
