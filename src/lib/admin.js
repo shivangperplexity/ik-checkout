@@ -2469,7 +2469,10 @@ const ACTIONS = {
     return { ok: true, checkout: { cod: c.cod, mode } };
   },
   async save_logos(env, b) {
-    const l = {}; for (const k of ['gpay', 'phonepe', 'paytm', 'any']) l[k] = String((b.logos || {})[k] || '').trim().slice(0, 500);
+    /* Build 066: every UPI app tile of the checkout; keys not sent keep their saved logo (b.merge) */
+    const keys = ['gpay', 'phonepe', 'paytm', 'any', 'navi', 'supermoney', 'cred', 'bhim', 'amazonpay', 'mobikwik', 'slice'];
+    const l = b.merge ? { ...(env.SETTINGS?.upi_logos || {}) } : {};
+    for (const k of keys) if (!b.merge || (b.logos || {})[k] != null) l[k] = String((b.logos || {})[k] || '').trim().slice(0, 500);
     await putSetting(env, 'upi_logos', l);
     return { ok: true };
   },
