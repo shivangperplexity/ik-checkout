@@ -96,8 +96,8 @@
       var sp = src.getPage(0), box = swap ? logoBox(P, sp) : null;
       var p = (await out.embedPdf(src, [0]))[0];
       var land = p.width >= p.height, pw = land ? LONG : SHORT, ph = land ? SHORT : LONG;
-      /* moved about 4 mm down, full size (PDF y is up): printers lose the top edge, which cut the courier / AWB */
-      var k = Math.min(pw / p.width, ph / p.height), w = p.width * k, h = p.height * k, ox = (pw - w) / 2, oy = (ph - h) / 2 - 11;
+      /* moved 12 mm down, full size (PDF y is up): printers lose the top edge, which cut the courier / AWB */
+      var k = Math.min(pw / p.width, ph / p.height), w = p.width * k, h = p.height * k, ox = (pw - w) / 2, oy = (ph - h) / 2 - 34;
       var page = out.addPage([pw, ph]);
       page.drawPage(p, { x: ox, y: oy, width: w, height: h });
       if (box) {
