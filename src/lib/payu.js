@@ -36,7 +36,22 @@ export async function upiIntent(env, f, ip, ua) {
   const j = await res.json().catch(() => null);
   const data = j?.result?.intentURIData;
   if (!data) throw new Error('payu upi intent failed: ' + res.status + ' ' + JSON.stringify(j || {}).slice(0, 300));
-  return { uri: 'upi://pay?' + String(data).replace(/^upi:\/\/pay\?/, '') };
+  let uri = 'upi://pay?' + String(data).replace(/^upi:\/\/pay\?/, '');
+  /* Build 066: payee name shown in the UPI app = our brand (only on unsigned links; a signed link is left as PayU made it) */
+  if (!/[?&]sign=/.test(uri)) uri = uri.replace(/([?&]pn=)[^&]*/, '$1' + encodeURIComponent(env.UPI_PAYEE_NAME || 'Ink Kulture'));
+  return { uri };
+}
+
+/** Is this UPI ID real, and whose is it (PayU validateVPA)? -> { valid, name } */
+export async function validateVpa(env, vpa) {
+  const command = 'validateVPA';
+  const hash = await sha512hex([env.PAYU_KEY, command, vpa, env.PAYU_SALT].join('|'));
+  const url = env.PAYU_ENV === 'test' ? 'https://test.payu.in/merchant/postservice.php?form=2' : 'https://info.payu.in/merchant/postservice.php?form=2';
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ key: env.PAYU_KEY, command, var1: vpa, hash }) });
+  const text = await res.text(); let j = null; try { j = JSON.parse(text); } catch (e) { j = null; }
+  if (!j) { console.error('payu validateVPA', res.status, text.slice(0, 300)); throw new Error('verify failed'); }
+  const name = String(j.payerAccountName || '').trim();
+  return { valid: Number(j.isVPAValid) === 1, name: name && name !== 'NA' ? name.slice(0, 60) : '' };
 }
 
 /** UPI collect (request to a UPI ID) via PayU server-to-server. Returns { status, ref } or throws with PayU's message.

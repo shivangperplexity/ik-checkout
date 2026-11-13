@@ -5,7 +5,7 @@ import { loadLines, splitSoldOut, createDraft, completeDraft, addTags, removeTag
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
 import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery, recentlyVerified } from './cod-otp.js';
-import { buildPayuForm, verifyResponse, upiIntent, upiCollect, verifyPayment } from './payu.js';
+import { buildPayuForm, verifyResponse, upiIntent, upiCollect, validateVpa, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings, codOn, codMode } from './settings.js';
@@ -571,6 +571,14 @@ export async function handle(req, env0, ctx) {
         else { const b = await req.json().catch(() => ({})); res = json(await otpDelivery(env, cleanPhone(b.phone))); }
       }
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
+      /* Build 066: check a UPI ID (and show its holder's name) before sending a payment request to it */
+      else if (path === '/api/upi/verify' && req.method === 'POST') {
+        const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+        const b = await req.json().catch(() => ({})), vpa = String(b.vpa || '').trim();
+        if (!(await rateLimit(env, 'vpa:' + ip, 20))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
+        else if (!/^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,64}$/.test(vpa)) res = json({ ok: true, valid: false });
+        else res = json(await validateVpa(env, vpa).then((v) => ({ ok: true, ...v }), () => ({ ok: false, error: 'Could not check this UPI ID right now' })));
+      }
       /* Refer and earn: once the number is typed, the checkout asks whether the friend's code applies (first order
          only) and how much store credit this number has; both only on online payment. */
       else if (path === '/api/ref/me' && req.method === 'POST') {

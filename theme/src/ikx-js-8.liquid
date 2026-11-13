@@ -1,0 +1,136 @@
+/* ik-express.js part 8 (Build 066b): UPI ID checked before the request, pay by QR code (phones too), more UPI apps on
+iPhone, the payee-name note. Rendered after part 7; its openOnline / goCollect / upiLink replace the earlier ones. */
+  /* iPhone links of the other UPI apps (each app's own URL scheme); slice has none, so it stays Android only */
+  var UPI_IOS_SCHEME = { navi: 'navipay://upi/pay?', supermoney: 'super://upi/pay?', cred: 'credpay://upi/pay?', bhim: 'bhim://upi/pay?', amazonpay: 'amazonpay://upi/pay?', mobikwik: 'mobikwik://upi/pay?' };
+  UPI_IOS = { phonepe: 1, gpay: 1, paytm: 1, navi: 1, supermoney: 1, cred: 1, bhim: 1, amazonpay: 1, mobikwik: 1 };
+  function upiLink(app, base) {
+    watchOpen(app);
+    if (!IS_ANDROID && UPI_IOS_SCHEME[app]) return UPI_IOS_SCHEME[app] + base;
+    var back = encodeURIComponent(location.href.split('#')[0] + '#ikx-noapp');
+    return UPI_SCHEME[app] ? UPI_SCHEME[app] + base : (IS_ANDROID && UPI_PKG[app]) ? 'intent://pay?' + base + '#Intent;scheme=upi;package=' + UPI_PKG[app] + ';S.browser_fallback_url=' + back + ';end' : 'upi://pay?' + base;
+  }
+  var PAYEE_NOTE = '<p class="ikx-payee">Your UPI app may show the name <b>SMG GO Private Limited</b>. It is the company that runs Ink Kulture, so it is safe to pay.</p>';
+  function openOnline(d) {
+    var old = $('.ikx-op', root); if (old) old.remove();
+    var pre = state.quote.prepaid, sheet = $('.ikx-sheet', root); if (!sheet) return placeOrder(d, false, '');
+    tk('method', { method: 'online', data: { page: 'open' } });
+    var row = function (op, ic, txt) { return '<button type="button" class="ikx-op__row" data-op="' + op + '"><span class="ikx-op__ric">' + ic + '</span><span>' + txt + '</span>' + ICON.chev + '</button>'; };
+    var html = (IS_MOBILE ? '<section class="ikx-op__s"><h4>Pay with your UPI app</h4><div class="ikx-op__apps">' + upiList().map(function (a) {
+        return '<button type="button" class="ikx-op__app" data-op="upi" data-app="' + a[0] + '"><span class="ikx-op__logo">' + upiIcon(a[0]) + '</span><span>' + esc(UPI_TILE[a[0]] || a[1]) + '</span></button>';
+      }).join('') + '<button type="button" class="ikx-op__app" data-op="upi" data-app="any"><span class="ikx-op__logo">' + upiIcon('any') + '</span><span>Other UPI</span></button></div></section>' : '') +
+      '<section class="ikx-op__s"><h4>Pay with UPI ID</h4><div class="ikx-op__vpa"><input type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="yourname@okhdfcbank" aria-label="UPI ID" data-op-vpa>' +
+      '<button type="button" data-op="vpa">Verify</button></div><small class="ikx-op__ok" hidden></small><small class="ikx-op__err" role="alert" hidden></small></section>' +
+      '<section class="ikx-op__s"><h4>Pay using QR code</h4>' + row('qr', PI.qr, 'Show QR code') + '</section>' +
+      '<section class="ikx-op__s"><h4>Debit / Credit card</h4>' + row('card', PI.card, 'Pay with card') + '</section>' +
+      '<section class="ikx-op__s"><h4>Net banking</h4>' + row('nb', PI.bank, 'All Indian banks') + '</section>';
+    var box = el('div', { class: 'ikx-op', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pay online' },
+      '<div class="ikx-op__top"><button type="button" class="ikx-op__x" data-op="x" aria-label="Back">' + ICON.chev + '</button><b>Pay online</b><span class="ikx-op__amt">' + money(pre.total) + '</span></div>' +
+      '<div class="ikx-op__body">' + html + '<p class="ikx-op__safe">' + ICON.lock + '100% secure payment by PayU</p></div>');
+    sheet.appendChild(box);
+    requestAnimationFrame(function () { box.classList.add('is-in'); });
+    var vin = $('[data-op-vpa]', box), vbtn = $('[data-op="vpa"]', box), vok = $('.ikx-op__ok', box), ver = $('.ikx-op__err', box), checked = '';
+    function vmsg(ok, err) { vok.textContent = ok || ''; vok.hidden = !ok; ver.textContent = err || ''; ver.hidden = !err; }
+    function shake() { var w = vin.parentNode; w.classList.remove('is-shake'); void w.offsetWidth; w.classList.add('is-shake'); vin.focus(); }
+    vin.addEventListener('input', function () { if (checked) { checked = ''; vbtn.textContent = 'Verify'; } vmsg('', ''); });
+    vin.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); vbtn.click(); } });
+    function go(op, app) {
+      box.remove();
+      state.method = op === 'qr' ? 'upi' : op; if (op === 'upi') state.upiApp = app || 'any';
+      if (op === 'qr') { state.qr = true; state.upiApp = 'qr'; }
+      tk('method', { method: op, data: op === 'upi' ? { app: state.upiApp, page: 'online' } : { page: 'online' } });
+      placeOrder(d, false, '');
+    }
+    box.onclick = function (e) {
+      var b = e.target instanceof Element && e.target.closest('[data-op]'); if (!b || state.busy) return;
+      var op = b.getAttribute('data-op');
+      if (op === 'x') { box.remove(); tk('method', { method: 'online', data: { page: 'back' } }); paintFoot(); return; }
+      if (op !== 'vpa') return go(op, b.getAttribute('data-app'));
+      var v = (vin.value || '').trim();
+      if (checked && checked === v) { state.vpa = v; return go('upiid'); }
+      if (!/^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,64}$/.test(v)) { vmsg('', v ? 'Enter a valid UPI ID, like name@okhdfcbank' : 'Enter your UPI ID'); return shake(); }
+      vbtn.disabled = true; vbtn.textContent = 'Checking…'; vmsg('', '');
+      api('/api/upi/verify', { vpa: v }).then(function (r) {
+        vbtn.disabled = false;
+        if (r && r.ok && r.valid) { checked = v; vbtn.textContent = 'Pay ' + money(pre.total); vmsg('✓ ' + (r.name ? r.name : 'UPI ID verified'), ''); tk('method', { method: 'upiid', data: { verify: 'ok' } }); return; }
+        if (r && r.ok) { vbtn.textContent = 'Verify'; vmsg('', 'This UPI ID doesn’t exist. Please check it.'); tk('method', { method: 'upiid', data: { verify: 'bad' } }); return shake(); }
+        checked = v; vbtn.textContent = 'Pay ' + money(pre.total); vmsg('', 'Couldn’t check the name right now. Tap Pay to send the request.');
+      }).catch(function () { vbtn.disabled = false; checked = v; vbtn.textContent = 'Pay ' + money(pre.total); vmsg('', 'Couldn’t check the name right now. Tap Pay to send the request.'); });
+    };
+  }
+  /* QR: same PayU UPI link as the app buttons, drawn as a QR code here (payee name Ink Kulture, set by the API) */
+  api = (function (orig) {
+    return function (path, body, method) {
+      if (path !== '/api/order' || !state.qr) return orig(path, body, method);
+      state.qr = false;
+      return orig(path, Object.assign({}, body, { upi: true }), method).then(function (r) {
+        if (!r || !r.ok || (r.method !== 'prepaid' && r.method !== 'partial')) return r;
+        if (r.upi && r.upi.uri) { goWait(r, { qr: r.upi.uri }); return new Promise(function () {}); }
+        state.idem = uuid();
+        return { ok: false, error: 'Couldn’t make the QR code. Please pay with a UPI app or card.' };
+      });
+    };
+  })(api);
+  function goCollect(r, vpa) { goWait(r, { vpa: vpa }); }
+  var QR_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js', qrLoading = null;
+  function qrLib() {
+    if (window.QRCode) return Promise.resolve();
+    return qrLoading || (qrLoading = new Promise(function (ok, no) { var s = document.createElement('script'); s.src = QR_LIB; s.onload = ok; s.onerror = no; document.head.appendChild(s); }));
+  }
+  function goWait(r, o) {
+    hideOverlay(); state.lastTxn = r.txnid;
+    var amt = r.advance || state.quote.prepaid.total, started = Date.now(), stopped = false, timer = null, tick = null, W = 5 * 60;
+    function left() { return Math.max(0, W - Math.floor((Date.now() - started) / 1000)); }
+    function clock() { var n = left(); return Math.floor(n / 60) + ':' + ('0' + (n % 60)).slice(-2); }
+    function stop() { stopped = true; clearTimeout(timer); clearInterval(tick); root.removeEventListener('click', onc); }
+    function backTo(msg) {
+      state.idem = uuid(); state.busy = false; state.done = false; state.built = false; hideOverlay(); root.style.visibility = '';
+      if (CART && CART.item_count) render(CART); else loadingView('Loading your cart…');
+      if (msg) showErr(msg);
+    }
+    function onc(e) { var t = e.target instanceof Element ? e.target : null; if (t && t.closest('[data-ikx-cother]')) { stop(); backTo(''); } }
+    var body = o.qr
+      ? '<h3>Scan to pay ' + money(amt) + '</h3><div class="ikx-qr" aria-label="UPI QR code"><i class="ikx-spin"></i></div>' +
+        '<p class="ikx-m">Scan with any UPI app: PhonePe, Google Pay, Paytm and more.' + (IS_MOBILE ? ' On this phone: save the QR, then open it from your gallery in your UPI app.' : '') + '</p>' +
+        '<div class="ikx-ring ikx-ring--sm"><b>' + clock() + '</b><span>left</span></div>'
+      : '<div class="ikx-ring"><b>' + clock() + '</b><span>left</span></div><h3>Approve ' + money(amt) + ' in your UPI app</h3>' +
+        '<ol class="ikx-steps3"><li>Open the UPI app of <b>' + esc(o.vpa) + '</b></li><li>Tap the payment request</li><li>Enter your UPI PIN</li></ol>';
+    screen(body + PAYEE_NOTE + '<p class="ikx-m">This page updates by itself. Please keep it open.</p>' +
+      '<button type="button" class="ikx-btn ikx-btn--ghost" data-ikx-cother>Pay another way</button>');
+    root.addEventListener('click', onc);
+    if (o.qr) qrLib().then(function () {
+      var q = $('.ikx-qr', root); if (!q || stopped) return; q.innerHTML = '';
+      new window.QRCode(q, { text: o.qr, width: 220, height: 220, correctLevel: window.QRCode.CorrectLevel.M });
+      if (IS_MOBILE) setTimeout(function () {
+        var c = $('.ikx-qr canvas', root), src = c && c.toDataURL ? c.toDataURL('image/png') : '';
+        if (src) q.insertAdjacentHTML('afterend', '<a class="ikx-btn" download="ink-kulture-upi-qr.png" href="' + src + '">Save QR to gallery</a>');
+      }, 50);
+    }).catch(function () { var q = $('.ikx-qr', root); if (q) q.innerHTML = '<p class="ikx-m">Couldn’t load the QR code. Tap Pay another way.</p>'; });
+    tick = setInterval(function () {
+      if (stopped) return clearInterval(tick);
+      var t = $('.ikx-ring b', root); if (t) t.textContent = clock();
+      if (left() <= 0) { stop(); backTo('Payment time ran out. No money was taken. Try again or pick another way.'); }
+    }, 1000);
+    function check() {
+      if (stopped) return;
+      fetch(API + '/api/payu/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txnid: r.txnid }) })
+        .then(function (x) { return x.json(); }).then(function (j) {
+          if (stopped) return;
+          if (j.state === 'paid') {
+            stop(); tk('done'); fetch(R + 'cart/clear.js', { method: 'POST' }).catch(function () {});
+            track('Purchase', { currency: 'INR', value: j.value }, j.eventId);
+            return showSuccess({ orderName: j.orderName, statusUrl: j.statusUrl, method: j.partial ? 'partial' : 'prepaid', value: j.value, advance: j.advance, balance: j.balance });
+          }
+          if (j.state === 'review') { stop(); state.done = true; return screen('<h3>Payment received</h3><p>We got your payment and are confirming your order. You’ll hear from us shortly. Please don’t pay again.</p><button type="button" class="ikx-btn" data-ikx-close>OK</button>'); }
+          if (j.state === 'failed') { stop(); return backTo('Payment didn’t go through. No money was taken. Try again or choose another method.'); }
+          timer = setTimeout(check, 3000);
+        }).catch(function () { if (!stopped) timer = setTimeout(check, 3000); });
+    }
+    tk('upi', { data: { app: o.qr ? 'qr' : 'vpa' } });
+    timer = setTimeout(check, 4000);
+  }
+  try {
+    document.head.appendChild(el('style', {}, '.ikx-op__ok{color:#11632f;font-size:13px;font-weight:700}.ikx-op__vpa button:disabled{opacity:.6}' +
+      '.ikx-qr{display:grid;place-items:center;width:236px;height:236px;margin:6px auto 4px;padding:8px;border:1px solid #eee9df;border-radius:14px;background:#fff;box-sizing:border-box}.ikx-qr img,.ikx-qr canvas{width:220px;height:220px}' +
+      '.ikx-ring--sm{transform:scale(.7);margin:-8px auto}.ikx-payee{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:#f4f2ee;font-size:12.5px;line-height:1.4;color:#3a3a40;text-align:left}'));
+  } catch (e) {}
+/* end of part 8 */
