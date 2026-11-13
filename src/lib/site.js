@@ -244,7 +244,7 @@ export async function handleSite(req, env) {
       if (!pin) return json({ ok: true, by_ip: true, city, edd: '', generic: '3-6 days' });
       if (!(await limit('edd:' + ip, 120))) return json({ ok: false, error: 'Too many checks, try again later' }, 429);
       const e = await deliveryEstimate(env, { pin });
-      if (!city) { try { const r = await (await fetch(`https://api.postalpincode.in/pincode/${pin}`)).json(); city = r?.[0]?.PostOffice?.[0]?.District || ''; } catch { /* no city then */ } }
+      /* no District-from-PIN guess (often wrong): the PIN itself is shown */
       return json({ ok: !!e.ok, by_ip: byIp, pin, city, edd: e.edd || '', date: e.date || '', serviceable: e.serviceable !== false, generic: e.edd ? '' : '3-6 days' });
     }
     if (path === '/api/site/otp' && req.method === 'POST') {

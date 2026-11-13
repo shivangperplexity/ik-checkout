@@ -95,7 +95,8 @@ async function handlePincode(pin) {
   const d = await res.json().catch(() => null);
   const po = d?.[0]?.Status === 'Success' ? d[0].PostOffice?.[0] : null;
   if (!po) return json({ ok: false });
-  return json({ ok: true, city: po.District, state: po.State });
+  /* State only: the post office's District is often not the town the shopper calls home, so the city is typed by them */
+  return json({ ok: true, city: '', state: po.State });
 }
 
 import { addressProblem } from './address-check.js';

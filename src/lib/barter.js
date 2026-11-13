@@ -210,7 +210,7 @@ export async function handleBarter(req, env) {
       const { deliveryEstimate } = await import('./edd.js');
       const [e, place] = await Promise.all([deliveryEstimate(env, { pin }), fetch(`https://api.postalpincode.in/pincode/${pin}`).then((r) => r.json()).catch(() => null)]);
       const po = place?.[0]?.Status === 'Success' ? place[0].PostOffice?.[0] : null;
-      return json({ ok: true, serviceable: e.serviceable !== false, edd: e.edd || '', date: e.date || '', window: postWindow(e.date || ''), city: po?.District || '', state: po?.State || '' });
+      return json({ ok: true, serviceable: e.serviceable !== false, edd: e.edd || '', date: e.date || '', window: postWindow(e.date || ''), city: '', state: po?.State || '' });
     }
     if (path === '/api/barter/otp' && req.method === 'POST') {
       const phone = cleanPhone(b.phone);
