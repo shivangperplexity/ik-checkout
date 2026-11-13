@@ -73,4 +73,23 @@ Pay online page is open), phone AutoFill, quote ready right after Add to cart. R
 
   /* 4. Add to cart: get the cart and the server price straight away, so the sheet opens with the final total */
   document.addEventListener('ikx:added', function () { setTimeout(function () { getCart().then(function (c) { prefetch(c); }).catch(function () {}); }, 50); });
+  /* 5. Google Ads (account 397-871-1839): Google tag on every page (keeps the ad click for attribution) and the
+     "Purchase" conversion on every order placed in this checkout, with value, order number and hashed-by-Google phone. */
+  var GADS = 'AW-18515427455', GADS_BUY = GADS + '/olyGCM3Qh54dEP-A7PxE';
+  try {
+    window.dataLayer = window.dataLayer || [];
+    if (!window.gtag) window.gtag = function () { window.dataLayer.push(arguments); };
+    var gs = document.createElement('script'); gs.async = true; gs.src = 'https://www.googletagmanager.com/gtag/js?id=' + GADS; document.head.appendChild(gs);
+    window.gtag('js', new Date()); window.gtag('config', GADS, { allow_enhanced_conversions: true });
+  } catch (e) {}
+  var showSuccess0 = showSuccess;
+  showSuccess = function (r) {
+    try {
+      var d = state.draft || {}, q = state.quote || {}, cod = r && (r.method === 'cod' || r.method === 'partial');
+      var v = r && r.value ? Number(r.value) : ((cod ? q.cod && q.cod.total : q.prepaid && q.prepaid.total) || 0) / 100;
+      if (d.phone || d.email) window.gtag('set', 'user_data', { phone_number: d.phone ? '+91' + d.phone : undefined, email: d.email || undefined });
+      window.gtag('event', 'conversion', { send_to: GADS_BUY, value: v, currency: 'INR', transaction_id: String((r && r.orderName) || '').replace('#', '') });
+    } catch (e) {}
+    return showSuccess0(r);
+  };
 /* end of part 9 */
