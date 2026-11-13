@@ -70,11 +70,14 @@ export async function pdfToTspl(pdf, tune) {
     await page.render({ canvasContext: g, viewport: vp, background: 'rgba(0,0,0,0)' }).promise;
     const img = g.getImageData(0, 0, W, H);
     const job = tsplFromPixels(img.data, W, H, t);
+    if (t.bbox) { let y0 = -1, y1 = -1; for (let y = 0; y < H && y0 < 0; y++) for (let x = 0; x < W; x += 2) { const i = (y * W + x) * 4; if (img.data[i] < 128) { y0 = y; break; } }
+      for (let y = H - 1; y >= 0 && y1 < 0; y--) for (let x = 0; x < W; x += 2) { const i = (y * W + x) * 4; if (img.data[i] < 128) { y1 = y; break; } }
+      (t.boxes || (t.boxes = [])).push({ top_mm: +(y0 / 8).toFixed(1), bottom_mm: +(y1 / 8).toFixed(1), page_h_mm: +(vp.height / 8).toFixed(1), y_off_mm: +((Math.round((H - vp.height) / 2) + my) / 8).toFixed(1) }); }
     page.cleanup();
     if (job.black < 50) continue;
     jobs.push(job.bytes); pages++; black += job.black;
   }
   await doc.destroy();
   if (!jobs.length) throw new Error('the label PDF has nothing to print');
-  return { bytes: concat(jobs), pages, black, W, H };
+  return { bytes: concat(jobs), pages, black, W, H, boxes: t.boxes || [] };
 }

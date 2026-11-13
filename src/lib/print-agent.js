@@ -117,7 +117,7 @@ async function testPdf(note) {
   return d.save();
 }
 /** One 6 x 4 inch page, exactly like the dashboard's "Labels (6x4 in)" download. */
-async function readyLabel(env, orderId) {
+export async function readyLabel(env, orderId) {
   const raw = await labelPdf(env, orderId);
   if (!globalThis.PDFLib) globalThis.PDFLib = await import('pdf-lib');
   if (!globalThis.mergeLabels6x4) await import('../public/labels6x4.js');

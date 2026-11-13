@@ -562,6 +562,13 @@ const ACTIONS = {
   },
   async printer_auto(env, b) { const P = await import('./print-agent.js'); await P.setAuto(env, !!b.on); return { ok: true }; },
   /** Bluetooth print quality (darkness, speed, size, direction): the packing Mac picks it up within 10 minutes. */
+  /** What the printer gets for one order's label: printed area from the top of the label, in mm (no printing). */
+  async print_check(env, b) {
+    const P = await import('./print-agent.js'), T = await import('./tspl-render.js');
+    const pdf = await P.readyLabel(env, String(b.order_id || ''));
+    const r = await T.pdfToTspl(pdf, { ...(await P.printTune(env)), bbox: true });
+    return { ok: true, pages: r.pages, label_mm: [r.W / 8, r.H / 8], boxes: r.boxes, head: new TextDecoder().decode(r.bytes.slice(0, 200)).split('BITMAP')[0] };
+  },
   async printer_tune(env, b) { const P = await import('./print-agent.js'); return { ok: true, tune: await P.setTune(env, b || {}) }; },
   /** Send labels to the printer now (order drawer / Shipments bar / reprint). */
   async print_labels(env, b) {
