@@ -16,7 +16,7 @@
   var KEY = 'ik_bt';
   var S = { dev: null, ch: null, wwr: false, name: '', busy: false };
   function cfg() {
-    var d = { mode: 'tspl', w: 100, h: 150, gap: 2, invert: false, dark: 10, auto: true, chunk: 180 };
+    var d = { mode: 'tspl', w: 101.6, h: 152.4, gap: 2.5, invert: false, dark: 10, auto: true, chunk: 180 };
     try { var j = JSON.parse(localStorage.getItem(KEY) || '{}'); for (var k in j) d[k] = j[k]; } catch (e) { /* defaults */ }
     return d;
   }
@@ -163,8 +163,8 @@
       var tmp = document.createElement('canvas'); tmp.width = Math.ceil(vp.width); tmp.height = Math.ceil(vp.height);
       var tg = tmp.getContext('2d'); tg.fillStyle = '#fff'; tg.fillRect(0, 0, tmp.width, tmp.height);
       await page.render({ canvasContext: tg, viewport: vp }).promise;
-      /* moved 6 mm down (8 dots/mm), full size: the printer loses the label's first mm, which cut the AWB off the top */
-      g.drawImage(tmp, Math.round((cv.width - tmp.width) / 2), Math.round((cv.height - tmp.height) / 2) + 48);
+      /* centred; the label size is now the real 4 x 6 inch (the top was cut because 100 x 150 mm did not match the stickers) */
+      g.drawImage(tmp, Math.round((cv.width - tmp.width) / 2), Math.round((cv.height - tmp.height) / 2));
       out.push(cv);
     }
     return out;

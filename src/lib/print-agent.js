@@ -66,7 +66,7 @@ export const setAuto = (env, on) => saveCfg(env, { auto: !!on });
 
 /* How the Bluetooth link prints (TSPL): label size, darkness 0-15, speed 1-6 in/s (slower = sharper), direction,
    black-and-white threshold. Kept with the printer settings; the Mac picks changes up within 10 minutes. */
-export const TUNE_DEFAULTS = { w: 100, h: 150, gap: 2, density: 12, speed: 3, direction: 1, threshold: 160, invert: false };
+export const TUNE_DEFAULTS = { w: 101.6, h: 152.4, gap: 2.5, shift: 0, density: 12, speed: 3, direction: 1, threshold: 160, invert: false };
 export async function printTune(env) {
   const r = await env.DB.prepare('SELECT v FROM settings WHERE k=?').bind('printer').first().catch(() => null);
   let t = {}; try { t = (r ? JSON.parse(r.v) : {}).tune || {}; } catch { /* defaults */ }
@@ -74,9 +74,11 @@ export async function printTune(env) {
 }
 export async function setTune(env, b) {
   const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
+  const dec = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n * 10) / 10)) : d; };
   const cur = await printTune(env);
   const tune = {
-    w: clamp(b.w ?? cur.w, 20, 120, 100), h: clamp(b.h ?? cur.h, 20, 300, 150), gap: clamp(b.gap ?? cur.gap, 0, 10, 2),
+    /* sizes to 0.1 mm (4 x 6 inch = 101.6 x 152.4 mm); shift = whole label moved down, mm */
+    w: dec(b.w ?? cur.w, 20, 120, 101.6), h: dec(b.h ?? cur.h, 20, 300, 152.4), gap: dec(b.gap ?? cur.gap, 0, 10, 2.5), shift: dec(b.shift ?? cur.shift, 0, 30, 0),
     density: clamp(b.density ?? cur.density, 0, 15, 12), speed: clamp(b.speed ?? cur.speed, 1, 6, 3),
     direction: Number(b.direction ?? cur.direction) ? 1 : 0, threshold: clamp(b.threshold ?? cur.threshold, 60, 230, 160),
     invert: !!(b.invert ?? cur.invert),

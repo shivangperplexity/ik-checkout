@@ -48,7 +48,7 @@ export function tsplFromPixels(rgba, W, H, t) {
 
 /** PDF bytes -> one TSPL job for all pages (blank pages skipped). */
 export async function pdfToTspl(pdf, tune) {
-  const t = { w: 100, h: 150, gap: 2, density: 12, speed: 3, direction: 1, threshold: 160, invert: false, ...(tune || {}) };
+  const t = { w: 101.6, h: 152.4, gap: 2.5, density: 12, speed: 3, direction: 1, threshold: 160, invert: false, ...(tune || {}) };
   const { createCanvas } = await import('@napi-rs/canvas');
   const lib = await pdfjs();
   const doc = await lib.getDocument({ data: new Uint8Array(pdf), standardFontDataUrl: fontDir(), disableFontFace: true, isEvalSupported: false, useSystemFonts: false, verbosity: 0 }).promise;
@@ -59,9 +59,9 @@ export async function pdfToTspl(pdf, tune) {
     const v0 = page.getViewport({ scale: 1 });
     const turn = (v0.width > v0.height) !== (W > H);
     const vr = page.getViewport({ scale: 1, rotation: (v0.rotation + (turn ? 90 : 0)) % 360 });
-    /* Nov 2026: the whole label is moved down (Settings tune.shift, mm; default 6), full size. Thermal printers lose the
+    /* Nov 2026: the whole label is moved down (Settings tune.shift, mm; default 0 now that the size is the real 4 x 6 inch), full size. Thermal printers lose the
        first mm or two of a label, which cut the courier name / AWB off the top; the bottom (least important) has room. */
-    const my = Math.round((t.shift ?? 6) * 8);
+    const my = Math.round((t.shift ?? 0) * 8);
     const k = Math.min(W / vr.width, H / vr.height);
     const vp = page.getViewport({ scale: k, rotation: (v0.rotation + (turn ? 90 : 0)) % 360 });
     const cv = createCanvas(W, H), g = cv.getContext('2d');
