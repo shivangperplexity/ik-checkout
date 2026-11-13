@@ -59,14 +59,14 @@ export async function pdfToTspl(pdf, tune) {
     const v0 = page.getViewport({ scale: 1 });
     const turn = (v0.width > v0.height) !== (W > H);
     const vr = page.getViewport({ scale: 1, rotation: (v0.rotation + (turn ? 90 : 0)) % 360 });
-    /* Nov 2026: a safe margin (Settings tune.margin, mm; default 4 top/bottom, 2 sides). Thermal printers lose the first
-       mm or two of a label (and more when the gap sensor drifts), which cut the courier name / AWB off the top. */
-    const my = Math.round((t.margin ?? 4) * 8), mx = Math.round(Math.min(2, t.margin ?? 4) * 8);
-    const k = Math.min((W - 2 * mx) / vr.width, (H - 2 * my) / vr.height);
+    /* Nov 2026: the whole label is moved down (Settings tune.shift, mm; default 4), full size. Thermal printers lose the
+       first mm or two of a label, which cut the courier name / AWB off the top; the bottom (least important) has room. */
+    const my = Math.round((t.shift ?? 4) * 8);
+    const k = Math.min(W / vr.width, H / vr.height);
     const vp = page.getViewport({ scale: k, rotation: (v0.rotation + (turn ? 90 : 0)) % 360 });
     const cv = createCanvas(W, H), g = cv.getContext('2d');
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
-    g.translate(Math.round((W - vp.width) / 2), Math.round((H - vp.height) / 2));
+    g.translate(Math.round((W - vp.width) / 2), Math.round((H - vp.height) / 2) + my);
     await page.render({ canvasContext: g, viewport: vp, background: 'rgba(0,0,0,0)' }).promise;
     const img = g.getImageData(0, 0, W, H);
     const job = tsplFromPixels(img.data, W, H, t);

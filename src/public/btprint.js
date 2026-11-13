@@ -158,13 +158,13 @@
       var vp0 = page.getViewport({ scale: 1 });
       var turn = (vp0.width > vp0.height) !== (cv.width > cv.height);
       var vpr = page.getViewport({ scale: 1, rotation: turn ? 90 : 0 });
-      /* safe margin (4 mm top/bottom, 2 mm sides at 8 dots/mm): the printer loses the label's first mm, cutting the AWB */
-      var k = Math.min((cv.width - 32) / vpr.width, (cv.height - 64) / vpr.height);
+      var k = Math.min(cv.width / vpr.width, cv.height / vpr.height);
       var vp = page.getViewport({ scale: k, rotation: turn ? 90 : 0 });
       var tmp = document.createElement('canvas'); tmp.width = Math.ceil(vp.width); tmp.height = Math.ceil(vp.height);
       var tg = tmp.getContext('2d'); tg.fillStyle = '#fff'; tg.fillRect(0, 0, tmp.width, tmp.height);
       await page.render({ canvasContext: tg, viewport: vp }).promise;
-      g.drawImage(tmp, Math.round((cv.width - tmp.width) / 2), Math.round((cv.height - tmp.height) / 2));
+      /* moved 4 mm down (8 dots/mm), full size: the printer loses the label's first mm, which cut the AWB off the top */
+      g.drawImage(tmp, Math.round((cv.width - tmp.width) / 2), Math.round((cv.height - tmp.height) / 2) + 32);
       out.push(cv);
     }
     return out;
