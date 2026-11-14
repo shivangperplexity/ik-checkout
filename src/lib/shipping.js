@@ -61,6 +61,11 @@ export async function shippingEstimate(req, env) {
   const cod = url.searchParams.get('cod') === '1';
   const amount = Number(url.searchParams.get('amount') || 499);
   if (!/^\d{6}$/.test(pin)) return reply({ ok: false, error: 'bad pin' }, 400);
+  /* fast=1: an instant date with no courier call (the checkout shows it while the full check runs) */
+  if (url.searchParams.get('fast') === '1') {
+    try { const { quickEstimate } = await import('./edd.js'); const q = await quickEstimate(env, pin); return reply({ ok: true, fast: true, serviceable: true, unknown: true, edd: q.edd, date: q.date, days: q.days }); }
+    catch (e) { return reply({ ok: false, error: String(e.message || e), edd: '' }); }
+  }
   /* ShipPrime + Shiprocket, pickup day included (lib/edd.js). serviceable:false = neither carrier delivers there. */
   try {
     const { deliveryEstimate } = await import('./edd.js');

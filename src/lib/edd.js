@@ -43,7 +43,23 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
   return { serviceable, date, edd: date ? fmtDay(date) : '', days, via };
 }
 
-export async function deliveryEstimate(env, { pin, cod = false, amount = 499 } = {}) {
+/* Maharashtra (PIN 40-44, not Goa 403): we ship it with Delhivery Air first, so the date follows Air's transit
+   (settings shipping.mh_air_days, default 2 days after the pickup day), not ShipPrime's coarse per-state range. */
+export const mhPin = (pin) => /^4[0-4]\d{4}$/.test(String(pin || '')) && !/^403/.test(String(pin));
+const ZONE_DAYS = { 1: 4, 2: 4, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5, 8: 5 };
+/** Instant date with no courier call: Maharashtra = Delhivery Air, elsewhere a typical transit for the PIN's zone. */
+export async function quickEstimate(env, pin, from = Date.now()) {
+  const { arrivalDate } = await import('./shipprime.js');
+  const mh = mhPin(pin), transit = mh ? Number(env.SETTINGS?.shipping?.mh_air_days ?? 2) : (ZONE_DAYS[String(pin)[0]] || 4);
+  const date = arrivalDate(transit, from);
+  return { date, edd: fmtDay(date), days: Math.max(1, Math.round((Date.parse(date + 'T12:00:00+05:30') - from) / 86400000)), via: mh ? 'delhivery_air' : 'zone' };
+}
+export async function deliveryEstimate(env, opts = {}) {
+  const body = await deliveryEstimate0(env, opts);
+  if (body && body.ok && body.serviceable !== false && mhPin(opts.pin)) return { ...body, ...(await quickEstimate(env, opts.pin)) };
+  return body;
+}
+async function deliveryEstimate0(env, { pin, cod = false, amount = 499 } = {}) {
   if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
   const key = `v4:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
   const m = mem.get(key);
