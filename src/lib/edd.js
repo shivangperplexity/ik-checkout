@@ -65,7 +65,7 @@ export async function deliveryEstimate(env, opts = {}) {
 const PIN_TTL = 7 * 86400;
 const tri = (v) => (v === true ? 1 : v === false ? 0 : null);
 const spServ = (rates) => (!rates.length ? null : rates.some((x) => x.serviceable === true) ? true : rates.every((x) => x.serviceable === false) ? false : null);
-async function spPin(env, pin, { both = true } = {}) {
+async function spPin(env, pin, { both = true, network = false } = {}) {
   const SP = await import('./shipprime.js');
   let pick = mem.get('sp:pickup');
   if (!pick || pick.at < now() - 86400) { pick = { at: now(), pin: (await SP.spPickup(env)).pincode }; mem.set('sp:pickup', pick); }
@@ -76,6 +76,17 @@ async function spPin(env, pin, { both = true } = {}) {
   let okCod = spServ(cod), okPp = okCod;
   /* COD serviceable implies prepaid; otherwise ask once more for prepaid */
   if (okCod !== true && both) { const rp = await SP.spRates(env, { from: pick.pin, pin, weightGrams: w, cod: false }).catch(() => null); if (rp) okPp = spServ(rp); }
+  /* ShipPrime's rate card has no serviceability: in the background run (network) Shiprocket's whole courier network
+     says whether the PIN can be reached at all (no courier = not serviceable), as before */
+  if (network) {
+    const { srRates } = await import('./shiprocket.js');
+    const { packOrder, packCfg } = await import('./packing.js');
+    const pack = packOrder([{ quantity: 1 }], packCfg(env.SETTINGS?.shipping?.pack));
+    const n = (c) => srRates(env, { pin, cod: c, amount: 499, pack }, { all: true }).then((r) => r.list.length).catch(() => null);
+    const nc = await n(true), np = nc > 0 ? nc : await n(false);
+    if (nc != null) okCod = nc > 0;
+    if (np != null) okPp = np > 0;
+  }
   const edd = e.status === 'fulfilled' ? e.value : null;
   const air = [...cod].some((x) => /^DELHIVERY_AIR$/i.test(x.code || '') && x.serviceable !== false);
   const row = { pin, ok_pp: tri(okPp), ok_cod: tri(okCod), emin: edd?.min ?? null, emax: edd?.max ?? null, air: air ? 1 : 0, at: now() };
@@ -113,12 +124,12 @@ export async function pinWarm(env, { budgetMs = 15000, conc = 6 } = {}) {
   const SP = await import('./shipprime.js');
   if (!env.DB || !SP.spConnected(env)) return { skipped: 'no db / ShipPrime' };
   const t0 = Date.now(), stale = now() - PIN_TTL;
-  const fresh = new Set((await env.DB.prepare('SELECT pin FROM pin_edd WHERE at > ?').bind(stale).all()).results.map((r) => String(r.pin)));
+  const fresh = new Set((await env.DB.prepare('SELECT pin FROM pin_edd WHERE at > ? AND (ok_cod IS NOT NULL OR ok_pp IS NOT NULL)').bind(stale).all()).results.map((r) => String(r.pin)));
   const ours = (await env.DB.prepare("SELECT DISTINCT pincode FROM orders WHERE pincode IS NOT NULL").all().catch(() => ({ results: [] }))).results.map((r) => String(r.pincode)).filter((p) => /^\d{6}$/.test(p));
   const { pinList } = await import('./pins-in.js');
   const todo = [...new Set([...ours, ...pinList()])].filter((p) => !fresh.has(p));
   let i = 0, done = 0, failed = 0;
-  const work = async () => { while (i < todo.length && Date.now() - t0 < budgetMs) { const p = todo[i++]; try { await spPin(env, p); done++; } catch { failed++; } } };
+  const work = async () => { while (i < todo.length && Date.now() - t0 < budgetMs) { const p = todo[i++]; try { await spPin(env, p, { network: true }); done++; } catch { failed++; } } };
   await Promise.all(Array.from({ length: conc }, work));
   return { done, failed, left: todo.length - done, total_fresh: fresh.size + done };
 }
