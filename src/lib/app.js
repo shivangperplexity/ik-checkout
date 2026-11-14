@@ -219,7 +219,7 @@ async function handleOrder(req, env, ctx) {
     ...(method === 'prepaid' || partial ? [{ key: 'PayU txn id', value: txnid }] : []),
     ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
     ...(otpOk ? [{ key: 'COD verified', value: 'WhatsApp OTP at checkout' }] : []),
-    ...(price.ref ? [{ key: refBits.offer.kind === 'creator' ? 'Creator code' : refBits.offer.kind === 'voucher' ? 'Creator voucher' : 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
+    ...(price.ref ? [{ key: refBits.offer.kind === 'promo' ? 'Promo code' : refBits.offer.kind === 'creator' ? 'Creator code' : refBits.offer.kind === 'voucher' ? 'Creator voucher' : 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
     ...(!price.ref && a.ref ? [{ key: 'Code', value: String(a.ref).slice(0, 20) }] : []),
     ...(price.credit ? [{ key: 'Store credit used', value: '₹' + price.credit / 100 }] : []),
     ...(buyer.edd ? [{ key: 'Promised delivery', value: buyer.edd }] : []),

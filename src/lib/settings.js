@@ -76,6 +76,9 @@ const DEFAULTS = {
   /* Checkout switches (Settings > Cash on delivery). cod: false hides Cash on delivery (and partial COD) for everyone.
      cod_mode 'organic' = COD only for shoppers who did not come from an ad (lib/attribution.js cameFromAd). */
   checkout: { cod: true, cod_mode: 'all' },
+  /* promo codes for links (?ref=CODE): amount in paise off the online-payment price, stacks with the prepaid discount;
+     nocod = visitors who came with the code never get Cash on delivery (14 Nov 2026: VENOMOG ₹60) */
+  promos: { VENOMOG: { amount: 6000, nocod: true, on: true } },
   /* Shiprocket login (API user) for booking, tracking and the "Express shipping" delivery estimate (lib/rates.js) */
   shipping: { origin_pin: '410206', weight_g: 50,
     shiprocket_email: '', shiprocket_password: '', shiprocket_couriers: '',
@@ -174,7 +177,14 @@ export function codMode(env) {
  * Cash on delivery offered to this shopper? attrs = the checkout's attribution, when the request carries it.
  * In 'organic' mode a request without attribution (older theme) is let through here; /api/order always has it.
  */
+/** A promo code from Settings 'promos' (or null) */
+export function promoOf(env, code) {
+  const c = String(code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
+  const p = c && (env.SETTINGS?.promos || DEFAULTS.promos || {})[c];
+  return p && p.on !== false ? { code: c, ...p } : null;
+}
 export function codOn(env, attrs) {
+  if (attrs && promoOf(env, attrs.ref)?.nocod) return false;
   const m = codMode(env);
   if (m === 'off') return false;
   if (m === 'organic' && attrs && cameFromAd(attrs)) return false;

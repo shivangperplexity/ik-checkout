@@ -63,6 +63,10 @@ async function hasOrdered(env, phone) {
  * Without a phone (cart opened, number not typed yet) only the code is checked.
  */
 export async function friendOffer(env, code, phone = '') {
+  /* promo codes (Settings 'promos', e.g. VENOMOG): any number, any order, online payment only */
+  const { promoOf } = await import('./settings.js');
+  const pr = promoOf(env, code);
+  if (pr) return { ok: Number(pr.amount) > 0, amount: Number(pr.amount) || 0, code: pr.code, name: '', kind: 'promo' };
   /* creator codes (lib/creators.js) and creator credit vouchers share the same code box */
   const C = await import('./creators.js');
   const v = await C.voucher(env, code).catch(() => null);
