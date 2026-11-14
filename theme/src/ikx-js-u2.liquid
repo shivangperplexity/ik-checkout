@@ -1,0 +1,49 @@
+/* Build 069b (after part U): badges, UPI order prepared early, closing the sheet ends a waiting UPI attempt */
+  /* Badges on the other rows: online = green "10% OFF", COD = grey "₹X more" */
+  var paintPay1 = paintPay;
+  paintPay = function () {
+    paintPay1(); prepSoon();
+    var q = state.quote, box = $('.ikx-pay', root); if (!q || !box) return;
+    var pre = q.prepaid, cod = q.cod, off = (pre.prepaid || 0) + (pre.ref || 0) + (pre.credit || 0);
+    var badge = function (row, txt, cls) { var b = row && $('.ikx-po__t b', row); if (b && !$('.ikx-pb', b.parentNode)) b.insertAdjacentHTML('afterend', '<span class="ikx-pb ' + cls + '">' + txt + '</span>'); };
+    if (off) ['card', 'nb'].forEach(function (m) { badge($('[data-ikx-method="' + m + '"]', box), pre.prepaid ? '10% OFF' : 'Save ' + money(off), 'ikx-pb--g'); });
+    if (cod && cod.total > pre.total) badge($('[data-ikx-method="cod"]', box), money(cod.total - pre.total) + ' more', 'ikx-pb--x');
+  };
+  /* Faster UPI: as soon as the form is complete, the order + PayU UPI link are made in the background (own idem),
+     so tapping an app opens it at once. Used only if the cart, address and price are unchanged (4 min). */
+  var PRE = null, prepT = 0;
+  function preSig(d) { var q = state.quote; return JSON.stringify([state.lines, d && [d.phone, d.name, d.email, d.pincode, d.city, d.state, d.address1, d.address2], q && q.prepaid && q.prepaid.total]); }
+  function prepSoon() { clearTimeout(prepT); prepT = setTimeout(prep, 700); }
+  function prep() {
+    if (!IS_MOBILE || !root || !isOpen() || state.busy || state.done || !state.quote || !state.final || !$('.ikx-pay', root)) return;
+    var d = formData(); if (invalid(d)) return;
+    var sig = preSig(d); if (PRE && PRE.sig === sig && Date.now() - PRE.at < 240000) return;
+    var idem = uuid(), p = api0('/api/order', { idem: idem, method: 'prepaid', lines: state.lines, buyer: d, attribution: attrNow(), upi: true, pc: 1, pv: 2, dupask: 1 });
+    var me = PRE = { sig: sig, at: Date.now(), p: p };
+    p.then(function (r) { if (PRE === me && !(r && r.ok && r.method === 'prepaid' && r.upi && r.upi.uri)) PRE = null; }, function () { if (PRE === me) PRE = null; });
+  }
+  document.addEventListener('input', function (e) { if (root && e.target instanceof Element && root.contains(e.target)) prepSoon(); }, true);
+  document.addEventListener('change', function (e) { if (root && e.target instanceof Element && root.contains(e.target)) prepSoon(); }, true);
+  var api0 = api;
+  api = function (path, body, method) {
+    if (path === '/api/order' && PRE && body && body.method === 'prepaid' && body.upi && !body.confirm_new && !body.otp && Date.now() - PRE.at < 240000 && PRE.sig === preSig(body.buyer)) {
+      var p = PRE.p; PRE = null;
+      return p.then(function (r) { return r && r.ok ? r : api0(path, body, method); }, function () { return api0(path, body, method); });
+    }
+    return api0(path, body, method);
+  };
+  /* Closing the sheet while a UPI payment waits ends that attempt: reopening shows the cart, not "Opening your UPI app"
+     (IKX_STOP is set inside goUpi, see snippets/ik-checkout.liquid) */
+  var IKX_STOP = null, closeSheet0 = closeSheet;
+  closeSheet = function () {
+    if (state.busy && !state.done) {
+      if (IKX_STOP) { try { IKX_STOP(); } catch (e) {} IKX_STOP = null; }
+      state.busy = false; state.idem = uuid(); PRE = null; hideOverlay(); root.style.visibility = '';
+      if (CART && CART.item_count) render(CART);
+    }
+    return closeSheet0.apply(this, arguments);
+  };
+  try { document.head.appendChild(el('style', {}, '.ikx-pb{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.2px;vertical-align:middle;white-space:nowrap}' +
+    '.ikx-pb--g{background:#16a34a;color:#fff}.ikx-pb--x{background:#e5e5e5;color:#3a3a3a}.ikx-po__t{display:flex;flex-wrap:wrap;align-items:center;row-gap:2px}.ikx-po__t small{flex-basis:100%}' +
+    '.ikx-po__apps.ikx-po__apps--many{padding:4px 2px 6px;scrollbar-width:none}.ikx-po__apps--many::-webkit-scrollbar{display:none}')); } catch (e) {}
+/* end of part U2 */

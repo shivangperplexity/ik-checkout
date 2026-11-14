@@ -58,10 +58,13 @@
 {% render 'ikx-js-4' %}
 {%- comment -%} Build 069: the Build 064 payment design + part U (UPI links that open from Instagram / Facebook, 10 UPI apps, Google Ads tag); parts 6-10 not used {%- endcomment -%}
 {%- capture ikx5 -%}{% render 'ikx-js-5' %}{%- endcapture -%}
-{%- capture ikxu -%}{% render 'ikx-js-u' %}{%- endcapture -%}
+{%- capture ikxu -%}{% render 'ikx-js-u' %}
+{% render 'ikx-js-u2' %}{%- endcapture -%}
 {%- assign ikxu = ikxu | append: 'takeOverDrawer();' -%}
 {%- assign ikxa = "var link = (UPI_SCHEME[app] || 'upi://pay?') + base;" -%}
-{{ ikx5 | replace_first: 'takeOverDrawer();', ikxu | replace_first: ikxa, 'var link = upiLink(app, base);' }}
+{%- assign ikxs = 'function stop() { stopped = true; clearTimeout(timer); clearInterval(tick); document' -%}
+{%- assign ikxs2 = 'IKX_STOP = function () { stop(); }; function stop() { stopped = true; clearTimeout(timer); clearInterval(tick); document' -%}
+{{ ikx5 | replace_first: 'takeOverDrawer();', ikxu | replace_first: ikxa, 'var link = upiLink(app, base);' | replace_first: ikxs, ikxs2 }}
 </script>
 {%- comment -%} Build 051: track page, floating help chat + Instagram, product page delivery date, Instagram strip (snippets/ik-site.liquid) {%- endcomment -%}
 {% render 'ik-site' %}
