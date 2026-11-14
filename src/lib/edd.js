@@ -56,46 +56,31 @@ export async function quickEstimate(env, pin, from = Date.now()) {
 }
 export async function deliveryEstimate(env, opts = {}) {
   const body = await deliveryEstimate0(env, opts);
-  if (body && body.ok && body.serviceable !== false && mhPin(opts.pin)) return { ...body, ...(await quickEstimate(env, opts.pin)) };
+  if (body && body.ok && body.serviceable !== false && body.air !== false && mhPin(opts.pin)) return { ...body, ...(await quickEstimate(env, opts.pin)) };
   return body;
 }
 async function deliveryEstimate0(env, { pin, cod = false, amount = 499 } = {}) {
   if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
-  const key = `v4:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
+  const key = `v5:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
   const m = mem.get(key);
   if (m && m.at > now() - TTL) return m.body;
   const row = await env.DB?.prepare('SELECT body, at FROM edd_cache WHERE k=?').bind(key).first().catch(() => null);
   if (row && Number(row.at) > now() - TTL) { const body = JSON.parse(row.body); mem.set(key, { at: Number(row.at), body }); return body; }
 
-  const { compareRates } = await import('./rates.js');
+  /* Nov 2026: ShipPrime only (two calls in parallel, pickup PIN kept in memory): Shiprocket's rates and network
+     lookups made every new PIN take 2-5 s */
   const SP = await import('./shipprime.js');
-  /* serviceability from Shiprocket's whole network (blocked / never-use couriers included): our own courier filters
-     say nothing about whether the PIN can be reached */
-  const network = (async () => {
-    const { srRates } = await import('./shiprocket.js');
-    const { packOrder, packCfg } = await import('./packing.js');
-    const r = await srRates(env, { pin, cod, amount, pack: packOrder([{ quantity: 1 }], packCfg(env.SETTINGS?.shipping?.pack)) }, { all: true });
-    return r.list.length;
-  })();
-  const [a, b, n] = await Promise.allSettled([
-    compareRates(env, { pin, cod, amount }),
-    (async () => {
-      if (!SP.spConnected(env)) return null;
-      const pickup = await SP.spPickup(env);
-      const [r, e] = await Promise.allSettled([SP.spRates(env, { from: pickup.pincode, pin, weightGrams: Number(env.SETTINGS?.shipping?.weight_g) || 50, cod, amount }), SP.spEdd(env, pickup.pincode, pin)]);
-      if (r.status === 'rejected' && e.status === 'rejected') throw r.reason;
-      return { rates: r.status === 'fulfilled' ? r.value : [], edd: e.status === 'fulfilled' ? e.value : null };
-    })(),
-    network,
-  ]);
-  let sr = a.status === 'fulfilled' ? a.value : null;
-  if (sr && !sr.options.length && sr.errors.length) sr = null;                     /* a failed lookup is not a "no" */
-  /* the yes/no comes from the network count; the date still from the courier we would pick */
-  if (n.status === 'fulfilled') sr = { ...(sr || { pick: null }), options: n.value > 0 ? (sr?.options?.length ? sr.options : [{ network: true }]) : [] };
-  else if (sr && !sr.options.length) sr = null;
-  const sp = b.status === 'fulfilled' ? b.value : null;
-  if (!sr && !sp) return { ok: false, error: 'courier lookup failed', serviceable: null, edd: '' };
-  const c = combine(sr, sp, { arrivalDate: SP.arrivalDate, spFailed: b.status === 'rejected' });
+  if (!SP.spConnected(env)) return { ok: false, error: 'ShipPrime not connected', serviceable: null, edd: '' };
+  let pick = mem.get('sp:pickup');
+  if (!pick || pick.at < now() - 86400) { pick = { at: now(), pin: (await SP.spPickup(env)).pincode }; mem.set('sp:pickup', pick); }
+  const [r, e] = await Promise.allSettled([SP.spRates(env, { from: pick.pin, pin, weightGrams: Number(env.SETTINGS?.shipping?.weight_g) || 50, cod, amount }), SP.spEdd(env, pick.pin, pin)]);
+  if (r.status === 'rejected' && e.status === 'rejected') return { ok: false, error: String(r.reason?.message || r.reason), serviceable: null, edd: '' };
+  const rates = r.status === 'fulfilled' ? r.value : [];
+  const sp = { rates, edd: e.status === 'fulfilled' ? e.value : null };
+  /* no Shiprocket answer: only ShipPrime's own "every courier: not serviceable" says no */
+  const c = combine(null, sp, { arrivalDate: SP.arrivalDate, spFailed: r.status === 'rejected' });
+  if (rates.length && rates.every((x) => x.serviceable === false)) c.serviceable = false;
+  c.air = rates.some((x) => /^DELHIVERY_AIR$/i.test(x.code || '') && x.serviceable !== false);
   const body = { ok: true, pin, ...c };
   mem.set(key, { at: now(), body });
   await env.DB?.prepare('INSERT INTO edd_cache (k, body, at) VALUES (?,?,?) ON CONFLICT (k) DO UPDATE SET body=EXCLUDED.body, at=EXCLUDED.at').bind(key, JSON.stringify(body), now()).run().catch(() => {});

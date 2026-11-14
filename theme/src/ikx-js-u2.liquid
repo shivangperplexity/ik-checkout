@@ -45,18 +45,6 @@
     }
     return closeSheet0.apply(this, arguments);
   };
-  /* Delivery date: an instant estimate first (no courier call; Maharashtra = Delhivery Air), the full check replaces it */
-  var fetchShipping0 = fetchShipping;
-  fetchShipping = function () {
-    var had = SHIP.edd, hadPin = SHIP.pin;
-    fetchShipping0();
-    var pin = SHIP.pin;
-    if (!SHIP.busy || !/^\d{6}$/.test(pin)) return;
-    if (hadPin === pin && had) { SHIP.busy = false; SHIP.edd = had; paintShip(); return; }
-    fetch(API + '/api/shipping?fast=1&pin=' + pin).then(function (r) { return r.json(); }).then(function (j) {
-      if (SHIP.pin === pin && SHIP.busy && j && j.ok && j.edd) { SHIP.busy = false; SHIP.edd = String(j.edd); paintShip(); }
-    }).catch(function () {});
-  };
   /* "super.money" didn't fit the tile; free-pick list: most stock first (q = inventory, snippets/ik-checkout.liquid) */
   UPI_TILE.supermoney = 'Super';
   try { PICKS.sort(function (a, b) { return (Number(b.q) || 0) - (Number(a.q) || 0); }); if (PICKS.length > 24) PICKS.length = 24; } catch (e) {}
