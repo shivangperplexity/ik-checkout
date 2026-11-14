@@ -6,7 +6,9 @@
     var q = state.quote, box = $('.ikx-pay', root); if (!q || !box) return;
     var pre = q.prepaid, cod = q.cod, off = (pre.prepaid || 0) + (pre.ref || 0) + (pre.credit || 0);
     var badge = function (row, txt, cls) { if (row && !$('.ikx-pb', row)) row.insertAdjacentHTML('afterbegin', '<span class="ikx-pb ' + cls + '">' + txt + '</span>'); };
-    if (off) ['card', 'nb'].forEach(function (m) { badge($('[data-ikx-method="' + m + '"]', box), pre.prepaid ? '10% OFF' : 'Save ' + money(off), 'ikx-pb--g'); });
+    var offTxt = pre.prepaid ? '10% OFF' : 'Save ' + money(off);
+    ['card', 'nb'].forEach(function (m) { var r = $('[data-ikx-method="' + m + '"]', box); if (r) r.classList.remove('ikx-po__row--dark'); if (off) badge(r, offTxt, 'ikx-pb--g'); });
+    if (off) badge($('.ikx-po__upi', box), offTxt, 'ikx-pb--g');
     if (cod && cod.total > pre.total) badge($('[data-ikx-method="cod"]', box), money(cod.total - pre.total) + ' more', 'ikx-pb--x');
   };
   /* Faster UPI: as soon as the form is complete, the order + PayU UPI link are made in the background (own idem),
@@ -45,5 +47,9 @@
   };
   try { document.head.appendChild(el('style', {}, '.ikx-po__row{position:relative;overflow:visible}.ikx-pb{position:absolute;top:-9px;left:18px;z-index:1;display:inline-block;width:auto;padding:2px 8px;border-radius:999px;font-size:10.5px;line-height:14px;font-weight:800;letter-spacing:.2px;white-space:nowrap;pointer-events:none}' +
     '.ikx-pb--g{background:#16a34a;color:#fff;box-shadow:0 0 0 2px #fff}.ikx-pb--x{background:#ececec;color:#3a3a3a;box-shadow:0 0 0 2px #fff}' +
+    '.ikx-po__upi{position:relative;overflow:visible;background:#fff;border:1.5px solid #e2dccf}' +
+    '.ikx-po__row[data-ikx-method="card"],.ikx-po__row[data-ikx-method="nb"]{background:#fff!important;color:#111!important;border:1.5px solid #e2dccf!important}' +
+    '.ikx-po__row[data-ikx-method="card"] svg,.ikx-po__row[data-ikx-method="nb"] svg{stroke:#111;color:#111}' +
+    '.ikx-po__apps--many .ikx-po__app{background:#faf8f4!important;border:1.5px solid #ece6dc!important;box-shadow:none!important}.ikx-po__apps--many .ikx-po__app.is-on{background:#fff!important;border:2px solid #111!important}' +
     '.ikx-po__apps.ikx-po__apps--many{padding:4px 4px 6px;scroll-padding-left:4px;scrollbar-width:none}.ikx-po__apps--many::-webkit-scrollbar{display:none}')); } catch (e) {}
 /* end of part U2 */
