@@ -2044,7 +2044,9 @@ const ACTIONS = {
     try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, last_cron: last, open: rows.filter(S.isOpenNdr).length, rows }; }
     catch (e) { return { ok: true, connected: false, auto: c.auto, expires: exp, last_cron: last, error: e.message }; }
   },
-  async pin_warm(env, b) { const E = await import('./edd.js'); const { withSettings } = await import('./settings.js'); return { ok: true, ...(await E.pinWarm(await withSettings(await withSettingsFresh(env)), { budgetMs: Math.min(40000, Number(b?.ms) || 20000) })) }; },
+  async pin_warm(env, b) { const E = await import('./edd.js'); const { withSettings } = await import('./settings.js');
+    if (b?.pins) { const f = await withSettings(await withSettingsFresh(env)); return { ok: true, rows: await Promise.all(String(b.pins).split(',').map(async (p) => ({ pin: p, cod: await E.deliveryEstimate(f, { pin: p.trim(), cod: true }), pp: await E.deliveryEstimate(f, { pin: p.trim() }) }))) }; }
+    return { ok: true, ...(await E.pinWarm(await withSettings(await withSettingsFresh(env)), { budgetMs: Math.min(40000, Number(b?.ms) || 20000) })) }; },
   async ndr_lag(env, b) { const L = await import('./ndr-lag.js'); return { ok: true, ...(await L.ndrLag(await withSettingsFresh(env), { days: Math.min(90, Number(b?.days) || 30), max: Math.min(200, Number(b?.max) || 150), awb: String(b?.awb || ''), provider: String(b?.provider || '') })) }; },
   async sp_ndr_rto_list(env) { const S = await import('./sp-ndr.js'); return { ok: true, rows: await S.ndrOrders(await withSettingsFresh(env), { type: 'RTO', days: 60 }) }; },
   async sp_ndr_run(env, b) { const S = await import('./sp-ndr.js'); return { ok: true, ...(await S.autoReattempt(await withSettingsFresh(env), { force: true, dry: !!b.dry })) }; },
