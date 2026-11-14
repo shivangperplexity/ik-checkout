@@ -17,7 +17,7 @@ const dayDiff = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(
 
 /** Pure: scans [{date, text}] (any order) -> [{fail_day, next_day|null, gap|null, no_ofd}] one per failed-attempt day */
 export function lagEvents(scans) {
-  const acts = scans.filter((a) => a.date).map((a) => ({ t: String(a.date).replace('T', ' ').slice(0, 19), text: String(a.text || '') }))
+  const acts = scans.filter((a) => a.date).map((a) => ({ t: String(a.date).replace('T', ' ').slice(0, 19), text: String(a.text || '').replace(/_/g, ' ') }))
     .sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
   const out = [], seen = new Set();
   for (let i = 0; i < acts.length; i++) {
