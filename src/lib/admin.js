@@ -1343,7 +1343,18 @@ const ACTIONS = {
   },
   async ndr_list(env) {
     const f = await withSettingsFresh(env);
-    const list = await ndrList(f);
+    const list = await ndrList(f).catch((e) => { console.error('ndr_list sr', e.message); return []; });
+    /* ShipPrime NDRs too: open ones, plus ones re-opened in the last 4 days (so the last re-attempt stays visible) */
+    try {
+      const S = await import('./sp-ndr.js');
+      if (S.dashCfg(f).token) {
+        const recent = now() - 4 * 86400, at = (v) => { const t = Date.parse(String(v || '')); return Number.isNaN(t) ? 0 : Math.floor(t / 1000); };
+        for (const o of await S.ndrOrders(f, { days: 30 })) {
+          if (!o.awb || !(S.isOpenNdr(o) || (o.action_taken && at(o.updated) > recent))) continue;
+          list.push({ awb: o.awb, order: o.order, reason: o.reason, attempts: o.attempts || null, date: o.updated, provider: 'shipprime', courier: o.courier, sp_done: !!o.action_taken });
+        }
+      }
+    } catch (e) { console.error('ndr_list sp', e.message); }
     const mine = Object.fromEntries((await env.DB.prepare("SELECT awb, order_name, ndr_choice, ndr_choice_at, ndr_date, ndr_by, ndr_attempt, ndr_asked_at FROM shipments WHERE awb IS NOT NULL AND LENGTH(awb) > 0").all()).results.map((r) => [r.awb, r]));
     /* Shiprocket keeps a parcel in its NDR list until the courier's next attempt, even after a re-attempt was asked for.
        Count it as handled when a choice was made after this failed attempt (same attempt number, or made after it was raised). */
@@ -1363,9 +1374,12 @@ const ACTIONS = {
     return { ok: true, auto: cfg.mode, ndr: list.map((x) => { const m = mine[x.awb];
       const k = x.attempts ? 'a' + x.attempts : 'd' + String(x.date || '').slice(0, 10);
       const st = autoRows.find((r) => r.awb === x.awb && r.k === k);
-      const plan = m ? planNdr(cfg, x, st || {}, m, !!pay[x.awb]) : null;
+      const sp = x.provider === 'shipprime';
+      /* ShipPrime parcels follow the ShipPrime auto re-open (lib/sp-ndr.js), not the Shiprocket NDR rules */
+      const plan = m && !sp ? planNdr(cfg, x, st || {}, m, !!pay[x.awb]) : null;
       const cat = classifyNdr(x.reason);
-      return { ...x, order_name: m?.order_name || String(x.order || ''), done: handled(x, m), choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '',
+      return { ...x, order_name: m?.order_name || String(x.order || ''), done: sp ? x.sp_done : handled(x, m), failed_at: x.date || '',
+        last_reattempt_at: m?.ndr_choice === 'reattempt' ? num(m.ndr_choice_at) || null : null, choice: m?.ndr_choice || '', choice_at: num(m?.ndr_choice_at) || null, choice_date: m?.ndr_date || '', choice_by: m?.ndr_by || '',
         category: cat, category_label: CATEGORIES[cat].label, paid: !!pay[x.awb],
         plan: plan ? { act: plan.act, why: plan.why, due: plan.due || null, then: plan.then || '' } : null, asked_at: num(m?.ndr_asked_at) || null, auto_action: st?.action || '', auto_error: st?.error || '' }; }) };
   },
@@ -2026,9 +2040,9 @@ const ACTIONS = {
   async sp_ndr_status(env) {
     const S = await import('./sp-ndr.js'); const f = await withSettingsFresh(env); const c = S.dashCfg(f);
     if (!c.token) return { ok: true, connected: false };
-    const exp = S.tokenExpiry(c.token);
-    try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, open: rows.filter(S.isOpenNdr).length, rows }; }
-    catch (e) { return { ok: true, connected: false, auto: c.auto, expires: exp, error: e.message }; }
+    const exp = S.tokenExpiry(c.token), last = f.SETTINGS?.sp_ndr_last || null;
+    try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, last_cron: last, open: rows.filter(S.isOpenNdr).length, rows }; }
+    catch (e) { return { ok: true, connected: false, auto: c.auto, expires: exp, last_cron: last, error: e.message }; }
   },
   async sp_ndr_rto_list(env) { const S = await import('./sp-ndr.js'); return { ok: true, rows: await S.ndrOrders(await withSettingsFresh(env), { type: 'RTO', days: 60 }) }; },
   async sp_ndr_run(env, b) { const S = await import('./sp-ndr.js'); return { ok: true, ...(await S.autoReattempt(await withSettingsFresh(env), { force: true, dry: !!b.dry })) }; },
@@ -2579,6 +2593,17 @@ export async function runAutomations(env) {
   try { const { resendFailed } = await import('./wa-resend.js'); const r = await resendFailed(env); if (r.done || r.skipped) out.waResend = r; } catch (e) { console.error('wa-resend', e); }
   try { const { confirmedSweep } = await import('./meta.js'); const r = await confirmedSweep(env); if (r.sent || r.failed) out.confirmedPurchase = r; } catch (e) { console.error('confirmed purchase', e); }
   try { const { deliveredSweep } = await import('./meta.js'); const r = await deliveredSweep(env); if (r.sent || r.failed) out.delivered = r; } catch (e) { console.error('delivered event', e); }
+  /* ShipPrime NDR auto re-open (lib/sp-ndr.js), before the slower jobs below; every real run is kept in settings
+     'sp_ndr_last' (shown by sp_ndr_status) so a silent skip or error is visible */
+  try {
+    const { autoReattempt } = await import('./sp-ndr.js');
+    let r; try { r = await autoReattempt(env); } catch (e) { r = { error: String(e.message || e).slice(0, 300) }; }
+    if (r.reopened?.length || r.failed?.length) out.spNdr = r;
+    if (r.skipped !== 'ran this half hour') {
+      await env.DB.prepare("INSERT INTO settings (k, v) VALUES ('sp_ndr_last', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v").bind(JSON.stringify({ at: now(), ...r })).run().catch(() => {});
+      if (r.error || (r.skipped && !/outside/.test(r.skipped))) console.error('sp ndr cron', JSON.stringify(r));
+    }
+  } catch (e) { console.error('sp ndr', e); }
   /* ads autopilot (lib/ads-auto.js): night pause 23-06 IST, daily +₹50/100 on the best ad set, one strong reel → ad per day */
   try { const A = await import('./ads-auto.js'); const f = await withSettingsFresh(env); const r = { night: await A.nightTick(f), scale: await A.scaleTick(f), reel: await A.reelTick(f) }; r.losers = await A.loserTick(await withSettingsFresh(env)); r.rebalance = await A.rebalanceTick(await withSettingsFresh(env)); if (Object.values(r).some((x) => !x.skipped && !x.idle)) out.adsAuto = r; } catch (e) { console.error('ads auto', e.message); }
   /* once a day: refresh the Meta seed (delivered + prepaid) and exclusion (RTO + cancelled) customer lists */
@@ -2590,7 +2615,6 @@ export async function runAutomations(env) {
     }
   } catch (e) { console.error('audience refresh', e.message); }
   try { const { blogTick } = await import('./blog.js'); const r = await blogTick(env); if (r.published || r.error) out.blog = r; } catch (e) { console.error('blog', e.message); }
-  try { const { autoReattempt } = await import('./sp-ndr.js'); const r = await autoReattempt(env); if (r.reopened?.length || r.failed?.length) out.spNdr = r; } catch (e) { console.error('sp ndr', e); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
