@@ -138,6 +138,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS courier_perf (pin TEXT, courier TEXT, rto REAL, delivery REAL, pickup REAL, rating REAL, at BIGINT, PRIMARY KEY (pin, courier))`,
   /* delivery date + serviceability per PIN (lib/edd.js) */
   `CREATE TABLE IF NOT EXISTS edd_cache (k TEXT PRIMARY KEY, body TEXT, at BIGINT)`,
+  /* ShipPrime answer per PIN, kept 7 days and pre-filled for every PIN in India (lib/edd.js pinWarm) */
+  `CREATE TABLE IF NOT EXISTS pin_edd (pin TEXT PRIMARY KEY, ok_pp SMALLINT, ok_cod SMALLINT, emin INT, emax INT, air SMALLINT, at BIGINT)`,
   /* SEO blog engine (lib/blog.js): every article it published, with a text signature for the duplicate check */
   `CREATE TABLE IF NOT EXISTS blog_posts (id BIGSERIAL PRIMARY KEY, day TEXT, title TEXT, handle TEXT, topic TEXT, angle TEXT, audience TEXT, words INT, tags TEXT, article_id TEXT, shingles TEXT, created_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS blog_posts_day ON blog_posts (day)`,

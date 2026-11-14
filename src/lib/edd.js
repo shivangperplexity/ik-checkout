@@ -9,7 +9,8 @@
  * Serviceable: Shiprocket has a courier for the PIN, or ShipPrime marks one serviceable. When both carriers answer
  * and neither can deliver, the order is not taken. When a carrier API fails we never block (unknown != no).
  *
- * Cached per PIN + payment for 6 hours (table edd_cache), so product pages don't hit the courier APIs on every view.
+ * Nov 2026: ShipPrime only. Every PIN in India is asked ahead of time by the cron (pinWarm) and kept 7 days in table
+ * pin_edd, so the checkout and product pages answer instantly; an unknown or stale PIN is asked live once.
  */
 const now = () => Math.floor(Date.now() / 1000);
 const TTL = 6 * 3600;
@@ -59,32 +60,67 @@ export async function deliveryEstimate(env, opts = {}) {
   if (body && body.ok && body.serviceable !== false && body.air !== false && mhPin(opts.pin)) return { ...body, ...(await quickEstimate(env, opts.pin)) };
   return body;
 }
-async function deliveryEstimate0(env, { pin, cod = false, amount = 499 } = {}) {
-  if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
-  const key = `v5:${pin}:${cod ? 'cod' : 'pp'}`;   /* v2: the v1 rows could say "no" from Shiprocket alone */
-  const m = mem.get(key);
-  if (m && m.at > now() - TTL) return m.body;
-  const row = await env.DB?.prepare('SELECT body, at FROM edd_cache WHERE k=?').bind(key).first().catch(() => null);
-  if (row && Number(row.at) > now() - TTL) { const body = JSON.parse(row.body); mem.set(key, { at: Number(row.at), body }); return body; }
-
-  /* Nov 2026: ShipPrime only (two calls in parallel, pickup PIN kept in memory): Shiprocket's rates and network
-     lookups made every new PIN take 2-5 s */
+/* Per PIN, from ShipPrime: serviceable for prepaid / COD (1, 0, null = unknown), transit days (min/max after pickup)
+   and whether Delhivery Air serves it. Stored in pin_edd for 7 days; the date itself is worked out on each request. */
+const PIN_TTL = 7 * 86400;
+const tri = (v) => (v === true ? 1 : v === false ? 0 : null);
+const spServ = (rates) => (!rates.length ? null : rates.some((x) => x.serviceable === true) ? true : rates.every((x) => x.serviceable === false) ? false : null);
+async function spPin(env, pin, { both = true } = {}) {
   const SP = await import('./shipprime.js');
-  if (!SP.spConnected(env)) return { ok: false, error: 'ShipPrime not connected', serviceable: null, edd: '' };
   let pick = mem.get('sp:pickup');
   if (!pick || pick.at < now() - 86400) { pick = { at: now(), pin: (await SP.spPickup(env)).pincode }; mem.set('sp:pickup', pick); }
-  const [r, e] = await Promise.allSettled([SP.spRates(env, { from: pick.pin, pin, weightGrams: Number(env.SETTINGS?.shipping?.weight_g) || 50, cod, amount }), SP.spEdd(env, pick.pin, pin)]);
-  if (r.status === 'rejected' && e.status === 'rejected') return { ok: false, error: String(r.reason?.message || r.reason), serviceable: null, edd: '' };
-  const rates = r.status === 'fulfilled' ? r.value : [];
-  const sp = { rates, edd: e.status === 'fulfilled' ? e.value : null };
-  /* no Shiprocket answer: only ShipPrime's own "every courier: not serviceable" says no */
-  const c = combine(null, sp, { arrivalDate: SP.arrivalDate, spFailed: r.status === 'rejected' });
-  if (rates.length && rates.every((x) => x.serviceable === false)) c.serviceable = false;
-  c.air = rates.some((x) => /^DELHIVERY_AIR$/i.test(x.code || '') && x.serviceable !== false);
-  const body = { ok: true, pin, ...c };
-  mem.set(key, { at: now(), body });
-  await env.DB?.prepare('INSERT INTO edd_cache (k, body, at) VALUES (?,?,?) ON CONFLICT (k) DO UPDATE SET body=EXCLUDED.body, at=EXCLUDED.at').bind(key, JSON.stringify(body), now()).run().catch(() => {});
-  return body;
+  const w = Number(env.SETTINGS?.shipping?.weight_g) || 50;
+  const [rc, e] = await Promise.allSettled([SP.spRates(env, { from: pick.pin, pin, weightGrams: w, cod: true, amount: 499 }), SP.spEdd(env, pick.pin, pin)]);
+  if (rc.status === 'rejected' && e.status === 'rejected') throw rc.reason;
+  const cod = rc.status === 'fulfilled' ? rc.value : [];
+  let okCod = spServ(cod), okPp = okCod;
+  /* COD serviceable implies prepaid; otherwise ask once more for prepaid */
+  if (okCod !== true && both) { const rp = await SP.spRates(env, { from: pick.pin, pin, weightGrams: w, cod: false }).catch(() => null); if (rp) okPp = spServ(rp); }
+  const edd = e.status === 'fulfilled' ? e.value : null;
+  const air = [...cod].some((x) => /^DELHIVERY_AIR$/i.test(x.code || '') && x.serviceable !== false);
+  const row = { pin, ok_pp: tri(okPp), ok_cod: tri(okCod), emin: edd?.min ?? null, emax: edd?.max ?? null, air: air ? 1 : 0, at: now() };
+  await env.DB?.prepare('INSERT INTO pin_edd (pin, ok_pp, ok_cod, emin, emax, air, at) VALUES (?,?,?,?,?,?,?) ON CONFLICT (pin) DO UPDATE SET ok_pp=EXCLUDED.ok_pp, ok_cod=EXCLUDED.ok_cod, emin=EXCLUDED.emin, emax=EXCLUDED.emax, air=EXCLUDED.air, at=EXCLUDED.at')
+    .bind(row.pin, row.ok_pp, row.ok_cod, row.emin, row.emax, row.air, row.at).run().catch(() => {});
+  return row;
+}
+/** Pure-ish: a stored pin_edd row -> the estimate body for prepaid / COD (date counted from now). */
+async function fromRow(row, cod) {
+  const SP = await import('./shipprime.js');
+  const ok = cod ? row.ok_cod : row.ok_pp;
+  const serviceable = ok === 1 || ok === true ? true : ok === 0 || ok === false ? false : null;
+  const edd = row.emin != null || row.emax != null ? { min: row.emin ?? row.emax, max: row.emax ?? row.emin } : null;
+  const c = combine(null, { rates: serviceable === true ? [{ serviceable: true }] : [], edd }, { arrivalDate: SP.arrivalDate });
+  return { ok: true, pin: row.pin, ...c, serviceable, air: !!Number(row.air) };
+}
+async function deliveryEstimate0(env, { pin, cod = false } = {}) {
+  if (!/^\d{6}$/.test(String(pin || ''))) return { ok: false, error: 'bad pin' };
+  const SP = await import('./shipprime.js');
+  if (!SP.spConnected(env)) return { ok: false, error: 'ShipPrime not connected', serviceable: null, edd: '' };
+  const m = mem.get('pin:' + pin);
+  let row = m && m.at > now() - PIN_TTL ? m : await env.DB?.prepare('SELECT * FROM pin_edd WHERE pin=?').bind(String(pin)).first().catch(() => null);
+  if (!row || Number(row.at) < now() - PIN_TTL) {
+    try { row = await spPin(env, String(pin)); } catch (e) { return { ok: false, error: String(e.message || e), serviceable: null, edd: '' }; }
+  }
+  mem.set('pin:' + pin, { ...row, at: Number(row.at) });
+  return fromRow(row, cod);
+}
+
+/**
+ * Cron: fill pin_edd for every PIN in India (lib/pins-in.js), PINs from our own orders first, then the rest in order;
+ * rows older than 7 days are asked again. Stops after `budgetMs`. Returns { done, left }.
+ */
+export async function pinWarm(env, { budgetMs = 15000, conc = 6 } = {}) {
+  const SP = await import('./shipprime.js');
+  if (!env.DB || !SP.spConnected(env)) return { skipped: 'no db / ShipPrime' };
+  const t0 = Date.now(), stale = now() - PIN_TTL;
+  const fresh = new Set((await env.DB.prepare('SELECT pin FROM pin_edd WHERE at > ?').bind(stale).all()).results.map((r) => String(r.pin)));
+  const ours = (await env.DB.prepare("SELECT DISTINCT pincode FROM orders WHERE pincode IS NOT NULL").all().catch(() => ({ results: [] }))).results.map((r) => String(r.pincode)).filter((p) => /^\d{6}$/.test(p));
+  const { pinList } = await import('./pins-in.js');
+  const todo = [...new Set([...ours, ...pinList()])].filter((p) => !fresh.has(p));
+  let i = 0, done = 0, failed = 0;
+  const work = async () => { while (i < todo.length && Date.now() - t0 < budgetMs) { const p = todo[i++]; try { await spPin(env, p); done++; } catch { failed++; } } };
+  await Promise.all(Array.from({ length: conc }, work));
+  return { done, failed, left: todo.length - done, total_fresh: fresh.size + done };
 }
 
 /** Rough location from the visitor's IP (Vercel adds these headers). PIN when known, else just the city. */
