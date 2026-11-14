@@ -45,6 +45,14 @@
     }
     return closeSheet0.apply(this, arguments);
   };
+  /* promo codes (?ref=VENOMOG): the bill says "Code VENOMOG", not "Referral" */
+  var paintBill0 = paintBill;
+  paintBill = function () {
+    paintBill0();
+    var r = state.quote && state.quote.ref; if (!r || r.kind !== 'promo') return;
+    var box = $('.ikx-bill__rows', root); if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('.ikx-r span:first-child'), function (sp) { if (/^Referral/.test(sp.textContent)) sp.textContent = 'Code ' + r.code; });
+  };
   /* "super.money" didn't fit the tile; free-pick list: most stock first (q = inventory, snippets/ik-checkout.liquid) */
   UPI_TILE.supermoney = 'Super';
   try { PICKS.sort(function (a, b) { return (Number(b.q) || 0) - (Number(a.q) || 0); }); if (PICKS.length > 24) PICKS.length = 24; } catch (e) {}
