@@ -2044,7 +2044,7 @@ const ACTIONS = {
     try { const rows = await S.ndrOrders(f, { days: 30 }); return { ok: true, connected: true, auto: c.auto, expires: exp, last_cron: last, open: rows.filter(S.isOpenNdr).length, rows }; }
     catch (e) { return { ok: true, connected: false, auto: c.auto, expires: exp, last_cron: last, error: e.message }; }
   },
-  async ndr_lag(env, b) { const L = await import('./ndr-lag.js'); return { ok: true, ...(await L.ndrLag(await withSettingsFresh(env), { days: Math.min(60, Number(b?.days) || 30), max: Math.min(200, Number(b?.max) || 150) })) }; },
+  async ndr_lag(env, b) { const L = await import('./ndr-lag.js'); return { ok: true, ...(await L.ndrLag(await withSettingsFresh(env), { days: Math.min(90, Number(b?.days) || 30), max: Math.min(200, Number(b?.max) || 150), awb: String(b?.awb || ''), provider: String(b?.provider || '') })) }; },
   async sp_ndr_rto_list(env) { const S = await import('./sp-ndr.js'); return { ok: true, rows: await S.ndrOrders(await withSettingsFresh(env), { type: 'RTO', days: 60 }) }; },
   async sp_ndr_run(env, b) { const S = await import('./sp-ndr.js'); return { ok: true, ...(await S.autoReattempt(await withSettingsFresh(env), { force: true, dry: !!b.dry })) }; },
   /** One ShipPrime NDR by AWB: action 'reattempt' | 'rto' | 'contact' (phone / address for the next attempt). */

@@ -34,11 +34,12 @@ export function lagEvents(scans) {
   return out;
 }
 
-export async function ndrLag(env, { days = 30, max = 150 } = {}) {
+export async function ndrLag(env, { days = 30, max = 150, awb = '', provider = '' } = {}) {
+  if (awb) { const j = await trackRaw(env, awb); return { awb, acts: (j?.tracking_data?.shipment_track_activities || []).slice(0, 40) }; }
   const since = Math.floor(Date.now() / 1000) - days * 86400;
   const rows = (await env.DB.prepare(`SELECT awb, order_name, provider, courier FROM shipments WHERE awb IS NOT NULL AND LENGTH(awb) > 0
       AND COALESCE(status,'') <> 'cancelled' AND created_at > ? AND (sp_ndr_at IS NOT NULL OR ndr_choice IS NOT NULL OR COALESCE(rto,false) OR stage IN ('ndr','rto'))
-      ORDER BY created_at DESC LIMIT ?`).bind(since, max).all()).results;
+      AND (? = '' OR COALESCE(provider,'shiprocket') = ?) ORDER BY created_at DESC LIMIT ?`).bind(since, provider, provider, max).all()).results;
   const groups = {}, slow = [];
   let i = 0, errors = 0;
   const work = async () => {
