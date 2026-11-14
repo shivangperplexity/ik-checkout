@@ -48,8 +48,11 @@
   /* "super.money" didn't fit the tile; free-pick list: most stock first (q = inventory, snippets/ik-checkout.liquid) */
   UPI_TILE.supermoney = 'Super';
   try { PICKS.sort(function (a, b) { return (Number(b.q) || 0) - (Number(a.q) || 0); }); if (PICKS.length > 24) PICKS.length = 24; } catch (e) {}
-  /* Phone AutoFill: iPhone / Android keyboards offer the saved number only for autocomplete="tel" (+91 is removed) */
-  function acFix() { var p = root && $('input[name="phone"]', root); if (p && p.getAttribute('autocomplete') !== 'tel') p.setAttribute('autocomplete', 'tel'); }
+  /* AutoFill: phone = "tel" (keyboards offer the saved number only for that; +91 is removed). Address: the whole saved
+     street address (building name included) goes into "House / flat no., street, area"; Landmark is never filled
+     (iPhone used to put the building name, address line 2, there). */
+  var AC = { phone: 'tel', address1: 'shipping street-address', address2: 'off' };
+  function acFix() { if (!root) return; for (var k in AC) { var p = $('[name="' + k + '"]', root); if (p && p.getAttribute('autocomplete') !== AC[k]) p.setAttribute('autocomplete', AC[k]); } }
   try { new MutationObserver(acFix).observe(document.body || document.documentElement, { childList: true, subtree: true }); } catch (e) {}
   try { document.head.appendChild(el('style', {}, '.ikx-po__row{position:relative;overflow:visible}.ikx-pb{position:absolute;top:-9px;left:18px;z-index:1;display:inline-block;width:auto;padding:2px 8px;border-radius:999px;font-size:10.5px;line-height:14px;font-weight:800;letter-spacing:.2px;white-space:nowrap;pointer-events:none}' +
     '.ikx-pb--g{background:#16a34a;color:#fff;box-shadow:0 0 0 2px #fff}.ikx-pb--x{background:#facc15;color:#3d2f00;box-shadow:0 0 0 2px #fff}' +
