@@ -1,0 +1,82 @@
+/* Build 069 (the Build 064 payment design, which converted best): UPI apps open from Instagram / Facebook too, 10 UPI
+apps instead of 3, a clear "app didn't open" message, and the Google Ads purchase tag. Rendered inside part 5's
+function just before takeOverDrawer(); goUpi's link line is swapped for upiLink() (snippets/ik-checkout.liquid). */
+  var IS_ANDROID = /Android/i.test(navigator.userAgent);
+  /* Maharashtra-first order of use */
+  UPI_APPS = [['phonepe', 'PhonePe'], ['gpay', 'Google Pay'], ['paytm', 'Paytm'], ['navi', 'Navi'], ['supermoney', 'super.money'], ['cred', 'CRED'],
+    ['bhim', 'BHIM'], ['amazonpay', 'Amazon Pay'], ['mobikwik', 'MobiKwik'], ['slice', 'slice'], ['any', 'Other UPI']];
+  UPI_TILE = { gpay: 'G Pay', phonepe: 'PhonePe', paytm: 'Paytm', navi: 'Navi', supermoney: 'super.money', cred: 'CRED', bhim: 'BHIM', amazonpay: 'Amazon Pay', mobikwik: 'MobiKwik', slice: 'slice' };
+  var UPI_PKG = { gpay: 'com.google.android.apps.nbu.paisa.user', phonepe: 'com.phonepe.app', paytm: 'net.one97.paytm', navi: 'com.naviapp', supermoney: 'money.super.payments',
+    cred: 'com.dreamplug.androidapp', bhim: 'in.org.npci.upiapp', amazonpay: 'in.amazon.mShop.android.shopping', mobikwik: 'com.mobikwik_new', slice: 'indwin.c3.shareapp' };
+  var UPI_IOS_SCHEME = { gpay: 'tez://upi/pay?', phonepe: 'phonepe://pay?', paytm: 'paytmmp://pay?', navi: 'navipay://upi/pay?', supermoney: 'super://upi/pay?',
+    cred: 'credpay://upi/pay?', bhim: 'bhim://upi/pay?', amazonpay: 'amazonpay://upi/pay?', mobikwik: 'mobikwik://upi/pay?' };
+  var UPI_SITE = { navi: 'navi.com', supermoney: 'super.money', cred: 'cred.club', bhim: 'bhimupi.org.in', amazonpay: 'amazon.in', mobikwik: 'mobikwik.com', slice: 'sliceit.com' };
+  var upiIcon0 = upiIcon;
+  upiIcon = function (k) {
+    if ((state.logos || {})[k] || LOGO_URL[k] || k === 'any' || !UPI_SITE[k]) return upiIcon0(k);
+    return '<b>' + esc(UPI_TILE[k].slice(0, 2)) + '</b><img src="https://www.google.com/s2/favicons?sz=64&domain=' + UPI_SITE[k] + '" alt="" loading="lazy" onerror="this.remove()">';
+  };
+  /* the app tiles under UPI: every app this phone can open (iPhone: the ones with a URL scheme) */
+  var paintPay0 = paintPay;
+  paintPay = function () {
+    paintPay0();
+    var g = $('.ikx-po__apps', root); if (!g || !state.quote) return;
+    var dis = state.busy ? ' disabled' : '', amt = money(state.quote.prepaid.total);
+    g.classList.add('ikx-po__apps--many');
+    g.innerHTML = UPI_APPS.filter(function (a) { return a[0] !== 'any' && (IS_ANDROID || UPI_IOS_SCHEME[a[0]]); }).map(function (a) {
+      var k = a[0], on = state.method === 'upi' && state.upiApp === k;
+      return '<button type="button" class="ikx-po__app ikx-po__app--' + k + (on ? ' is-on' : '') + '" data-ikx-upi="' + k + '" data-ikx-go aria-label="Pay ' + esc(amt) + ' with ' + esc(a[1]) + '"' + dis + '>' +
+        '<span class="ikx-po__logo">' + upiIcon(k) + '</span><span>' + esc(UPI_TILE[k]) + '</span></button>';
+    }).join('');
+  };
+  /* Android: always intent:// (Instagram / Facebook block bare upi:// and tez:// links); with a package the app opens
+     directly, without one (Other UPI) Android shows its app chooser; not installed: back here with #ikx-noapp */
+  function upiLink(app, base) {
+    watchOpen(app);
+    if (!IS_ANDROID) return (UPI_IOS_SCHEME[app] || 'upi://pay?') + base;
+    var back = encodeURIComponent(location.href.split('#')[0] + '#ikx-noapp');
+    return 'intent://pay?' + base + '#Intent;scheme=upi;' + (UPI_PKG[app] ? 'package=' + UPI_PKG[app] + ';' : '') + 'S.browser_fallback_url=' + back + ';end';
+  }
+  /* "didn't open": the browser came back with #ikx-noapp, or the page never went to the background in 3 s */
+  function watchOpen(app) {
+    var gone = false, t;
+    var off = function () { if (document.hidden) gone = true; };
+    var bye = function () { gone = true; };
+    var hash = function () { if (location.hash === '#ikx-noapp') { try { history.replaceState(null, '', location.href.split('#')[0]); } catch (e) {} done(true); } };
+    function done(force) {
+      clearTimeout(t); document.removeEventListener('visibilitychange', off); window.removeEventListener('pagehide', bye); window.removeEventListener('hashchange', hash);
+      if ((gone && !force) || (!force && document.hidden)) return;
+      var ring = $('.ikx-ring', root); if (!ring || $('.ikx-noapp', root)) return;
+      var name = app === 'any' ? 'No UPI app' : (UPI_TILE[app] || 'Your UPI app');
+      ring.parentNode.insertBefore(el('div', { class: 'ikx-noapp', role: 'alert' }, '<b>' + esc(name) + (app === 'any' ? ' opened' : ' didn’t open') + '</b><span>It may not be installed on this phone. Pick another app or pay another way.</span>' +
+        '<button type="button" class="ikx-btn" data-ikx-other>Choose another way</button>'), ring);
+      tk('upi', { data: { app: app, noapp: 1 } });
+    }
+    document.addEventListener('visibilitychange', off); window.addEventListener('pagehide', bye); window.addEventListener('hashchange', hash);
+    t = setTimeout(function () { done(false); }, 3000);
+  }
+  try {
+    document.head.appendChild(el('style', {}, '.ikx-po__apps.ikx-po__apps--many{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:4px;-webkit-overflow-scrolling:touch}' +
+      '.ikx-po__apps--many .ikx-po__app{flex:0 0 72px;min-width:72px;scroll-snap-align:start;font-size:11px}.ikx-po__apps--many .ikx-po__logo{width:34px;height:34px;position:relative;display:grid;place-items:center}' +
+      '.ikx-po__apps--many .ikx-po__logo img{width:100%;height:100%;object-fit:contain;border-radius:8px}.ikx-po__apps--many .ikx-po__logo b+img{position:absolute;inset:0;background:#fff}' +
+      '.ikx-noapp{margin:0 0 12px;padding:12px;border-radius:12px;background:#fff4e5;border:1px solid #f3c27a;text-align:left;display:grid;gap:6px}.ikx-noapp b{font-size:14px}.ikx-noapp span{font-size:13px;color:#5a4a33}'));
+  } catch (e) {}
+  /* Google Ads (account 397-871-1839): Google tag on every page and the "Purchase" conversion on every order */
+  var GADS = 'AW-18515427455', GADS_BUY = GADS + '/olyGCM3Qh54dEP-A7PxE';
+  try {
+    window.dataLayer = window.dataLayer || [];
+    if (!window.gtag) window.gtag = function () { window.dataLayer.push(arguments); };
+    var gs = document.createElement('script'); gs.async = true; gs.src = 'https://www.googletagmanager.com/gtag/js?id=' + GADS; document.head.appendChild(gs);
+    window.gtag('js', new Date()); window.gtag('config', GADS, { allow_enhanced_conversions: true });
+  } catch (e) {}
+  var showSuccessU = showSuccess;
+  showSuccess = function (r) {
+    try {
+      var d = state.draft || {}, q = state.quote || {}, cod = r && (r.method === 'cod' || r.method === 'partial');
+      var v = r && r.value ? Number(r.value) : ((cod ? q.cod && q.cod.total : q.prepaid && q.prepaid.total) || 0) / 100;
+      if (d.phone || d.email) window.gtag('set', 'user_data', { phone_number: d.phone ? '+91' + d.phone : undefined, email: d.email || undefined });
+      window.gtag('event', 'conversion', { send_to: GADS_BUY, value: v, currency: 'INR', transaction_id: String((r && r.orderName) || '').replace('#', '') });
+    } catch (e) {}
+    return showSuccessU(r);
+  };
+/* end of part U */
