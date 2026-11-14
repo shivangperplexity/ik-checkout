@@ -68,7 +68,10 @@ const spServ = (rates) => (!rates.length ? null : rates.some((x) => x.serviceabl
 async function spPin(env, pin, { both = true, network = false } = {}) {
   const SP = await import('./shipprime.js');
   let pick = mem.get('sp:pickup');
-  if (!pick || pick.at < now() - 86400) { pick = { at: now(), pin: (await SP.spPickup(env)).pincode }; mem.set('sp:pickup', pick); }
+  /* the pickup PIN from Settings (no API call); ShipPrime's pickup address only when Settings has none */
+  const setPin = String(env.SETTINGS?.shipping?.sp_pickup?.pincode || env.SETTINGS?.shipping?.origin_pin || '');
+  if (/^\d{6}$/.test(setPin)) pick = { at: now(), pin: setPin };
+  else if (!pick || pick.at < now() - 86400) { pick = { at: now(), pin: (await SP.spPickup(env)).pincode }; mem.set('sp:pickup', pick); }
   const w = Number(env.SETTINGS?.shipping?.weight_g) || 50;
   const [rc, e] = await Promise.allSettled([SP.spRates(env, { from: pick.pin, pin, weightGrams: w, cod: true, amount: 499 }), SP.spEdd(env, pick.pin, pin)]);
   if (rc.status === 'rejected' && e.status === 'rejected') throw rc.reason;
@@ -82,7 +85,7 @@ async function spPin(env, pin, { both = true, network = false } = {}) {
     const { srRates } = await import('./shiprocket.js');
     const { packOrder, packCfg } = await import('./packing.js');
     const pack = packOrder([{ quantity: 1 }], packCfg(env.SETTINGS?.shipping?.pack));
-    const n = (c) => srRates(env, { pin, cod: c, amount: 499, pack }, { all: true }).then((r) => r.list.length).catch(() => null);
+    const n = (c) => srRates(env, { pin, cod: c, amount: 499, pack }, { all: true }).then((r) => r.list.length).catch((e) => { if (/429/.test(String(e.message))) throw e; return null; });
     const nc = await n(true), np = nc > 0 ? nc : await n(false);
     if (nc != null) okCod = nc > 0;
     if (np != null) okPp = np > 0;
@@ -120,7 +123,7 @@ async function deliveryEstimate0(env, { pin, cod = false } = {}) {
  * Cron: fill pin_edd for every PIN in India (lib/pins-in.js), PINs from our own orders first, then the rest in order;
  * rows older than 7 days are asked again. Stops after `budgetMs`. Returns { done, left }.
  */
-export async function pinWarm(env, { budgetMs = 15000, conc = 6 } = {}) {
+export async function pinWarm(env, { budgetMs = 15000, conc = 2 } = {}) {
   const SP = await import('./shipprime.js');
   if (!env.DB || !SP.spConnected(env)) return { skipped: 'no db / ShipPrime' };
   const t0 = Date.now(), stale = now() - PIN_TTL;
@@ -128,10 +131,11 @@ export async function pinWarm(env, { budgetMs = 15000, conc = 6 } = {}) {
   const ours = (await env.DB.prepare("SELECT DISTINCT pincode FROM orders WHERE pincode IS NOT NULL").all().catch(() => ({ results: [] }))).results.map((r) => String(r.pincode)).filter((p) => /^\d{6}$/.test(p));
   const { pinList } = await import('./pins-in.js');
   const todo = [...new Set([...ours, ...pinList()])].filter((p) => !fresh.has(p));
-  let i = 0, done = 0, failed = 0;
-  const work = async () => { while (i < todo.length && Date.now() - t0 < budgetMs) { const p = todo[i++]; try { await spPin(env, p, { network: true }); done++; } catch { failed++; } } };
+  let i = 0, done = 0, failed = 0, limited = false;
+  /* Shiprocket answers 429 when asked too fast: stop this run at once (bookings need it more) */
+  const work = async () => { while (!limited && i < todo.length && Date.now() - t0 < budgetMs) { const p = todo[i++]; try { await spPin(env, p, { network: true }); done++; } catch (e) { failed++; if (/429/.test(String(e.message))) limited = true; } } };
   await Promise.all(Array.from({ length: conc }, work));
-  return { done, failed, left: todo.length - done, total_fresh: fresh.size + done };
+  return { done, failed, limited, left: todo.length - done, total_fresh: fresh.size + done };
 }
 
 /** Rough location from the visitor's IP (Vercel adds these headers). PIN when known, else just the city. */
