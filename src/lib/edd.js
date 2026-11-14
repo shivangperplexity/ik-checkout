@@ -9,8 +9,8 @@
  * Serviceable: Shiprocket has a courier for the PIN, or ShipPrime marks one serviceable. When both carriers answer
  * and neither can deliver, the order is not taken. When a carrier API fails we never block (unknown != no).
  *
- * Nov 2026: ShipPrime only. Every PIN in India is asked ahead of time by the cron (pinWarm) and kept 7 days in table
- * pin_edd, so the checkout and product pages answer instantly; an unknown or stale PIN is asked live once.
+ * Nov 2026: ShipPrime only. Maharashtra PINs are asked ahead of time by the cron (pinWarm) and kept 7 days in table
+ * pin_edd, so they answer instantly; other PINs are asked live (then kept 7 days).
  */
 const now = () => Math.floor(Date.now() / 1000);
 const TTL = 6 * 3600;
@@ -130,7 +130,8 @@ export async function pinWarm(env, { budgetMs = 15000, conc = 2 } = {}) {
   const fresh = new Set((await env.DB.prepare('SELECT pin FROM pin_edd WHERE at > ? AND (ok_cod IS NOT NULL OR ok_pp IS NOT NULL)').bind(stale).all()).results.map((r) => String(r.pin)));
   const ours = (await env.DB.prepare("SELECT DISTINCT pincode FROM orders WHERE pincode IS NOT NULL").all().catch(() => ({ results: [] }))).results.map((r) => String(r.pincode)).filter((p) => /^\d{6}$/.test(p));
   const { pinList } = await import('./pins-in.js');
-  const todo = [...new Set([...ours, ...pinList()])].filter((p) => !fresh.has(p));
+  /* Maharashtra only (owner, 14 Nov 2026): other states are asked live when a shopper types the PIN */
+  const todo = [...new Set([...ours, ...pinList()])].filter((p) => mhPin(p) && !fresh.has(p));
   let i = 0, done = 0, failed = 0, limited = false;
   /* Shiprocket answers 429 when asked too fast: stop this run at once (bookings need it more) */
   const work = async () => { while (!limited && i < todo.length && Date.now() - t0 < budgetMs) { const p = todo[i++]; try { await spPin(env, p, { network: true }); done++; } catch (e) { failed++; if (/429/.test(String(e.message))) limited = true; } } };
