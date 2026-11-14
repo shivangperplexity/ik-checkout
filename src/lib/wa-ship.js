@@ -24,6 +24,7 @@ import { shouldNotify, classifyNdr } from './ndr-rules.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 const POLL = 25 * 60;              // seconds between checks of one shipment
+const HOT_POLL = 8 * 60;         // out-for-delivery / due-today parcels, in the day
 const MAX_PER_RUN = 30;
 const WINDOW_DAYS = 20;
 const TRANSIT_GAP = 6 * 3600;      // "in transit" goes out at least this long after "picked up"
@@ -110,13 +111,22 @@ export async function shipUpdates(env) {
   const anyOn = ['ship_picked', 'ship_transit', 'ship_ofd', 'ship_failed', 'ship_delivered'].some((k) => triggerConfig(env, k).enabled);
   if (!anyOn) return { shipChecked: 0, skipped: 'off' };
   const t = now();
+  /* Hot lane: parcels out for delivery, or due today, are checked every HOT_POLL in the day (7 am-9 pm IST) and go
+     first, so "out for delivery" reaches the customer soon after the scan instead of waiting in the 25-min queue. */
+  const hr = Number(new Date((t + 19800) * 1000).toISOString().slice(11, 13));
+  const hotOn = hr >= 7 && hr < 21;
   const rows = (await env.DB.prepare(
-    `SELECT o.order_id, o.order_name, o.phone, o.first_name, o.status_url, s.awb, s.courier, s.url, s.sent, s.checked_at, s.order_id AS seen
-       FROM orders o LEFT JOIN ship_track s ON s.order_id = o.order_id
-      WHERE o.order_id IS NOT NULL AND o.created_at > ? AND o.status NOT IN ('cancelled','failed','pending_payment','completing')
-        AND (s.done IS NULL OR s.done = FALSE) AND COALESCE(s.checked_at, 0) < ?
-      ORDER BY COALESCE(s.checked_at, 0) LIMIT ${MAX_PER_RUN}`,
-  ).bind(t - WINDOW_DAYS * 86400, t - POLL).all()).results;
+    `SELECT * FROM (
+       SELECT o.order_id, o.order_name, o.phone, o.first_name, o.status_url, s.awb, s.courier, s.url, s.sent, s.checked_at, s.order_id AS seen,
+              (EXISTS (SELECT 1 FROM shipments sh WHERE sh.order_id = o.order_id AND COALESCE(sh.status,'')<>'cancelled'
+                 AND (sh.stage = 'ofd' OR (sh.stage IN ('transit','ndr') AND COALESCE(NULLIF(LEFT(sh.edd,10),''),'9999') <= ?::text)))) AS hot
+         FROM orders o LEFT JOIN ship_track s ON s.order_id = o.order_id
+        WHERE o.order_id IS NOT NULL AND o.created_at > ? AND o.status NOT IN ('cancelled','failed','pending_payment','completing')
+          AND (s.done IS NULL OR s.done = FALSE)
+     ) q
+     WHERE COALESCE(checked_at, 0) < (CASE WHEN hot AND ?::boolean THEN ?::bigint ELSE ?::bigint END)
+     ORDER BY (hot AND ?::boolean) DESC, COALESCE(checked_at, 0) LIMIT ${MAX_PER_RUN}`,
+  ).bind(dayOf(t), t - WINDOW_DAYS * 86400, hotOn, t - HOT_POLL, t - POLL, hotOn).all()).results;
   if (!rows.length) return { shipChecked: 0 };
   let ndr = null;
   let sentN = 0;
