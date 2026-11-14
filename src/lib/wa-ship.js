@@ -155,7 +155,9 @@ export async function shipUpdates(env) {
       try { sent = JSON.parse(r.sent || '{}') || {}; } catch { sent = {}; }
       const firstSeen = !r.seen || !r.awb;
       if (c.stage === 'failed' && ndr === null) ndr = await ndrReasons(env);
-      const { todo, base } = decide(c, sent, firstSeen, (ndr || {})[awb] || '');
+      const { todo: todo0, base } = decide(c, sent, firstSeen, (ndr || {})[awb] || '');
+      /* an out-for-delivery scan from an earlier day is a failed attempt the courier never updated: no message for it */
+      const todo = todo0.filter((w) => w !== 'ofd' || dayOf(c.at) === dayOf(now()));
       sent = base;
       if (mine) {
         /* keep the Shipments tab current, and tag the Shopify order once when the parcel is coming back */

@@ -149,7 +149,7 @@ function codeOf(text, srStatus) {
   const t = String(text || '').toLowerCase(), id = Number(srStatus);
   if (id === 7 || (/delivered/.test(t) && !/rto|return|undelivered|not delivered/.test(t))) return 'DL';
   if (id === 9 || id === 10 || /\brto\b|return to origin|returned to (origin|shipper|seller)|return initiated/.test(t)) return 'RT';
-  if (id === 17 || /out for delivery/.test(t)) return 'OFD';
+  if (id === 17 || /out[ _]for[ _]delivery/.test(t)) return 'OFD';   /* ShipPrime writes OUT_FOR_DELIVERY */
   if (id === 21 || /undelivered|ndr|delivery attempt|attempt(ed)? (failed|unsuccessful)|consignee (refused|unavailable)|customer (refused|not available)|refused|not reachable/.test(t)) return 'EX';
   if (id === 42 || /picked ?up|pickup done|shipment picked/.test(t)) return 'PD';
   if (id === 18 || /in transit|reached|hub|dispatched|arrived|departed|received at|bagged|manifest/.test(t)) return 'IT';
