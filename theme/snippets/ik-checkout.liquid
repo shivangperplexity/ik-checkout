@@ -61,7 +61,8 @@
 {%- capture ikx6 -%}{% render 'ikx-js-6' %}
 {% render 'ikx-js-7' %}
 {% render 'ikx-js-8' %}
-{% render 'ikx-js-9' %}{%- endcapture -%}
+{% render 'ikx-js-9' %}
+{% render 'ikx-js-10' %}{%- endcapture -%}
 {%- assign ikx6 = ikx6 | append: 'takeOverDrawer();' -%}
 {%- assign ikxa = "var link = (UPI_SCHEME[app] || 'upi://pay?') + base;" -%}
 {{ ikx5 | replace_first: 'takeOverDrawer();', ikx6 | replace_first: ikxa, 'var link = upiLink(app, base);' }}

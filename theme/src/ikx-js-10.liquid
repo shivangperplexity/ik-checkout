@@ -1,0 +1,32 @@
+/* ik-express.js part 10 (Build 068): UPI apps open from Instagram / Facebook too, and a shopper who doesn't pay
+online can still order with one tap. Rendered after part 9; its upiLink replaces part 8's. */
+  /* 1. Android: always an intent:// link. Instagram and Facebook's in-app browsers block bare upi:// / tez:// links,
+     so "Other UPI" and Google Pay / PhonePe / Paytm did nothing there (logged as "noapp"). With a package the app
+     opens directly; without one (Other UPI) Android shows its app chooser. Not installed: back to #ikx-noapp. */
+  UPI_PKG.gpay = UPI_PKG.gpay || 'com.google.android.apps.nbu.paisa.user';
+  UPI_PKG.phonepe = UPI_PKG.phonepe || 'com.phonepe.app';
+  UPI_PKG.paytm = UPI_PKG.paytm || 'net.one97.paytm';
+  function upiLink(app, base) {
+    watchOpen(app);
+    if (!IS_ANDROID) return UPI_IOS_SCHEME[app] ? UPI_IOS_SCHEME[app] + base : UPI_SCHEME[app] ? UPI_SCHEME[app] + base : 'upi://pay?' + base;
+    var back = encodeURIComponent(location.href.split('#')[0] + '#ikx-noapp');
+    return 'intent://pay?' + base + '#Intent;scheme=upi;' + (UPI_PKG[app] ? 'package=' + UPI_PKG[app] + ';' : '') + 'S.browser_fallback_url=' + back + ';end';
+  }
+  /* 2. Pay online page: "Pay on delivery instead" at the bottom. Most shoppers who open this page and don't pay
+     left without ordering at all (PayU report 8-13 Nov: 53 of 71); this keeps the order (COD rules + OTP apply). */
+  var openOnline10 = openOnline;
+  openOnline = function (d) {
+    openOnline10(d);
+    var box = $('.ikx-op', root), safe = box && $('.ikx-op__safe', box);
+    if (!box || !safe || !codOn() || !state.quote || !state.quote.cod) return;
+    safe.insertAdjacentHTML('beforebegin', '<section class="ikx-op__s ikx-op__cod"><button type="button" class="ikx-op__row" data-ikx-opcod>' +
+      '<span class="ikx-op__ric">₹</span><span>Pay on delivery instead · ' + money(state.quote.cod.total) + '</span>' + ICON.chev + '</button></section>');
+    box.addEventListener('click', function (e) {
+      if (!(e.target instanceof Element) || !e.target.closest('[data-ikx-opcod]') || state.busy) return;
+      box.remove(); state.method = 'cod'; state.directPay = false;
+      tk('method', { method: 'cod', data: { online_to_cod: 1 } });
+      paintPay(); paintFoot(); submit();
+    });
+  };
+  try { document.head.appendChild(el('style', {}, '.ikx-op__cod{border-top:1px dashed #e4ded3;padding-top:10px}.ikx-op__cod .ikx-op__ric{font-weight:800}')); } catch (e) {}
+/* end of part 10 */
