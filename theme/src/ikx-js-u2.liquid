@@ -48,11 +48,19 @@
   /* promo codes (?ref=VENOMOG): the bill says "Code VENOMOG", not "Referral" */
   var paintBill0 = paintBill;
   paintBill = function () {
-    paintBill0();
+    paintBill0(); paintCoupon();
     var r = state.quote && state.quote.ref; if (!r || r.kind !== 'promo') return;
     var box = $('.ikx-bill__rows', root); if (!box) return;
     Array.prototype.forEach.call(box.querySelectorAll('.ikx-r span:first-child'), function (sp) { if (/^Referral/.test(sp.textContent)) sp.textContent = 'Code ' + r.code; });
   };
+  /* "Coupon applied" ticket at the top of the sheet, like other checkouts, for any code that gives money off */
+  function paintCoupon() {
+    if (!root) return;
+    var r = state.quote && state.quote.ref, amt = state.quote && state.quote.prepaid && state.quote.prepaid.ref, box = $('.ikx-coupon', root);
+    if (!r || !amt) { if (box) box.remove(); return; }
+    if (!box) { var at = $('.ikx-offer', root) || $('.ikx-items', root); if (!at) return; box = el('div', { class: 'ikx-coupon', role: 'status' }); at.parentNode.insertBefore(box, at); }
+    box.innerHTML = '<span class="ikx-coupon__ic">✓</span><span class="ikx-coupon__t"><b>' + esc(r.code) + ' applied</b><small>' + money(amt) + ' extra off when you pay online' + (codOn() ? '' : ' · online payment only') + '</small></span><span class="ikx-coupon__amt">−' + money(amt) + '</span>';
+  }
   /* "super.money" didn't fit the tile; free-pick list: most stock first (q = inventory, snippets/ik-checkout.liquid) */
   UPI_TILE.supermoney = 'Super';
   try { PICKS.sort(function (a, b) { return (Number(b.q) || 0) - (Number(a.q) || 0); }); if (PICKS.length > 24) PICKS.length = 24; } catch (e) {}
@@ -68,5 +76,7 @@
     '.ikx-po__row[data-ikx-method="card"],.ikx-po__row[data-ikx-method="nb"]{background:#fff!important;color:#111!important;border:1.5px solid #e2dccf!important}' +
     '.ikx-po__row[data-ikx-method="card"] svg,.ikx-po__row[data-ikx-method="nb"] svg{stroke:#111;color:#111}' +
     '.ikx-po__apps--many .ikx-po__app{background:#faf8f4!important;border:1.5px solid #ece6dc!important;box-shadow:none!important}.ikx-po__apps--many .ikx-po__app.is-on{background:#fff!important;border:2px solid #111!important}' +
+    '.ikx-coupon{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:10px 12px;border:1.5px dashed #16a34a;border-radius:12px;background:#f0fdf4}.ikx-coupon__ic{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#16a34a;color:#fff;font-weight:900;font-size:13px;flex:none}' +
+    '.ikx-coupon__t{flex:1;display:grid;gap:1px}.ikx-coupon__t b{font-size:14px;letter-spacing:.3px}.ikx-coupon__t small{font-size:12px;color:#166534}.ikx-coupon__amt{font-weight:800;color:#16a34a}' +
     '.ikx-po__apps.ikx-po__apps--many{padding:4px 4px 6px;scroll-padding-left:4px;scrollbar-width:none}.ikx-po__apps--many::-webkit-scrollbar{display:none}')); } catch (e) {}
 /* end of part U2 */
