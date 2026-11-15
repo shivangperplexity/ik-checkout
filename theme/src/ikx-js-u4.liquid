@@ -108,3 +108,19 @@
     if (IKX_FREE !== null && f > IKX_FREE && isOpen()) ikxConfetti();
     IKX_FREE = f;
   };
+  /* Build 071l: "+" that unlocks a FREE tattoo shows the free one as its own row at once (Shopify splits it anyway),
+     instead of "qty 2" first and a jump to two rows a moment later */
+  var changeQty4 = changeQty;
+  changeQty = function (key, delta) {
+    var it = CART && CART.items.filter(function (i) { return i.key === key; })[0];
+    if (!(delta > 0 && it && it.product_type === TATTOO && bogo(CART.items).count % 2 === 1)) return changeQty4(key, delta);
+    var c = clone(CART), idx = -1;
+    c.items.forEach(function (i, n) { if (i.key === key) idx = n; });
+    var cp = JSON.parse(JSON.stringify(c.items[idx])); cp.key = 'tmp-split-' + key; cp.quantity = 1; cp.original_line_price = cp.original_price;
+    c.items.splice(idx, 0, cp); recount(c); render(c);
+    var q = it.quantity + 1;
+    cartOp(function () {
+      return fetch(R + 'cart/change.js', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ id: key, quantity: q }) })
+        .then(function (r) { if (!r.ok) throw new Error('change'); return r.json(); });
+    });
+  };
