@@ -47,11 +47,15 @@ export function combine(sr, sp, { from = Date.now(), arrivalDate, spFailed = fal
 /* Maharashtra (PIN 40-44, not Goa 403): we ship it with Delhivery Air first, so the date follows Air's transit
    (settings shipping.mh_air_days, default 2 days after the pickup day), not ShipPrime's coarse per-state range. */
 export const mhPin = (pin) => /^4[0-4]\d{4}$/.test(String(pin || '')) && !/^403/.test(String(pin));
+/* Mumbai + Thane (Mumbai 400xxx incl. Thane city & Navi Mumbai 4006/4007xx, Mira-Bhayandar 40110x, Kalyan-Dombivli /
+   Ulhasnagar / Bhiwandi / Ambernath 421xxx): the day after pickup (settings shipping.local_days, default 1). */
+export const localPin = (pin) => /^(400\d{3}|40110\d|421\d{3})$/.test(String(pin || ''));
 const ZONE_DAYS = { 1: 4, 2: 4, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5, 8: 5 };
 /** Instant date with no courier call: Maharashtra = Delhivery Air, elsewhere a typical transit for the PIN's zone. */
 export async function quickEstimate(env, pin, from = Date.now()) {
   const { arrivalDate } = await import('./shipprime.js');
-  const mh = mhPin(pin), transit = mh ? Number(env.SETTINGS?.shipping?.mh_air_days ?? 2) : (ZONE_DAYS[String(pin)[0]] || 4);
+  const mh = mhPin(pin), sh = env.SETTINGS?.shipping || {};
+  const transit = localPin(pin) ? Number(sh.local_days ?? 1) : mh ? Number(sh.mh_air_days ?? 2) : (ZONE_DAYS[String(pin)[0]] || 4);
   const date = arrivalDate(transit, from);
   return { date, edd: fmtDay(date), days: Math.max(1, Math.round((Date.parse(date + 'T12:00:00+05:30') - from) / 86400000)), via: mh ? 'delhivery_air' : 'zone' };
 }
