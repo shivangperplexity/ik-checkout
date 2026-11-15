@@ -1,0 +1,166 @@
+/* Build 071: two steps in the sheet.
+   Step 1 "cart": items, free picks, delivery date by PIN, one big Checkout button.
+   Step 2 "details": full name, mobile, address (PIN, City | State, Flat/House no., Apartment/Area), email (compulsory),
+   shipping, payment, summary. First/last name inputs stay hidden and are filled from Full name. */
+  var IKX_STEP = 'cart';
+  (function () {
+    var css = '.ikx-sheet[data-step=cart] .ikx-form{display:none!important}' +
+      '.ikx-sheet[data-step=details] .ikx-items,.ikx-sheet[data-step=details] .ikx-picks,.ikx-sheet[data-step=details] .ikx-pc1{display:none!important}' +
+      '.ikx-in[data-f=country],.ikx-nm2{display:none!important}' +
+      '.ikx-in[data-f=state].is-filled select{background:#f6f5f8;color:#555}' +
+      '.ikx-back2{flex:none;border:0;background:#f1edfb;color:#4b1fa8;width:34px;height:34px;border-radius:50%;font-size:22px;line-height:1;margin-right:8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}' +
+      '.ikx-pc1{margin:14px 0 8px;padding:14px;border:1px solid #e6def7;border-radius:14px;background:linear-gradient(180deg,#faf7ff,#fff)}' +
+      '.ikx-pc1__h{font-weight:700;font-size:15px;margin:0 0 10px;color:#1d1530}' +
+      '.ikx-pc1__row{display:flex;gap:8px}' +
+      '.ikx-pc1__in{flex:1;min-width:0;height:46px;border:1px solid #cfc6e3;border-radius:10px;padding:0 12px;font-size:16px;letter-spacing:.06em;background:#fff;color:#1d1530}' +
+      '.ikx-pc1__in:focus{outline:none;border-color:#6b2fd6;box-shadow:0 0 0 3px rgba(107,47,214,.15)}' +
+      '.ikx-pc1__go{flex:none;height:46px;padding:0 18px;border:0;border-radius:10px;background:#1d1530;color:#fff;font-weight:700;font-size:15px;cursor:pointer}' +
+      '.ikx-pc1__out{margin:10px 2px 0;font-size:14px;line-height:1.4}' +
+      '.ikx-cta{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:58px;border:0;border-radius:16px;' +
+        'background:linear-gradient(100deg,#6b2fd6 0%,#3b3fe0 55%,#2347d9 100%);color:#fff;font:800 19px/1 inherit;letter-spacing:.02em;' +
+        'box-shadow:0 10px 24px -8px rgba(75,40,200,.6);cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+      '.ikx-cta:after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-20deg);animation:ikxShine 2.8s ease-in-out infinite}' +
+      '@keyframes ikxShine{0%,55%{left:-60%}100%{left:130%}}' +
+      '.ikx-cta__a{display:inline-block;font-size:22px;animation:ikxNudge 1.4s ease-in-out infinite}' +
+      '@keyframes ikxNudge{0%,100%{transform:translateX(0)}50%{transform:translateX(5px)}}' +
+      '.ikx-cta:active{transform:scale(.985)}' +
+      '.ikx-cta__sub{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 0 0;font-size:12.5px;color:#5b5670;text-align:center}' +
+      '.ikx-cta__sub svg{width:13px;height:13px;flex:none}' +
+      '@media (prefers-reduced-motion:reduce){.ikx-cta:after,.ikx-cta__a{animation:none}}';
+    var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+  })();
+
+  function stepSet(s) {
+    IKX_STEP = s; if (!root) return;
+    var sh = $('.ikx-sheet', root); if (sh) sh.setAttribute('data-step', s);
+    var h = $('.ikx-h', root); if (h) h.textContent = s === 'cart' ? 'Your cart' : 'Delivery details';
+    var bk = $('.ikx-back2', root); if (bk) bk.hidden = s === 'cart';
+    var sc = scroller(); if (sc) sc.scrollTop = 0;
+    paintFoot();
+  }
+
+  /* Full name <-> hidden first / last name */
+  function nameSync() {
+    var f = form(); if (!f || !f.elements.full_name) return;
+    var parts = f.elements.full_name.value.trim().replace(/\s+/g, ' ').split(' ');
+    f.elements.first_name.value = parts.shift() || ''; f.elements.last_name.value = parts.join(' ');
+  }
+  function pc1Sync() {
+    var f = form(), i = root && $('.ikx-pc1__in', root);
+    if (f && i && document.activeElement !== i) i.value = f.elements.pincode.value || '';
+    var pe = root && $('.ikx-pinedd', root), out = root && $('.ikx-pc1__out', root);
+    if (pe && out) { out.hidden = pe.hidden; out.innerHTML = pe.innerHTML; }
+  }
+  function pc1Push(v) {
+    var f = form(); if (!f) return;
+    var fp = f.elements.pincode;
+    if (fp.value !== v) { fp.value = v; fp.dispatchEvent(new Event('input', { bubbles: true })); }
+    else paintShip();
+  }
+
+  var buildMain1 = buildMain;
+  buildMain = function () {
+    buildMain1();
+    var f = form(); if (!f) return;
+    var fn = f.elements.first_name, sec = fn.closest('.ikx-sec'), row = fn.closest('.ikx-row2');
+    var q = function (n) { return $('.ikx-in[data-f="' + n + '"]', f); };
+    var full = el('label', { class: 'ikx-in ikx-in--float', 'data-f': 'full_name' },
+      '<input name="full_name" placeholder=" " autocomplete="shipping name" required><span>Full name</span><em class="ikx-ferr" hidden></em>');
+    full.querySelector('input').value = (fn.value + ' ' + f.elements.last_name.value).trim();
+    row.classList.add('ikx-nm2'); fn.removeAttribute('required'); f.elements.last_name.removeAttribute('required');
+    var lbl = function (n, t) { var w = q(n); if (w) $('span', w).textContent = t; };
+    lbl('address1', 'Flat, House no.'); lbl('address2', 'Apartment, Area, Sector, Village'); lbl('pincode', 'Pincode'); lbl('email', 'Email address');
+    f.elements.email.required = true;
+    /* name above, then the address block, email last */
+    [full, q('phone'), f.elements.news && f.elements.news.closest('label'), q('pincode'), $('.ikx-pinedd', f), q('city').closest('.ikx-row2'),
+      q('address1'), q('address2'), q('email'), f.elements.remember && f.elements.remember.closest('label'), row]
+      .forEach(function (n) { if (n) sec.appendChild(n); });
+    full.querySelector('input').addEventListener('input', nameSync);
+    /* step 1: delivery date check in the cart */
+    var picks = $('.ikx-picks', root);
+    if (picks && !$('.ikx-pc1', root)) {
+      picks.insertAdjacentHTML('afterend', '<div class="ikx-pc1"><p class="ikx-pc1__h">🚚 Check delivery date</p><div class="ikx-pc1__row">' +
+        '<input class="ikx-pc1__in" inputmode="numeric" maxlength="6" autocomplete="postal-code" placeholder="Enter your pincode" aria-label="Pincode">' +
+        '<button type="button" class="ikx-pc1__go">Check</button></div><p class="ikx-pc1__out" hidden></p></div>');
+      var i = $('.ikx-pc1__in', root), out = $('.ikx-pc1__out', root);
+      i.addEventListener('input', function () {
+        i.value = i.value.replace(/\D/g, '').slice(0, 6);
+        if (i.value.length === 6) pc1Push(i.value); else out.hidden = true;
+      });
+      i.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('.ikx-pc1__go', root).click(); } });
+    }
+    var head = $('.ikx-head', root);
+    if (head && !$('.ikx-back2', head)) head.insertAdjacentHTML('afterbegin', '<button type="button" class="ikx-back2" data-ikx-back2 aria-label="Back to cart" hidden>‹</button>');
+    stepSet(IKX_STEP);
+    pc1Sync();
+  };
+
+  var paintShip1 = paintShip;
+  paintShip = function () { paintShip1(); pc1Sync(); };
+
+  var restoreDraft1 = restoreDraft;
+  restoreDraft = function (d) {
+    restoreDraft1(d);
+    var f = form(); if (!f || !d || !f.elements.full_name) return;
+    var n = d.full_name || d.name || ((d.first_name || '') + ' ' + (d.last_name || '')).trim();
+    if (n) { f.elements.full_name.value = n; nameSync(); }
+    pc1Sync();
+  };
+
+  var formData1 = formData;
+  formData = function () {
+    var o = formData1(), f = form();
+    if (f && f.elements.full_name) {
+      var n = f.elements.full_name.value.trim().replace(/\s+/g, ' '), parts = n.split(' ');
+      o.full_name = n; o.name = n; o.first_name = parts.shift() || ''; o.last_name = parts.join(' ');
+    }
+    return o;
+  };
+
+  invalid = function (d) {
+    var LINK = /(https?:\/\/|www\.|maps\.app|goo\.gl|\.com\/)/i, full = d.full_name !== undefined ? d.full_name : d.name;
+    return (full || '').length < 2 ? ['full_name', 'Enter your full name'] :
+      !d.phone ? ['phone', 'Enter your mobile number'] :
+      !/^[6-9]\d{9}$/.test(d.phone) ? ['phone', 'Enter a valid 10-digit mobile number'] :
+      !/^\d{6}$/.test(d.pincode) ? ['pincode', 'Enter a valid 6-digit pincode'] :
+      !d.city ? ['city', 'Enter a city'] :
+      !d.state ? ['state', 'Select a state'] :
+      d.address1.length < 1 ? ['address1', 'Enter your flat / house no.'] :
+      LINK.test(d.address1) ? ['address1', 'Please type your address. Links are not accepted'] :
+      d.address2.length < 3 ? ['address2', 'Enter your apartment, area, sector or village'] :
+      LINK.test(d.address2) ? ['address2', 'Please type your area. Links are not accepted'] :
+      (d.address1 + ' ' + d.address2).trim().length < 5 ? ['address2', 'Enter your full address'] :
+      !d.email ? ['email', 'Enter your email address'] :
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? ['email', 'Enter a valid email address'] : null;
+  };
+
+  var paintFoot1 = paintFoot;
+  paintFoot = function () {
+    if (IKX_STEP !== 'cart' || !root || !state.built || !state.quote) return paintFoot1();
+    var foot = $('.ikx-foot', root); if (!foot) return;
+    var p = state.quote[qk(state.method)], save = savings(p), was = p.subtotal + (p.shipping || 0) + (p.cod || 0);
+    foot.innerHTML = '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : 'Free delivery') + '</span>' +
+      '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>' +
+      '<button type="button" class="ikx-cta" data-ikx-step2><span>Checkout</span><span class="ikx-cta__a" aria-hidden="true">→</span></button>' +
+      '<p class="ikx-cta__sub">' + ICON.lock + 'Secure checkout · Free delivery' + (codOn() ? ' · Cash on delivery' : '') + '</p>';
+  };
+
+  var openSheet1 = openSheet;
+  openSheet = function (where, from) {
+    var was = isOpen();
+    if (!was) IKX_STEP = 'cart';
+    openSheet1(where, from);
+    if (!was) stepSet('cart');
+  };
+
+  document.addEventListener('click', function (e) {
+    var t = e.target; if (!root || !t || !t.closest || !root.contains(t)) return;
+    if (t.closest('[data-ikx-step2]')) { e.preventDefault(); stepSet('details'); return; }
+    if (t.closest('[data-ikx-back2]')) { e.preventDefault(); stepSet('cart'); return; }
+    if (t.closest('.ikx-pc1__go')) {
+      e.preventDefault();
+      var i = $('.ikx-pc1__in', root), out = $('.ikx-pc1__out', root), v = (i.value || '').replace(/\D/g, '');
+      if (v.length !== 6) { out.hidden = false; out.innerHTML = '<span style="color:#b42318">Enter a valid 6-digit pincode</span>'; i.focus(); return; }
+      pc1Push(v);
+    }
+  });

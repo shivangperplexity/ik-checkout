@@ -111,7 +111,7 @@ function validateBuyer(b) {
   const err = !phone ? 'Enter a valid 10-digit mobile number'
     : name.length < 2 ? 'Enter your name'
     : !/^\d{6}$/.test(pincode) ? 'Enter a valid 6-digit PIN code'
-    : address1.length < 5 ? 'Enter your full address'
+    : !address1 || (address1 + ' ' + String(b.address2 || '')).trim().length < 5 ? 'Enter your full address'   /* Build 071: flat no. can be short; area is in address2 */
     : addressProblem(address1, b.address2) ? addressProblem(address1, b.address2)
     : !city ? 'Enter your city'
     : !stateCode(state) ? 'Select your state'
