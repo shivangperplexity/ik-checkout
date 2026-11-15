@@ -46,3 +46,23 @@
     var help = $('[data-otp-more] p', o); if (help) help.innerHTML = help.innerHTML.replace(' (or Paste)', '');
     return r;
   };
+  /* Build 071x: one visitor across tabs (shared id in localStorage, new session after 30 idle minutes),
+     and every visitor is tracked: a page view on each page + a light ping every 60 s while the tab is open */
+  var VID = '', VS_KEY = 'ik_vs';
+  (function () {
+    try {
+      var t = Date.now(), s = JSON.parse(localStorage.getItem(VS_KEY) || 'null');
+      if (!s || !s.id || t - (s.at || 0) > 1800000) s = { id: SID };
+      s.at = t; localStorage.setItem(VS_KEY, JSON.stringify(s));
+      if (s.id !== SID) { SID = s.id; try { sessionStorage.setItem('ik_sid', SID); } catch (e) {} }
+      VID = localStorage.getItem('ik_vid') || ''; if (!VID) { VID = SID; localStorage.setItem('ik_vid', VID); }
+    } catch (e) {}
+  })();
+  var tk5 = tk;
+  tk = function (type, extra) {
+    extra = extra || {}; if (VID && !extra.vid) extra.vid = VID;
+    try { localStorage.setItem(VS_KEY, JSON.stringify({ id: SID, at: Date.now() })); } catch (e) {}
+    return tk5(type, extra);
+  };
+  tk('view');
+  setInterval(function () { if (!document.hidden && !(CART && CART.item_count)) tk('ping'); }, 60000);

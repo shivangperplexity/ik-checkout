@@ -68,7 +68,11 @@ export async function handleTrack(req, env) {
   const b = await req.json().catch(() => ({}));
   const sid = String(b.sid || '').slice(0, 40);
   const type = String(b.type || '').slice(0, 20);
-  if (!sid || !STEPS.concat(['left', 'fail', 'method', 'upi', 'ping']).includes(type)) return json({ ok: false }, 400);
+  if (!sid || !STEPS.concat(['left', 'fail', 'method', 'upi', 'ping', 'view']).includes(type)) return json({ ok: false }, 400);
+  /* Build 071x: every visitor (page views), with IP + browser so the same person in two tabs shows once */
+  const ip = String(req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '').split(',')[0].trim().slice(0, 64) || null;
+  const ua = String(req.headers.get('user-agent') || '').slice(0, 160) || null;
+  const vid = b.vid ? String(b.vid).slice(0, 40) : null;
   const t = now();
   const rank = STEPS.indexOf(type);
   const lines = Array.isArray(b.cart) ? b.cart.slice(0, 20).filter((l) => !/^partial payment$/i.test(String(l.t || '').trim())).map((l) => ({ t: String(l.t || '').slice(0, 80), q: +l.q || 1, p: +l.p || 0 })) : null;
@@ -77,16 +81,17 @@ export async function handleTrack(req, env) {
   const src = b.utm?.utm_source ? String(b.utm.utm_source).slice(0, 40) : b.utm?.fbclid ? 'facebook' : null;
   const phone = cleanPhone(b.phone);
   await env.DB.prepare(
-    `INSERT INTO sessions (sid,phone,name,device,cart_json,cart_value,step,max_step,method,source,utm_json,page,first_seen,last_seen)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `INSERT INTO sessions (sid,phone,name,device,cart_json,cart_value,step,max_step,method,source,utm_json,page,first_seen,last_seen,ip,ua,vid,views)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(sid) DO UPDATE SET phone=COALESCE(excluded.phone,sessions.phone), name=COALESCE(NULLIF(excluded.name,''),sessions.name),
        cart_json=COALESCE(excluded.cart_json,sessions.cart_json), cart_value=COALESCE(?,sessions.cart_value),
        step=CASE WHEN ?>=0 THEN excluded.step ELSE sessions.step END, max_step=GREATEST(sessions.max_step,excluded.max_step),
        method=COALESCE(excluded.method,sessions.method), source=COALESCE(sessions.source,excluded.source), utm_json=COALESCE(sessions.utm_json,excluded.utm_json),
-       page=COALESCE(excluded.page,sessions.page), last_seen=excluded.last_seen`,
-  ).bind(sid, phone, String(b.name || '').slice(0, 60), String(b.device || '').slice(0, 10), lines ? JSON.stringify(lines) : null, value ?? 0, rank >= 0 ? type : null, Math.max(rank, 0), b.method ? String(b.method).slice(0, 10) : null, src, utm, b.page ? String(b.page).slice(0, 200) : null, t, t, value, rank)
+       page=COALESCE(excluded.page,sessions.page), last_seen=excluded.last_seen,
+       ip=COALESCE(excluded.ip,sessions.ip), ua=COALESCE(sessions.ua,excluded.ua), vid=COALESCE(sessions.vid,excluded.vid), views=COALESCE(sessions.views,0)+excluded.views`,
+  ).bind(sid, phone, String(b.name || '').slice(0, 60), String(b.device || '').slice(0, 10), lines ? JSON.stringify(lines) : null, value ?? 0, rank >= 0 ? type : null, type === 'view' || type === 'ping' ? -1 : Math.max(rank, 0), b.method ? String(b.method).slice(0, 10) : null, src, utm, b.page ? String(b.page).slice(0, 200) : null, t, t, ip, ua, vid, type === 'view' ? 1 : 0, value, rank)
     .run();
-  if (type !== 'ping' && type !== 'cart') await env.DB.prepare('INSERT INTO events (sid,ts,type,data) VALUES (?,?,?,?)').bind(sid, t, type, JSON.stringify(b.data || {}).slice(0, 300)).run();
+  if (type !== 'ping' && type !== 'cart' && type !== 'view') await env.DB.prepare('INSERT INTO events (sid,ts,type,data) VALUES (?,?,?,?)').bind(sid, t, type, JSON.stringify(b.data || {}).slice(0, 300)).run();
   if (type === 'done') await env.DB.prepare("UPDATE sessions SET ordered=1, max_step=7 WHERE sid=?").bind(sid).run();
   return json({ ok: true });
 }
@@ -212,10 +217,20 @@ const IST = 19800;
 
 async function liveData(env) {
   const t = now();
-  const rows = (await env.DB.prepare('SELECT * FROM sessions WHERE last_seen>? ORDER BY last_seen DESC LIMIT 80').bind(t - 1800).all()).results;
-  const mapped = rows.map((s) => ({
-    sid: s.sid.slice(0, 8), phone: s.phone, name: s.name, device: s.device, step: s.step || 'cart', max_step: s.max_step, method: s.method, source: s.source || 'direct',
+  const all = (await env.DB.prepare('SELECT * FROM sessions WHERE last_seen>? ORDER BY last_seen DESC LIMIT 300').bind(t - 1800).all()).results;
+  /* Build 071x: two tabs / two sessions of the same person (same IP + same browser, or same visitor id) show as one card */
+  const seen = new Map(), rows = [];
+  for (const s of all) {
+    const k = s.vid ? 'v' + s.vid : s.ip && s.ua ? 'i' + s.ip + '|' + s.ua : 's' + s.sid;
+    const k2 = s.ip && s.ua ? 'i' + s.ip + '|' + s.ua : null;
+    const hit = seen.get(k) || (k2 && seen.get(k2));
+    if (hit) { hit._tabs++; if (num(s.max_step) > num(hit.max_step) || (!hit.phone && s.phone)) Object.assign(hit, s, { _tabs: hit._tabs, last_seen: Math.max(num(hit.last_seen), num(s.last_seen)) }); continue; }
+    const r = { ...s, _tabs: 1 }; rows.push(r); seen.set(k, r); if (k2) seen.set(k2, r);
+  }
+  const mapped = rows.slice(0, 150).map((s) => ({
+    sid: s.sid.slice(0, 8), phone: s.phone, name: s.name, device: s.device, step: s.step || (num(s.max_step) < 0 ? 'view' : 'cart'), max_step: num(s.max_step), method: s.method, source: s.source || 'direct',
     cart: JSON.parse(s.cart_json || '[]'), value: num(s.cart_value), ordered: !!s.ordered, order: s.order_name, last_seen: num(s.last_seen), first_seen: num(s.first_seen), active: t - num(s.last_seen) < 90,
+    page: s.page || '', ip: s.ip || '', views: num(s.views), tabs: s._tabs,
   }));
   /* When each phone was last nudged, so the Live tab can show it next to the Nudge button. */
   const phones = [...new Set(mapped.map((s) => s.phone).filter(Boolean))];
@@ -224,15 +239,15 @@ async function liveData(env) {
     const by = Object.fromEntries(ls.map((l) => [l.phone, num(l.nudged_at) || null]));
     mapped.forEach((s) => { s.nudged_at = s.phone ? by[s.phone] || null : null; });
   }
-  return { now: t, active: mapped.filter((s) => s.active && !s.ordered).length, sessions: mapped };
+  return { now: t, active: mapped.filter((s) => s.active && !s.ordered && s.value > 0).length, visitors: mapped.filter((s) => s.active).length, sessions: mapped };
 }
 
 async function analytics(env, days) {
   const since = now() - days * 86400;
   const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results);
   const [funnel, left, daily, sources, devices, orders, msgs, leads] = await Promise.all([
-    q('SELECT max_step, COUNT(*) n FROM sessions WHERE first_seen>? GROUP BY max_step', since),
-    q('SELECT max_step, COUNT(*) n, COALESCE(SUM(cart_value),0) v FROM sessions WHERE first_seen>? AND ordered=0 GROUP BY max_step', since),
+    q('SELECT max_step, COUNT(*) n FROM sessions WHERE first_seen>? AND max_step>=0 GROUP BY max_step', since),
+    q('SELECT max_step, COUNT(*) n, COALESCE(SUM(cart_value),0) v FROM sessions WHERE first_seen>? AND ordered=0 AND max_step>=0 GROUP BY max_step', since),
     q(`SELECT ((created_at+${IST})/86400) d, COUNT(*) n, SUM(total_paise) v, SUM(CASE WHEN method='cod' THEN 1 ELSE 0 END) cod FROM orders WHERE created_at>? AND status NOT IN ('pending_payment','failed','completing','cancelled') GROUP BY 1 ORDER BY 1`, since),
     q("SELECT COALESCE(source,'direct') s, COUNT(*) sessions, SUM(ordered) orders FROM sessions WHERE first_seen>? GROUP BY 1 ORDER BY 2 DESC LIMIT 8", since),
     q("SELECT COALESCE(NULLIF(device,''),'unknown') d, COUNT(*) sessions, SUM(ordered) orders FROM sessions WHERE first_seen>? GROUP BY 1", since),
@@ -429,7 +444,7 @@ const ACTIONS = {
     const days = Math.min(14, Math.max(2, Number(b.days) || 4));
     const t = now(), hNow = new Date((t + IST) * 1000).getUTCHours(), cut = b.full ? 24 : hNow + 1;
     const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results).catch((e) => [{ error: String(e.message) }]);
-    const rows = await q(`SELECT ((first_seen+${IST})/86400) d, COALESCE(method,'-') m, max_step s, ordered o, COUNT(*) n FROM sessions WHERE first_seen>?::bigint AND ((first_seen+${IST})%86400)/3600 < ? GROUP BY 1,2,3,4`, t - days * 86400, cut);
+    const rows = await q(`SELECT ((first_seen+${IST})/86400) d, COALESCE(method,'-') m, max_step s, ordered o, COUNT(*) n FROM sessions WHERE first_seen>?::bigint AND max_step>=0 AND ((first_seen+${IST})%86400)/3600 < ? GROUP BY 1,2,3,4`, t - days * 86400, cut);
     const otp = await q(`SELECT ((sent_at+${IST})/86400) d, COUNT(*) sent, SUM(CASE WHEN verified_at IS NOT NULL THEN 1 ELSE 0 END) ok FROM cod_otps WHERE sent_at>?::bigint AND ((sent_at+${IST})%86400)/3600 < ? GROUP BY 1`, t - days * 86400, cut);
     const ords = await q(`SELECT ((created_at+${IST})/86400) d, method, status, COUNT(*) n FROM orders WHERE created_at>?::bigint AND ((created_at+${IST})%86400)/3600 < ? GROUP BY 1,2,3`, t - days * 86400, cut);
     const out = {};

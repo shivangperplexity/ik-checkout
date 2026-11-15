@@ -659,16 +659,16 @@ function loadWebchat(){rpc('site_chats',{days:30}).then(function(r){if(tab!=='we
 function fail(e){$('#main').innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'}
 
 /* ---- live ---- */
-var STEPN={cart:'Browsing with cart',open:'Opened checkout',phone:'Entered phone',pin:'Entered PIN',address:'Filled address',pay:'Ready to pay',submit:'Tapped pay',done:'Ordered'};
+var STEPN={view:'Browsing',cart:'Browsing with cart',open:'Opened checkout',phone:'Entered phone',pin:'Entered PIN',address:'Filled address',pay:'Ready to pay',submit:'Tapped pay',done:'Ordered'};
 var STEPI=['cart','open','phone','pin','address','pay','submit','done'];
 function loadLive(quiet){rpc('live').then(function(j){
  if(tab!=='live')return;
- var h='<div class="row" style="margin-bottom:10px"><span class="pulse"></span><b>'+j.active+' shopper'+(j.active===1?'':'s')+' with a cart right now</b><span class="mut small">updates every 5 seconds · last 30 minutes shown</span></div>';
+ var h='<div class="row" style="margin-bottom:10px"><span class="pulse"></span><b>'+(j.visitors||0)+' on the site now · '+j.active+' with a cart</b><span class="mut small">updates every 5 seconds · last 30 minutes shown</span></div>';
  h+='<div class="live">'+(j.sessions.length?j.sessions.map(function(s){
   var cls=s.ordered?'done':s.active?'act':'old',idx=STEPI.indexOf(s.step);
   return '<div class="sess '+cls+'"><div class="row"><b>'+esc(s.name||(s.phone?'+91 '+s.phone:'Visitor '+s.sid))+'</b><span class="grow"></span>'+(s.ordered?'<span class="pill ok">Ordered '+esc(s.order||'')+'</span>':s.active?'<span class="pill ok"><span class="pulse"></span> live</span>':'<span class="mut small">'+ago(s.last_seen)+'</span>')+'</div>'
   +'<div class="steps">'+STEPI.map(function(_,i){return '<i class="'+(i<=Math.max(idx,s.max_step)?'f':'')+'"></i>'}).join('')+'</div>'
-  +'<div class="small"><b>'+esc(STEPN[s.step]||s.step)+'</b> · '+esc(s.device||'')+' · '+esc(s.source)+(s.method?' · '+esc(s.method):'')+'</div>'
+  +'<div class="small"><b>'+esc(STEPN[s.step]||s.step)+'</b> · '+esc(s.device||'')+' · '+esc(s.source)+(s.method?' · '+esc(s.method):'')+'</div>'+(s.page?'<div class="small mut">On '+esc(s.page)+(s.views>1?' · '+s.views+' pages':'')+(s.tabs>1?' · '+s.tabs+' tabs':'')+(s.ip?' · IP '+esc(s.ip):'')+'</div>':'')
   +'<div class="small mut">'+s.cart.map(function(c){return esc(c.t)+' ×'+c.q}).join(', ')+'</div><div class="row"><b>'+inr(s.value/100)+'</b>'+(s.phone?'<span class="grow"></span><a class="small" target="_blank" rel="noopener" href="https://wa.me/91'+s.phone+'">Chat</a>':'')+'</div>'
   +(s.phone&&!s.ordered?'<div class="row" style="margin-top:6px"><button class="btn sm" data-ln="'+esc(s.phone)+'"'+(NUDGING[s.phone]?' disabled':'')+'>'+(NUDGING[s.phone]?'Sending…':s.nudged_at?'Nudge again':'Nudge on WhatsApp')+'</button>'+(s.nudged_at?'<span class="small mut">nudged '+ago(s.nudged_at)+'</span>':'')+'</div>':'')+'</div>'}).join(''):'<p class="mut">No recent activity. Open the store in another tab and add something to the cart to see it here.</p>')+'</div>';
  $('#main').innerHTML=h;

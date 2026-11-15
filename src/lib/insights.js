@@ -47,7 +47,7 @@ export async function insights(env, { days = 90 } = {}) {
   const cod = rows.filter((r) => r.pay === 'cod');
   const top = (g, min = 8) => Object.fromEntries(Object.entries(g).filter(([, x]) => x.finished >= min).sort((a, b) => b[1].n - a[1].n));
   /* funnel (sessions, last 30 days) */
-  const fun = await q(`SELECT COALESCE(source,'') AS source, COALESCE(device,'') AS device, max_step, COUNT(*) AS n FROM sessions WHERE first_seen>? GROUP BY 1,2,3`, t - 30 * 86400);
+  const fun = await q(`SELECT COALESCE(source,'') AS source, COALESCE(device,'') AS device, max_step, COUNT(*) AS n FROM sessions WHERE first_seen>? AND max_step>=0 GROUP BY 1,2,3`, t - 30 * 86400);
   const steps = ['cart', 'open', 'phone', 'pin', 'address', 'pay', 'submit', 'done'];
   const reach = (filter) => steps.map((s, i) => fun.filter(filter).filter((f) => Number(f.max_step) >= i).reduce((a, f) => a + Number(f.n), 0));
   const funnel = { all: reach(() => true), mobile: reach((f) => /mob|android|iphone/i.test(f.device)), desktop: reach((f) => /desk/i.test(f.device)) };
