@@ -78,22 +78,11 @@
   AC.full_name = 'name'; AC.phone = 'tel'; AC.pincode = 'postal-code'; AC.city = 'address-level2'; AC.state = 'address-level1';
   AC.address1 = 'street-address'; AC.address2 = 'off'; AC.email = 'email'; AC.first_name = 'off'; AC.last_name = 'off';
   try { acFix(); } catch (e) {}
-  /* iPhone Safari fills only "street-address" (one block): when a whole address lands in Flat, House no. at once,
-     the first part stays there and the rest goes to Apartment, Area, Sector, Village */
   /* AutoFill can put "District, City" in City (e.g. "Raigarh(Mh), Panvel"): keep the city only */
   document.addEventListener('input', function (e) {
     var c = e.target; if (!c || c.name !== 'city' || !root || !root.contains(c) || !/,/.test(c.value)) return;
     var prev = c._ikPrev || ''; c._ikPrev = c.value; if (c.value.length - prev.length < 4) return;
     c.value = c.value.split(',').pop().trim(); c._ikPrev = c.value;
-  }, true);
-  document.addEventListener('input', function (e) {
-    var a1 = e.target; if (!a1 || a1.name !== 'address1' || !root || !root.contains(a1)) return;
-    var prev = a1._ikPrev || ''; a1._ikPrev = a1.value;
-    var f = form(), a2 = f && f.elements.address2; if (!a2 || a2.value.trim() || a1.value.length - prev.length < 8) return;
-    var parts = a1.value.split(/\s*[,\n]\s*/).filter(Boolean); if (parts.length < 2) return;
-    var head = parts.shift(); if (/^\d+[a-z]?$/i.test(head) && parts.length > 1) head += ', ' + parts.shift();
-    a1.value = head; a2.value = parts.join(', '); a1._ikPrev = a1.value;
-    a2.dispatchEvent(new Event('input', { bubbles: true }));
   }, true);
   /* Build 072e: Chrome reads a form's fields once, when it first sees them (and skips hidden ones). Set the final
      AutoFill names and put the form back in the page when it is built and again when the details step shows. */
@@ -106,3 +95,43 @@
   buildMain = function () { buildMain6(); acReattach(); };
   var stepSet6 = stepSet;
   stepSet = function (s) { stepSet6(s); if (s === 'details') setTimeout(acReattach, 60); };
+  /* Build 072g: one "Full address" box (flat, building, area). AutoFill fills it in one go; the order still gets two
+     address lines (split near 60 characters) for the courier label. The Area box stays hidden. */
+  (function () { var st = document.createElement('style'); st.textContent = '.ikx-in[data-f=address2]{display:none!important}'; document.head.appendChild(st); })();
+  var buildMain7 = buildMain;
+  buildMain = function () {
+    buildMain7();
+    var f = form(); if (!f || !f.elements.address1) return;
+    var w = f.elements.address1.closest('.ikx-in'), sp = w && $('span', w); if (sp) sp.textContent = 'Full address (flat, building, area)';
+    f.elements.address2.removeAttribute('required');
+    if (f.elements.address2.value && f.elements.address1.value.indexOf(f.elements.address2.value) < 0) {
+      f.elements.address1.value = f.elements.address1.value + ', ' + f.elements.address2.value; f.elements.address2.value = '';
+    }
+  };
+  var restoreDraft7 = restoreDraft;
+  restoreDraft = function (d) {
+    restoreDraft7(d);
+    var f = form(); if (!f || !d || !f.elements.address1 || !d.address2) return;
+    f.elements.address1.value = [d.address1, d.address2].filter(Boolean).join(', '); f.elements.address2.value = '';
+  };
+  var formData7 = formData;
+  formData = function () {
+    var o = formData7(), f = form(); if (!f || !f.elements.address1) return o;
+    var full = f.elements.address1.value.trim().replace(/\s+/g, ' '), a1 = full, a2 = '';
+    if (full.length > 60) {
+      var cut = full.lastIndexOf(',', 60); if (cut < 15) cut = full.lastIndexOf(' ', 60);
+      if (cut > 10) { a1 = full.slice(0, cut).trim(); a2 = full.slice(cut + 1).trim(); }
+    }
+    o.full_address = full; o.address1 = a1; o.address2 = a2;
+    return o;
+  };
+  var invalid7 = invalid;
+  invalid = function (d) {
+    var full = d.full_address != null ? d.full_address : ((d.address1 || '') + ' ' + (d.address2 || '')).trim();
+    var dd = {}; for (var k in d) dd[k] = d[k]; dd.address1 = full; dd.address2 = 'n/a';
+    var r = invalid7(dd), msg = 'Enter your full address: flat, building, area';
+    if (r && r[0] === 'address1' && !/Links/.test(r[1])) return ['address1', msg];
+    if (r && r[0] === 'address2') return ['address1', r[1].replace(/area/, 'address')];
+    if (!r && full.length < 10) return ['address1', msg];
+    return r;
+  };
