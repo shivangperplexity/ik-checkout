@@ -76,10 +76,16 @@
   /* Build 072b: one-tap AutoFill. Every field uses plain (unsectioned) tokens, so one AutoFill pick fills name, mobile,
      pincode, city, state, both address lines and email together; the hidden first/last name boxes are skipped. */
   AC.full_name = 'name'; AC.phone = 'tel'; AC.pincode = 'postal-code'; AC.city = 'address-level2'; AC.state = 'address-level1';
-  AC.address1 = 'street-address'; AC.address2 = 'off'; AC.email = 'email'; AC.first_name = 'off'; AC.last_name = 'off';
+  AC.address1 = 'address-line1'; AC.address2 = 'address-line2'; AC.email = 'email'; AC.first_name = 'off'; AC.last_name = 'off';
   try { acFix(); } catch (e) {}
   /* iPhone Safari fills only "street-address" (one block): when a whole address lands in Flat, House no. at once,
      the first part stays there and the rest goes to Apartment, Area, Sector, Village */
+  /* AutoFill can put "District, City" in City (e.g. "Raigarh(Mh), Panvel"): keep the city only */
+  document.addEventListener('input', function (e) {
+    var c = e.target; if (!c || c.name !== 'city' || !root || !root.contains(c) || !/,/.test(c.value)) return;
+    var prev = c._ikPrev || ''; c._ikPrev = c.value; if (c.value.length - prev.length < 4) return;
+    c.value = c.value.split(',').pop().trim(); c._ikPrev = c.value;
+  }, true);
   document.addEventListener('input', function (e) {
     var a1 = e.target; if (!a1 || a1.name !== 'address1' || !root || !root.contains(a1)) return;
     var prev = a1._ikPrev || ''; a1._ikPrev = a1.value;
