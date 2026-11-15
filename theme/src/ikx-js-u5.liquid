@@ -31,3 +31,18 @@
   };
   /* Build 071v: no "Wait! Save by paying online" prompt before a COD order */
   askCod = function () { return false; };
+  /* Build 071w: COD code box: no "Paste code" button; small dark "Resend" under the code box, on the right */
+  var otpOpen5 = otpOpen;
+  otpOpen = function (d, opt) {
+    var r = otpOpen5(d, opt);
+    var o = root && $('.ikx-otpw', root); if (!o) return r;
+    var paste = $('[data-otp-paste]', o), re = $('[data-otp-re]', o), inp = $('[data-otp-in]', o);
+    if (paste) paste.parentNode.removeChild(paste);
+    if (re && inp) {
+      var row = el('div', { style: 'display:flex;justify-content:flex-end;margin:8px 0 0' });
+      inp.parentNode.insertBefore(row, inp.nextSibling); row.appendChild(re);
+      re.className = ''; re.setAttribute('style', 'border:0;border-radius:8px;background:#1d1530;color:#fff;font:inherit;font-size:12.5px;font-weight:700;padding:7px 12px;cursor:pointer;opacity:1');
+    }
+    var help = $('[data-otp-more] p', o); if (help) help.innerHTML = help.innerHTML.replace(' (or Paste)', '');
+    return r;
+  };
