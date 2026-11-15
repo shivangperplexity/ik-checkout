@@ -122,7 +122,7 @@ export async function createDraft(env, { lines, price, method, buyer, tags, attr
     tags,
     customAttributes: attributes,
     shippingLine: {
-      title: price.cod ? (price.shipping ? 'Shipping + COD fee' : 'COD fee') : price.shipping ? 'Shipping' : 'Free shipping',
+      title: price.cod ? 'Shipping fee' : price.shipping ? 'Shipping' : 'Free shipping',
       price: rupees(price.shipping + price.cod),
     },
   };

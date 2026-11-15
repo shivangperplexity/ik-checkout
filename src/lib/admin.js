@@ -2500,8 +2500,10 @@ const ACTIONS = {
     const mode = typeof b.cod === 'boolean' && !b.mode ? (b.cod ? 'all' : 'off') : b.mode;
     if (!['all', 'organic', 'off'].includes(mode)) throw new Error('Pick who gets Cash on delivery');
     const c = { ...((await getSettings(env, true)).checkout || {}), cod: mode !== 'off', cod_mode: mode === 'organic' ? 'organic' : 'all' };
+    /* Build 071: flat COD shipping fee in rupees (pricing.js reads checkout.cod_fee; default ₹29) */
+    if (b.cod_fee != null) { const v = Math.round(Number(b.cod_fee)); if (!(v >= 0 && v <= 500)) throw new Error('Shipping fee must be ₹0-500'); c.cod_fee = v; }
     await putSetting(env, 'checkout', c);
-    return { ok: true, checkout: { cod: c.cod, mode } };
+    return { ok: true, checkout: { cod: c.cod, mode, cod_fee: c.cod_fee ?? 29 } };
   },
   async save_logos(env, b) {
     /* Build 066: every UPI app tile of the checkout; keys not sent keep their saved logo (b.merge) */

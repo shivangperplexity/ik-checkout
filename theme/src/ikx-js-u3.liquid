@@ -95,8 +95,44 @@
     pc1Sync();
   };
 
+  /* Build 071b: COD pays a flat ₹51 "Shipping fee" (server pricing); online = free delivery.
+     The shipping method shows as soon as the 6-digit pincode is in. */
+  var COD_SHIP = 5100;
+  var estimate1 = estimate;
+  estimate = function (c) { var r = estimate1(c); if (r && r.cod) { r.cod.total += COD_SHIP - (r.cod.cod || 0); r.cod.cod = COD_SHIP; } return r; };
   var paintShip1 = paintShip;
-  paintShip = function () { paintShip1(); pc1Sync(); };
+  paintShip = function () {
+    paintShip1();
+    var box = root && $('.ikx-ship', root), d = form() ? formData() : null;
+    if (box && d && /^\d{6}$/.test(d.pincode) && !(SHIP.no && SHIP.pin === d.pincode)) {
+      var p = state.quote && state.quote[qk(state.method)], fee = p ? (p.shipping || 0) + (state.method === 'cod' ? (p.cod || 0) : 0) : 0;
+      var when = SHIP.pin !== d.pincode || SHIP.busy ? '<i class="ikx-spin ikx-spin--pin"></i> Checking delivery date…' : SHIP.edd ? 'Arrives by ' + esc(SHIP.edd) : 'Delivery in 3–6 days';
+      box.innerHTML = '<div class="ikx-shipopt is-on" role="radio" aria-checked="true"><span class="ikx-radio" aria-hidden="true"></span>' +
+        '<span class="ikx-shipopt__t"><b>Express shipping</b><span class="ikx-m">' + when + (state.method !== 'cod' ? ' · prepaid orders ship first' : '') + '</span></span>' +
+        '<b class="' + (fee ? '' : 'ikx-green') + '">' + (fee ? money(fee) : 'FREE') + '</b></div>';
+    }
+    var pe = root && $('.ikx-pinedd', root);
+    if (pe && /Free delivery(?! on)/.test(pe.innerHTML)) pe.innerHTML = pe.innerHTML.replace(/Free delivery(?! on)/, 'Free delivery on online payment');
+    pc1Sync();
+  };
+  /* "COD fee" is called "Shipping fee" everywhere in the sheet */
+  function relabel(n) {
+    if (!n) return;
+    var w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT), t;
+    while ((t = w.nextNode())) if (/COD fee/i.test(t.nodeValue)) t.nodeValue = t.nodeValue.replace(/COD fee/g, 'shipping fee').replace(/^shipping fee/, 'Shipping fee');
+  }
+  var paintBill1 = paintBill;
+  paintBill = function () { paintBill1(); relabel(root); };
+  /* online rows: "10% off on prepaid" + "Free Delivery" */
+  var paintPay3 = paintPay;
+  paintPay = function () {
+    paintPay3(); var box = root && $('.ikx-pay', root); if (!box) return;
+    relabel(box);
+    Array.prototype.forEach.call(box.querySelectorAll('.ikx-pb--g'), function (b) {
+      if (/^10% OFF$/i.test(b.textContent)) b.textContent = '10% off on prepaid';
+      if (!b.nextElementSibling || !b.nextElementSibling.classList.contains('ikx-pb--fd')) b.insertAdjacentHTML('afterend', '<span class="ikx-pb ikx-pb--g ikx-pb--fd">Free Delivery</span>');
+    });
+  };
 
   var restoreDraft1 = restoreDraft;
   restoreDraft = function (d) {
@@ -139,10 +175,10 @@
     if (IKX_STEP !== 'cart' || !root || !state.built || !state.quote) return paintFoot1();
     var foot = $('.ikx-foot', root); if (!foot) return;
     var p = state.quote[qk(state.method)], save = savings(p), was = p.subtotal + (p.shipping || 0) + (p.cod || 0);
-    foot.innerHTML = '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : 'Free delivery') + '</span>' +
+    foot.innerHTML = '<div class="ikx-tot"><span class="ikx-green">' + (save ? 'You’re saving ' + money(save) : (p.cod ? 'Shipping ' + money(p.cod) : 'Free delivery')) + '</span>' +
       '<span>' + (was > p.total ? '<s>' + money(was) + '</s>' : '') + '<b>' + money(p.total) + '</b></span></div><p class="ikx-err" role="alert" hidden></p>' +
       '<button type="button" class="ikx-cta" data-ikx-step2><span>Checkout</span><span class="ikx-cta__a" aria-hidden="true">→</span></button>' +
-      '<p class="ikx-cta__sub">' + ICON.lock + 'Secure checkout · Free delivery' + (codOn() ? ' · Cash on delivery' : '') + '</p>';
+      '<p class="ikx-cta__sub">' + ICON.lock + 'Secure checkout · Free delivery on online payment' + (codOn() ? ' · Cash on delivery' : '') + '</p>';
   };
 
   var openSheet1 = openSheet;
