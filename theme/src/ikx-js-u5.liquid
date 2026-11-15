@@ -95,3 +95,14 @@
     a1.value = head; a2.value = parts.join(', '); a1._ikPrev = a1.value;
     a2.dispatchEvent(new Event('input', { bubbles: true }));
   }, true);
+  /* Build 072e: Chrome reads a form's fields once, when it first sees them (and skips hidden ones). Set the final
+     AutoFill names and put the form back in the page when it is built and again when the details step shows. */
+  function acReattach() {
+    var f = form(); if (!f || !f.parentNode) return;
+    for (var k in AC) { var p = f.elements[k]; if (p && p.setAttribute) p.setAttribute('autocomplete', AC[k]); }
+    var par = f.parentNode, nx = f.nextSibling; par.removeChild(f); par.insertBefore(f, nx);
+  }
+  var buildMain6 = buildMain;
+  buildMain = function () { buildMain6(); acReattach(); };
+  var stepSet6 = stepSet;
+  stepSet = function (s) { stepSet6(s); if (s === 'details') setTimeout(acReattach, 60); };
