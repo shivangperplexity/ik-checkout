@@ -172,7 +172,7 @@ async function dailyAdSpend(env, orders) {
   return map;
 }
 async function bookedMap(env) {
-  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state, charge_paise, stage FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
+  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state, charge_paise, stage, provider FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
   return Object.fromEntries(rows.map((r) => [String(r.order_id), r]));
 }
 function orderOut(o, all) {
@@ -559,7 +559,8 @@ const ACTIONS = {
       const allIn = { cod: num(pf.ship_cod), prepaid: num(pf.ship_prepaid) };
       const GST = 1.18, r2 = (x) => Math.round(x * 100) / 100;
       const payOf = (o) => (o.method === 'cod' ? 'cod' : 'prepaid');
-      const quote = (o) => { const s = booked[String(o.id)]; return s && num(s.charge_paise) > 0 ? (num(s.charge_paise) / 100) * GST : 0; };
+      /* ShipPrime quotes already include GST; Shiprocket quotes do not */
+      const quote = (o) => { const s = booked[String(o.id)]; return s && num(s.charge_paise) > 0 ? (num(s.charge_paise) / 100) * (s.provider === 'shipprime' ? 1 : GST) : 0; };
       const quotes = list.map(quote).filter(Boolean);
       const estShip = quotes.length ? Math.round(quotes.reduce((a, c) => a + c, 0) / quotes.length) : num(pf.ship_estimate) || 75;
       const [rates, spend] = await Promise.all([deliveryRates(env).catch(() => null), dailyAdSpend(env, list).catch((e) => { console.error('profit spend', e.message); return null; })]);
