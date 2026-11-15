@@ -7,13 +7,15 @@
       '.ikx-in[data-f=state] .ikx-in__chev{display:none}' +
       '.ikx-pb.ikx-pb--two{display:inline-flex;gap:6px;background:none!important;box-shadow:none!important;padding:0!important}' +
       '.ikx-pbi{font-style:normal;background:#16a34a;color:#fff;padding:2px 8px;border-radius:999px;box-shadow:0 0 0 2px #fff}' +
-      '.ikx-cta{background:linear-gradient(100deg,#6b2fd6 0%,#6b2fd6 40%,#5235dc 70%,#2f44da 100%)!important}.ikx-cta__sub{display:none!important}';
+      '.ikx-cta{background:linear-gradient(100deg,#6b2fd6 0%,#6b2fd6 40%,#5235dc 70%,#2f44da 100%)!important}.ikx-cta__sub{display:none!important}' +
+      '.ikx-sheet[data-step=details] .ikx-offer,.ikx-newsrow{display:none!important}';
     document.head.appendChild(st);
   })();
   var buildMain4 = buildMain;
   buildMain = function () {
     buildMain4();
     var f = form(); if (!f) return;
+    if (f.elements.news) f.elements.news.closest('label').classList.add('ikx-newsrow');
     var s = f.elements.state;
     s.setAttribute('tabindex', '-1'); s.setAttribute('aria-readonly', 'true');
     s.addEventListener('mousedown', function (e) { e.preventDefault(); });
