@@ -139,3 +139,14 @@
     while (free.length || paid.length) { if (free.length) out.push(free.shift()); if (paid.length) out.push(paid.shift()); }
     out.concat(other).forEach(function (x) { ul.appendChild(x); });
   };
+  /* Build 071n: keep the already-loaded product images when the cart repaints (no blink on every change) */
+  var IMGQ = '.ikx-items img,.ikx-picks img';
+  var paintCart7 = paintCart;
+  paintCart = function () {
+    var cache = {};
+    if (root) Array.prototype.forEach.call(root.querySelectorAll(IMGQ), function (im) { var s = im.getAttribute('src'); if (s && im.complete && im.naturalWidth) (cache[s] = cache[s] || []).push(im); });
+    paintCart7();
+    if (root) Array.prototype.forEach.call(root.querySelectorAll(IMGQ), function (im) {
+      var a = cache[im.getAttribute('src')]; if (a && a.length) { var old = a.shift(); if (old !== im && im.parentNode) im.parentNode.replaceChild(old, im); }
+    });
+  };
