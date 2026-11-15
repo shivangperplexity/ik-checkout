@@ -73,3 +73,8 @@
     var s = root && $('[data-ikx-method="cod"] .ikx-po__t small', root);
     if (s && /^Incl\./.test(s.textContent)) s.textContent = 'Pay online for free delivery';
   };
+  /* Build 072b: one-tap AutoFill. Every field uses plain (unsectioned) tokens, so one AutoFill pick fills name, mobile,
+     pincode, city, state, both address lines and email together; the hidden first/last name boxes are skipped. */
+  AC.full_name = 'name'; AC.phone = 'tel'; AC.pincode = 'postal-code'; AC.city = 'address-level2'; AC.state = 'address-level1';
+  AC.address1 = 'address-line1'; AC.address2 = 'address-line2'; AC.email = 'email'; AC.first_name = 'off'; AC.last_name = 'off';
+  try { acFix(); } catch (e) {}
