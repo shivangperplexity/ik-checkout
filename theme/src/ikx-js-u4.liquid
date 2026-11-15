@@ -45,3 +45,34 @@
     var r = $('[data-ikx-method="cod"] .ikx-po__radio', box);
     if (r) r.outerHTML = '<span class="ikx-po__chev">' + ICON.chev + '</span>';
   };
+  /* Build 071g: Buy 1 Get 1 milestones (2 / 4 / 6 tattoos) as a progress track with gift stops */
+  (function () {
+    var st = document.createElement('style');
+    st.textContent = '.ikx-offer.ikx-offer--ms{background:none!important;padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important;height:auto!important;overflow:visible!important}' +
+      '.ikx-offer--ms:before,.ikx-offer--ms:after{display:none!important}' +
+      '.ikx-ms{padding:6px 4px 2px}.ikx-ms__h{margin:0 0 30px;text-align:center;font-weight:800;font-size:16px;color:#1d1530}' +
+      '.ikx-ms__track{position:relative;height:8px;border-radius:99px;background:#e4e2ea;margin:0 6px 52px}' +
+      '.ikx-ms__fill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:#1f5132;transition:width .4s}' +
+      '.ikx-ms__n{position:absolute;top:50%;transform:translate(-50%,-50%);width:96px;text-align:center}' +
+      '.ikx-ms__c{display:flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0 auto;border-radius:50%;background:#fff;border:2px solid #1d1530;color:#1d1530}' +
+      '.ikx-ms__c svg{width:17px;height:17px}.ikx-ms__n.is-on .ikx-ms__c{background:#1f5132;border-color:#1f5132;color:#fff}' +
+      '.ikx-ms__t,.ikx-ms__b{position:absolute;left:0;right:0;font-size:12px;line-height:1.25;color:#55506a}' +
+      '.ikx-ms__t{bottom:100%;margin-bottom:4px}.ikx-ms__b{top:100%;margin-top:4px;font-weight:700;letter-spacing:.02em}.ikx-ms__n.is-on .ikx-ms__b{color:#1f5132}';
+    document.head.appendChild(st);
+  })();
+  var GIFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>';
+  var paintCart4 = paintCart;
+  paintCart = function () {
+    paintCart4();
+    var box = root && $('.ikx-offer', root); if (!box || box.hidden || !CART) return;
+    var b = bogo(CART.items), c = b.count, POS = [16, 50, 84], STOPS = [2, 4, 6];
+    var fill = c >= 6 ? 100 : c <= 2 ? c * POS[0] / 2 : c <= 4 ? POS[0] + (c - 2) * (POS[1] - POS[0]) / 2 : POS[1] + (c - 4) * (POS[2] - POS[1]) / 2;
+    var h = c >= 6 ? '🎉 ' + b.free + ' tattoos FREE in this order!' :
+      b.free ? '🎉 ' + b.free + ' FREE unlocked! Add ' + (b.odd ? 1 : 2) + ' more to get 1 more FREE' : 'Add 1 more to get 1 FREE tattoo!';
+    box.classList.add('ikx-offer--ms');
+    box.innerHTML = '<div class="ikx-ms"><p class="ikx-ms__h">' + h + '</p><div class="ikx-ms__track" aria-hidden="true"><i class="ikx-ms__fill" style="width:' + Math.round(fill) + '%"></i>' +
+      STOPS.map(function (n, i) {
+        return '<div class="ikx-ms__n' + (c >= n ? ' is-on' : '') + '" style="left:' + POS[i] + '%"><span class="ikx-ms__t">' + n + ' Items</span><b class="ikx-ms__c">' + GIFT + '</b>' +
+          '<span class="ikx-ms__b">BUY ' + (n / 2) + ' GET ' + (n / 2) + ' FREE</span></div>';
+      }).join('') + '</div></div>';
+  };
