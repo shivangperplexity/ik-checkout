@@ -77,3 +77,34 @@
           '<span class="ikx-ms__b">BUY ' + (n / 2) + ' GET ' + (n / 2) + ' FREE</span></div>';
       }).join('') + '</div></div>';
   };
+  /* Build 071k: confetti when a FREE tattoo gets unlocked */
+  var IKX_FREE = null;
+  function ikxConfetti() {
+    if (!root || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    var sh = $('.ikx-sheet', root); if (!sh) return;
+    if (!document.getElementById('ikx-cf-css')) {
+      var st = document.createElement('style'); st.id = 'ikx-cf-css';
+      st.textContent = '.ikx-cf{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:50}' +
+        '.ikx-cf i{position:absolute;top:-12px;display:block;border-radius:2px;animation:ikxCf var(--d) cubic-bezier(.2,.6,.4,1) var(--w) forwards}' +
+        '@keyframes ikxCf{0%{transform:translate(0,0) rotate(0);opacity:1}100%{transform:translate(var(--x),var(--y)) rotate(var(--r));opacity:0}}';
+      document.head.appendChild(st);
+    }
+    var C = ['#6b2fd6', '#2347d9', '#f5b301', '#16a34a', '#ef4444', '#ec4899', '#06b6d4', '#f97316'], h = sh.clientHeight || 600, html = '';
+    for (var k = 0; k < 90; k++) {
+      var w = 5 + Math.random() * 7, round = Math.random() < .3;
+      html += '<i style="left:' + (Math.random() * 100) + '%;width:' + w + 'px;height:' + (round ? w : w * 1.8) + 'px;' + (round ? 'border-radius:50%;' : '') +
+        'background:' + C[k % C.length] + ';--x:' + Math.round(Math.random() * 120 - 60) + 'px;--y:' + Math.round(h * (.6 + Math.random() * .5)) + 'px;' +
+        '--r:' + Math.round(Math.random() * 720 - 360) + 'deg;--d:' + (1.6 + Math.random() * 1.2).toFixed(2) + 's;--w:' + (Math.random() * .35).toFixed(2) + 's"></i>';
+    }
+    var box = el('div', { class: 'ikx-cf', 'aria-hidden': 'true' }, html);
+    sh.appendChild(box);
+    setTimeout(function () { if (box.parentNode) box.parentNode.removeChild(box); }, 3600);
+  }
+  var paintCart5 = paintCart;
+  paintCart = function () {
+    paintCart5();
+    if (!CART) return;
+    var f = bogo(CART.items).free;
+    if (IKX_FREE !== null && f > IKX_FREE && isOpen()) ikxConfetti();
+    IKX_FREE = f;
+  };
