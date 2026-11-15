@@ -124,3 +124,18 @@
         .then(function (r) { if (!r.ok) throw new Error('change'); return r.json(); });
     });
   };
+  /* Build 071m: cart rows alternate FREE / paid / FREE / paid (display order only) */
+  var paintCart6 = paintCart;
+  paintCart = function () {
+    paintCart6();
+    var ul = root && $('.ikx-items', root); if (!ul || !CART) return;
+    var li = Array.prototype.slice.call(ul.children); if (li.length !== CART.items.length) return;
+    var b = bogo(CART.items), free = [], paid = [], other = [];
+    CART.items.forEach(function (it, n) {
+      if (it.product_type !== TATTOO) other.push(li[n]);
+      else if ((b.map[n] || 0) >= it.quantity) free.push(li[n]); else paid.push(li[n]);
+    });
+    var out = [];
+    while (free.length || paid.length) { if (free.length) out.push(free.shift()); if (paid.length) out.push(paid.shift()); }
+    out.concat(other).forEach(function (x) { ul.appendChild(x); });
+  };
