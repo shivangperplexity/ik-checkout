@@ -1,0 +1,42 @@
+/* Build 071c: state always from the pincode (not editable), online tags side by side, COD tag "Includes delivery fee",
+   COD row with an arrow like the others. */
+  (function () {
+    var st = document.createElement('style');
+    st.textContent = '.ikx-in[data-f=state]{background:#f6f5f8}' +
+      '.ikx-in[data-f=state] select,.ikx-in[data-f=state].is-filled select{background:transparent!important;pointer-events:none;-webkit-appearance:none;appearance:none;color:#444}' +
+      '.ikx-in[data-f=state] .ikx-in__chev{display:none}' +
+      '.ikx-pb.ikx-pb--two{display:inline-flex;gap:6px;background:none!important;box-shadow:none!important;padding:0!important}' +
+      '.ikx-pbi{font-style:normal;background:#16a34a;color:#fff;padding:2px 8px;border-radius:999px;box-shadow:0 0 0 2px #fff}';
+    document.head.appendChild(st);
+  })();
+  var buildMain4 = buildMain;
+  buildMain = function () {
+    buildMain4();
+    var f = form(); if (!f) return;
+    var s = f.elements.state;
+    s.setAttribute('tabindex', '-1'); s.setAttribute('aria-readonly', 'true');
+    s.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    s.addEventListener('keydown', function (e) { if (e.key !== 'Tab') e.preventDefault(); });
+    /* a new pincode clears the old state until the lookup fills it again */
+    f.elements.pincode.addEventListener('input', function () {
+      if (s.value) { s.value = ''; s.closest('.ikx-in').classList.remove('is-filled'); }
+    });
+  };
+  var invalid4 = invalid;
+  invalid = function (d) {
+    var r = invalid4(d);
+    return r && r[0] === 'state' ? ['pincode', /^\d{6}$/.test(d.pincode) ? 'Pincode not found, please check it' : 'Enter a valid 6-digit pincode'] : r;
+  };
+  var paintPay4 = paintPay;
+  paintPay = function () {
+    paintPay4(); var box = root && $('.ikx-pay', root); if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('.ikx-pb--fd'), function (b) { b.remove(); });
+    Array.prototype.forEach.call(box.querySelectorAll('.ikx-pb--g'), function (b) {
+      if (b.classList.contains('ikx-pb--two')) return;
+      var t = /10% OFF/i.test(b.textContent) ? '10% off on prepaid' : b.textContent;
+      b.classList.add('ikx-pb--two'); b.innerHTML = '<i class="ikx-pbi">' + esc(t) + '</i><i class="ikx-pbi">Free Delivery</i>';
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('.ikx-pb--x'), function (b) { b.textContent = 'Includes delivery fee'; });
+    var r = $('[data-ikx-method="cod"] .ikx-po__radio', box);
+    if (r) r.outerHTML = '<span class="ikx-po__chev">' + ICON.chev + '</span>';
+  };
