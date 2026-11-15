@@ -375,7 +375,9 @@ export async function fulfilBooked(env, id) {
   if (!rec?.awb) return 'No Shiprocket AWB for this order yet';
   const courier = rec.courier || (rec.provider === 'shipprime' ? 'ShipPrime' : 'Shiprocket'), awb = String(rec.awb), url = trackUrlOf(rec);
   let err = '';
-  try { await ACTIONS.ship(env, { id, company: courier, number: awb, url, notify: false }); }
+  /* Shopify's "Shipping confirmation" email (tracking link) goes to customers who gave an email; mail.ship=false turns it off */
+  const notify = ((env.SETTINGS || await getSettings(env)).mail || {}).ship !== false;
+  try { await ACTIONS.ship(env, { id, company: courier, number: awb, url, notify }); }
   catch (e) {
     err = String(e.message || e);
     if (/Nothing left to fulfil/.test(err)) {

@@ -15,6 +15,7 @@
 import { sr, srTrack, trackRaw } from './shiprocket.js';
 import { stageOf, summarize, attemptsOf } from './sr-scan.js';
 import { cancelFulfilmentsFor } from './shopify.js';
+import { mailStage } from './ship-mail.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 /** '2026-10-14 15:30:00' (IST) -> epoch seconds, or 0 */
@@ -75,6 +76,8 @@ export async function refreshShipment(env, rec, raw = null) {
       rto=CASE WHEN ?::text='rto' THEN TRUE ELSE rto END,
       attempts=COALESCE(?::int, attempts), attempt_notes=COALESCE(NULLIF(?::text,''), attempt_notes) WHERE order_id=?`)
     .bind(stage, s.text.slice(0, 160), t, s.edd, picked, Math.min(t, s.pickedTs || t), stage, Math.min(t, s.lastTs || t), stage, s.attempts ?? null, String(s.attemptNotes || '').slice(0, 400), String(rec.order_id)).run();
+  /* tracking email: Shopify's own notification when the stage moves (once per stage) */
+  if (stage !== rec.stage) await mailStage(env, rec, stage);
   /* cancelled in the Shiprocket panel: show it as cancelled here too and free the order to be shipped again */
   if (stage === 'cancelled' && rec.status !== 'cancelled') {
     await env.DB.prepare("UPDATE shipments SET status='cancelled', cancel_state=COALESCE(cancel_state,'cancelled'), cancel_note=COALESCE(cancel_note,?), updated_at=? WHERE order_id=?").bind(rec.provider === 'shipprime' ? 'Cancelled in ShipPrime' : 'Cancelled in Shiprocket', t, String(rec.order_id)).run();

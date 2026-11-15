@@ -212,6 +212,7 @@ export const SCHEMA = [
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS sp_ndr_reason TEXT`,
   /* which courier we asked for and why, and what ShipPrime did instead (lib/shipprime.js spBook) */
   `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS book_note TEXT`,
+  `ALTER TABLE shipments ADD COLUMN IF NOT EXISTS mailed TEXT`,
   /* Dashboard assistant conversation (lib/assistant.js) */
   `CREATE TABLE IF NOT EXISTS assistant_msgs (id SERIAL PRIMARY KEY, ts BIGINT, role TEXT, content TEXT)`,
   /* Reviews (lib/reviews.js): one ask per delivered order, the reviews, their photos (JPEG base64) */
