@@ -66,3 +66,10 @@
   };
   tk('view');
   setInterval(function () { if (!document.hidden && !(CART && CART.item_count)) tk('ping'); }, 60000);
+  /* Build 072: COD row sub-line just says "Pay online for free delivery" */
+  var paintPay6 = paintPay;
+  paintPay = function () {
+    paintPay6();
+    var s = root && $('[data-ikx-method="cod"] .ikx-po__t small', root);
+    if (s && /^Incl\./.test(s.textContent)) s.textContent = 'Pay online for free delivery';
+  };
