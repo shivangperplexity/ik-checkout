@@ -139,8 +139,40 @@ async function recentOrders(env, days = 90) {
 }
 const num = (v) => Number(v) || 0;
 /** Orders that have a live (not cancelled) Shiprocket AWB. They count as shipped even if the Shopify fulfilment step failed. */
+/* IST calendar day of a unix time, YYYY-MM-DD */
+const ikDay = (t) => new Date((Number(t) + 19800) * 1000).toISOString().slice(0, 10);
+/* our real delivery rate, last 60 days of parcels with a final outcome, COD and prepaid apart (shrunk toward a prior when few) */
+async function deliveryRates(env) {
+  const rows = (await env.DB.prepare(`SELECT CASE WHEN o.method='cod' THEN 'cod' ELSE 'prepaid' END m, s.stage, COUNT(*) n
+    FROM shipments s JOIN orders o ON o.order_id = s.order_id
+    WHERE s.stage IN ('delivered','rto') AND COALESCE(s.status,'') <> 'cancelled' AND s.created_at > ?::bigint GROUP BY 1, 2`).bind(Math.floor(Date.now() / 1000) - 60 * 86400).all()).results;
+  const out = {};
+  for (const [m, prior] of [['cod', 0.55], ['prepaid', 0.9]]) {
+    const d = rows.filter((r) => r.m === m && r.stage === 'delivered').reduce((a, r) => a + Number(r.n), 0);
+    const t = rows.filter((r) => r.m === m).reduce((a, r) => a + Number(r.n), 0);
+    out[m] = { p: Math.round(((d + prior * 10) / (t + 10)) * 1000) / 1000, n: t };
+  }
+  return out;
+}
+/* Meta ad spend per IST day across the order dates shown (one insights call, cached 20 min) */
+let SPEND_C = { at: 0, key: '', map: null };
+async function dailyAdSpend(env, orders) {
+  const days = orders.map((o) => ikDay(o.created_at)).sort();
+  if (!days.length) return {};
+  const since = days[0], until = days[days.length - 1], key = since + '|' + until;
+  if (SPEND_C.key === key && Date.now() - SPEND_C.at < 20 * 60 * 1000) return SPEND_C.map;
+  const M = await import('./meta-ads.js');
+  const f = env.SETTINGS?.meta ? env : { ...env, SETTINGS: await getSettings(env) };
+  const c = M.adsCfg(f);
+  if (!c.token) return null;
+  const rows = await M.all(f, `${c.account}/insights`, { level: 'account', time_increment: '1', fields: 'spend', time_range: JSON.stringify({ since, until }) }, 400);
+  const map = {};
+  for (const r of rows || []) map[r.date_start] = Number(r.spend) || 0;
+  SPEND_C = { at: Date.now(), key, map };
+  return map;
+}
 async function bookedMap(env) {
-  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state, charge_paise FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
+  const rows = (await env.DB.prepare("SELECT order_id, awb, courier, fulfil_error, cancel_state, charge_paise, stage FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled'").all()).results;
   return Object.fromEntries(rows.map((r) => [String(r.order_id), r]));
 }
 function orderOut(o, all) {
@@ -514,28 +546,48 @@ const ACTIONS = {
     if (b.filter === 'unconfirmed') list = list.filter((o) => o.method === 'cod' && !o.confirmed_at && !o.shipped && o.status !== 'cancelled');
     let profit = null;
     if (b.filter === 'shipped') {
+      const everyone = list;
       list = list.filter((o) => o.shipped);
-      /* expected profit per shipped order: revenue - items x product cost - CAC - the parcel's Shiprocket charge (assumes it is delivered) */
-      const pf = (env.SETTINGS || await getSettings(env)).profit || { unit_cost: 40, cac: 80 };
-      const unitCost = num(pf.unit_cost), cac = num(pf.cac);
-      const sum = { n: 0, revenue: 0, units: 0, product: 0, cac: 0, shipping: 0, net: 0, known: 0, unknown: 0, collab: 0 };
-      /* no Shiprocket charge on record (shipped another way): use the average of the known charges so the order still counts */
-      const knownCharges = list.map((o) => booked[String(o.id)]).filter((s) => s && s.charge_paise != null && num(s.charge_paise) > 0).map((s) => num(s.charge_paise) / 100);
-      const estShip = knownCharges.length ? Math.round(knownCharges.reduce((a, c) => a + c, 0) / knownCharges.length) : num(pf.ship_estimate) || 65;
+      /* Expected profit per shipped order, outcome-aware:
+       *   delivered  -> total - items x product cost - CAC - courier (all-in)
+       *   RTO        -> -(courier out + return fee) - CAC   (the parcel comes back, the tattoos are reused)
+       *   on the way -> p x delivered + (1-p) x RTO, p = our real delivery rate (last 60 days, COD / prepaid apart)
+       * CAC = that IST day's real Meta spend / orders placed that day (barter collabs excluded and at Rs 0); the Settings figure only as fallback.
+       * Courier = the all-in per-parcel cost from Settings when set, else the courier's quote + 18% GST. */
+      const pf = (env.SETTINGS || await getSettings(env)).profit || {};
+      const unitCost = num(pf.unit_cost ?? 40), cacSet = num(pf.cac ?? 80), rtoFee = num(pf.rto_fee);
+      const allIn = { cod: num(pf.ship_cod), prepaid: num(pf.ship_prepaid) };
+      const GST = 1.18, r2 = (x) => Math.round(x * 100) / 100;
+      const payOf = (o) => (o.method === 'cod' ? 'cod' : 'prepaid');
+      const quote = (o) => { const s = booked[String(o.id)]; return s && num(s.charge_paise) > 0 ? (num(s.charge_paise) / 100) * GST : 0; };
+      const quotes = list.map(quote).filter(Boolean);
+      const estShip = quotes.length ? Math.round(quotes.reduce((a, c) => a + c, 0) / quotes.length) : num(pf.ship_estimate) || 75;
+      const [rates, spend] = await Promise.all([deliveryRates(env).catch(() => null), dailyAdSpend(env, list).catch((e) => { console.error('profit spend', e.message); return null; })]);
+      const P = { cod: rates?.cod?.p ?? 0.55, prepaid: rates?.prepaid?.p ?? 0.9 };
+      const perDay = {};
+      everyone.forEach((o) => { if (!o.collab) perDay[ikDay(o.created_at)] = (perDay[ikDay(o.created_at)] || 0) + 1; });
+      const sum = { n: 0, revenue: 0, units: 0, product: 0, cac: 0, shipping: 0, net: 0, known: 0, unknown: 0, collab: 0, delivered: 0, rto: 0, transit: 0, net_delivered: 0, net_rto: 0, net_transit: 0, cac_real: 0 };
       list.forEach((o) => {
         const row = all.find((x) => String(x.order_id) === String(o.id)) || {};
         let units = 0; try { units = JSON.parse(row.contents_json || '[]').reduce((s, c) => s + (Number(c.quantity) || 0), 0); } catch { units = 0; }
         if (!units) units = 1;
-        const known = booked[String(o.id)] && booked[String(o.id)].charge_paise != null && num(booked[String(o.id)].charge_paise) > 0;
-        const ship = known ? num(booked[String(o.id)].charge_paise) / 100 : estShip;
-        const oCac = o.collab ? 0 : cac;   /* a barter collab came from a creator, not from paid ads */
-        const product = units * unitCost, net = Math.round((o.total - product - oCac - ship) * 100) / 100;
-        o.profit = { units, product, cac: oCac, shipping: ship, net, est: !known };
+        const m = payOf(o), q = quote(o), s = booked[String(o.id)] || {};
+        const ship = r2(allIn[m] || q || estShip), est = !allIn[m] && !q;
+        const d = ikDay(o.created_at), real = !!(spend && spend[d] != null && perDay[d]);
+        const oCac = o.collab ? 0 : r2(real ? spend[d] / perDay[d] : cacSet);   /* a barter collab came from a creator, not from paid ads */
+        const product = units * unitCost;
+        const win = o.total - product - oCac - ship, lose = -(ship + rtoFee) - oCac;
+        const outcome = s.stage === 'delivered' ? 'delivered' : s.stage === 'rto' ? 'rto' : 'transit';
+        const p = outcome === 'delivered' ? 1 : outcome === 'rto' ? 0 : P[m];
+        const net = r2(p * win + (1 - p) * lose);
+        o.profit = { units, product, cac: oCac, cac_real: real, shipping: ship, net, est, outcome, p: r2(p) };
         sum.n++; sum.revenue += o.total; sum.units += units; sum.product += product; sum.cac += oCac; sum.shipping += ship; sum.net += net;
-        if (known) sum.known++; else sum.unknown++;
+        sum[outcome]++; sum['net_' + outcome] += net; if (real && !o.collab) sum.cac_real++;
+        if (est) sum.unknown++; else sum.known++;
         if (o.collab) sum.collab++;
       });
-      profit = { ...sum, unit_cost: unitCost, cac_per_order: cac, ship_estimate: estShip, avg: sum.n ? Math.round(sum.net / sum.n) : 0 };
+      profit = { ...sum, unit_cost: unitCost, cac_per_order: cacSet, cac_avg: sum.n - sum.collab ? r2(sum.cac / (sum.n - sum.collab)) : 0, ship_estimate: estShip, ship_all_in: allIn, rto_fee: rtoFee,
+        p_cod: P.cod, p_prepaid: P.prepaid, rates_n: { cod: rates?.cod?.n || 0, prepaid: rates?.prepaid?.n || 0 }, avg: sum.n ? Math.round(sum.net / sum.n) : 0 };
       Object.keys(profit).forEach((k) => { if (typeof profit[k] === 'number') profit[k] = Math.round(profit[k] * 100) / 100; });
     }
     if (b.filter === 'packed') list = list.filter((o) => o.packed_at && o.status !== 'cancelled');
@@ -722,7 +774,11 @@ const ACTIONS = {
   async save_profit(env, b) {
     const unit_cost = Number(b.unit_cost), cac = Number(b.cac);
     if (!(unit_cost >= 0 && unit_cost < 100000) || !(cac >= 0 && cac < 100000)) throw new Error('Enter amounts in rupees');
-    await putSetting(env, 'profit', { ...((await getSettings(env, true)).profit || {}), unit_cost, cac });
+    /* all-in courier cost per parcel (freight + GST + COD charge) and the return fee per RTO; blank = 0 = use the courier quote + GST */
+    const opt = (v) => { const x = Number(v); return v === '' || v == null ? 0 : x >= 0 && x < 10000 ? x : NaN; };
+    const ship_cod = opt(b.ship_cod), ship_prepaid = opt(b.ship_prepaid), rto_fee = opt(b.rto_fee);
+    if ([ship_cod, ship_prepaid, rto_fee].some(Number.isNaN)) throw new Error('Enter courier amounts in rupees');
+    await putSetting(env, 'profit', { ...((await getSettings(env, true)).profit || {}), unit_cost, cac, ship_cod, ship_prepaid, rto_fee });
     return { ok: true };
   },
   /** Re-rank the main collections now (lib/ranking.js); also runs daily on the cron. */
