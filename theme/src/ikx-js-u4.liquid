@@ -48,17 +48,17 @@
   /* Build 071g: Buy 1 Get 1 milestones (2 / 4 / 6 tattoos) as a progress track with gift stops */
   (function () {
     var st = document.createElement('style');
-    st.textContent = '.ikx-offer.ikx-offer--ms{background:none!important;padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important;height:auto!important;overflow:visible!important;position:relative!important;top:auto!important;z-index:auto!important}' +
-      '.ikx-ms{background:#fff;border:1px solid #ece8f4;border-radius:14px;padding:12px 6px 4px;margin:0 0 12px}' +
+    st.textContent = '.ikx-offer.ikx-offer--ms{background:none!important;padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important;height:auto!important;max-height:none!important;flex:none!important;overflow:visible!important;position:relative!important;top:auto!important;z-index:auto!important}' +
+      '.ikx-ms{background:#fff;border:1px solid #ece8f4;border-radius:12px;padding:8px 4px 2px;margin:0 0 10px}.ikx-back2[hidden]{display:none!important}' +
       '.ikx-offer--ms:before,.ikx-offer--ms:after{display:none!important}' +
-      '.ikx-ms__h{margin:0 0 30px;text-align:center;font-weight:800;font-size:15px;color:#1d1530}' +
-      '.ikx-ms__track{position:relative;height:8px;border-radius:99px;background:#e4e2ea;margin:0 14px 30px}' +
+      '.ikx-ms__h{margin:0 0 22px;text-align:center;font-weight:800;font-size:13.5px;color:#1d1530}' +
+      '.ikx-ms__track{position:relative;height:6px;border-radius:99px;background:#e4e2ea;margin:0 14px 24px}' +
       '.ikx-ms__fill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:#1f5132;transition:width .4s}' +
       '.ikx-ms__n{position:absolute;top:50%;transform:translate(-50%,-50%);width:104px;text-align:center}' +
-      '.ikx-ms__c{display:flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0 auto;border-radius:50%;background:#fff;border:2px solid #1d1530;color:#1d1530}' +
-      '.ikx-ms__c svg{width:17px;height:17px}.ikx-ms__n.is-on .ikx-ms__c{background:#1f5132;border-color:#1f5132;color:#fff}' +
-      '.ikx-ms__t,.ikx-ms__b{position:absolute;left:0;right:0;font-size:11px;line-height:1.25;color:#55506a;white-space:nowrap}' +
-      '.ikx-ms__t{bottom:100%;margin-bottom:4px}.ikx-ms__b{top:100%;margin-top:4px;font-weight:700;letter-spacing:.02em}.ikx-ms__n.is-on .ikx-ms__b{color:#1f5132}';
+      '.ikx-ms__c{display:flex;align-items:center;justify-content:center;width:24px;height:24px;margin:0 auto;border-radius:50%;background:#fff;border:2px solid #1d1530;color:#1d1530}' +
+      '.ikx-ms__c svg{width:14px;height:14px}.ikx-ms__n.is-on .ikx-ms__c{background:#1f5132;border-color:#1f5132;color:#fff}' +
+      '.ikx-ms__t,.ikx-ms__b{position:absolute;left:0;right:0;font-size:10px;line-height:1.2;color:#55506a;white-space:nowrap}' +
+      '.ikx-ms__t{bottom:100%;margin-bottom:2px}.ikx-ms__b{top:100%;margin-top:2px;font-weight:700;letter-spacing:.02em}.ikx-ms__n.is-on .ikx-ms__b{color:#1f5132}';
     document.head.appendChild(st);
   })();
   var GIFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>';
