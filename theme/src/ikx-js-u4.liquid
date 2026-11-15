@@ -48,15 +48,16 @@
   /* Build 071g: Buy 1 Get 1 milestones (2 / 4 / 6 tattoos) as a progress track with gift stops */
   (function () {
     var st = document.createElement('style');
-    st.textContent = '.ikx-offer.ikx-offer--ms{background:none!important;padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important;height:auto!important;overflow:visible!important}' +
+    st.textContent = '.ikx-offer.ikx-offer--ms{background:none!important;padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important;height:auto!important;overflow:visible!important;position:relative!important;top:auto!important;z-index:auto!important}' +
+      '.ikx-ms{background:#fff;border:1px solid #ece8f4;border-radius:14px;padding:12px 6px 4px;margin:0 0 12px}' +
       '.ikx-offer--ms:before,.ikx-offer--ms:after{display:none!important}' +
-      '.ikx-ms{padding:6px 4px 2px}.ikx-ms__h{margin:0 0 30px;text-align:center;font-weight:800;font-size:16px;color:#1d1530}' +
-      '.ikx-ms__track{position:relative;height:8px;border-radius:99px;background:#e4e2ea;margin:0 6px 52px}' +
+      '.ikx-ms__h{margin:0 0 30px;text-align:center;font-weight:800;font-size:15px;color:#1d1530}' +
+      '.ikx-ms__track{position:relative;height:8px;border-radius:99px;background:#e4e2ea;margin:0 14px 30px}' +
       '.ikx-ms__fill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:#1f5132;transition:width .4s}' +
-      '.ikx-ms__n{position:absolute;top:50%;transform:translate(-50%,-50%);width:96px;text-align:center}' +
+      '.ikx-ms__n{position:absolute;top:50%;transform:translate(-50%,-50%);width:104px;text-align:center}' +
       '.ikx-ms__c{display:flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0 auto;border-radius:50%;background:#fff;border:2px solid #1d1530;color:#1d1530}' +
       '.ikx-ms__c svg{width:17px;height:17px}.ikx-ms__n.is-on .ikx-ms__c{background:#1f5132;border-color:#1f5132;color:#fff}' +
-      '.ikx-ms__t,.ikx-ms__b{position:absolute;left:0;right:0;font-size:12px;line-height:1.25;color:#55506a}' +
+      '.ikx-ms__t,.ikx-ms__b{position:absolute;left:0;right:0;font-size:11px;line-height:1.25;color:#55506a;white-space:nowrap}' +
       '.ikx-ms__t{bottom:100%;margin-bottom:4px}.ikx-ms__b{top:100%;margin-top:4px;font-weight:700;letter-spacing:.02em}.ikx-ms__n.is-on .ikx-ms__b{color:#1f5132}';
     document.head.appendChild(st);
   })();
