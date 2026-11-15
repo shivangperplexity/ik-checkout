@@ -29,3 +29,5 @@
       (pct ? '<span class="ikx-ft__off">(' + pct + '% OFF)</span>' : '') + '</span></div><p class="ikx-err" role="alert" hidden></p>' +
       '<button type="button" class="ikx-cta ikx-cta--pro" data-ikx-step2><span class="ikx-cta__tx">Proceed to checkout →</span><span class="ikx-cta__apps" aria-hidden="true">' + apps + '</span></button></div>';
   };
+  /* Build 071v: no "Wait! Save by paying online" prompt before a COD order */
+  askCod = function () { return false; };
