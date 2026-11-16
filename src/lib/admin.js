@@ -2588,8 +2588,12 @@ const ACTIONS = {
     const c = { ...((await getSettings(env, true)).checkout || {}), cod: mode !== 'off', cod_mode: mode === 'organic' ? 'organic' : 'all' };
     /* Build 071: flat COD shipping fee in rupees (pricing.js reads checkout.cod_fee; default ₹29) */
     if (b.cod_fee != null) { const v = Math.round(Number(b.cod_fee)); if (!(v >= 0 && v <= 500)) throw new Error('Shipping fee must be ₹0-500'); c.cod_fee = v; }
+    /* Nov 17 2026: online-payment discount (% and flat ₹, whichever is more) and delivery fee below a free-delivery threshold */
+    const rng = (k, max, label) => { if (b[k] == null || b[k] === '') return; const v = Math.round(Number(b[k])); if (!(v >= 0 && v <= max)) throw new Error(label); c[k] = v; };
+    rng('prepaid_pct', 50, 'Online discount must be 0-50%'); rng('prepaid_flat', 500, 'Online flat discount must be ₹0-500');
+    rng('ship_fee', 500, 'Delivery fee must be ₹0-500'); rng('free_ship_above', 10000, 'Free delivery threshold must be ₹0-10000');
     await putSetting(env, 'checkout', c);
-    return { ok: true, checkout: { cod: c.cod, mode, cod_fee: c.cod_fee ?? 29 } };
+    return { ok: true, checkout: { cod: c.cod, mode, cod_fee: c.cod_fee ?? 29, prepaid_pct: c.prepaid_pct ?? 10, prepaid_flat: c.prepaid_flat ?? 50, ship_fee: c.ship_fee ?? 0, free_ship_above: c.free_ship_above ?? 0 } };
   },
   async save_logos(env, b) {
     /* Build 066: every UPI app tile of the checkout; keys not sent keep their saved logo (b.merge) */

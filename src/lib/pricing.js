@@ -10,7 +10,7 @@ orig.DEFAULTS.codFee = 0;
 orig.DEFAULTS.shippingFee = 0;
 
 export function priceCart(lines, method, cfg = {}) {
-  return orig.priceCart(lines, method, { ...cfg, codFee: cfg.v2 ? cfg.codFee || 0 : 0, shippingFee: 0 });
+  return orig.priceCart(lines, method, { ...cfg, codFee: cfg.v2 ? cfg.codFee || 0 : 0, shippingFee: cfg.v2 ? cfg.shippingFee || 0 : 0 });
 }
 
 /**
@@ -22,7 +22,10 @@ export function pricingCfg(env, body) {
   if (!(Number(body?.pv) >= 2)) return {};
   const c = env?.SETTINGS?.checkout || {};
   const r = (v, d) => Math.max(0, Math.round((Number.isFinite(Number(v)) && v !== '' && v != null ? Number(v) : d) * 100));
-  return { v2: true, prepaidFlat: r(c.prepaid_flat, 50), codFee: r(c.cod_fee, 29) };
+  const pct = Number.isFinite(Number(c.prepaid_pct)) && c.prepaid_pct !== '' && c.prepaid_pct != null ? Math.max(0, Math.min(50, Number(c.prepaid_pct))) : 10;
+  /* Nov 17 2026: optional delivery fee below a free-delivery threshold (checkout.ship_fee / free_ship_above, rupees, on the
+     amount after Buy 1 Get 1); 0 / unset = free delivery for everyone as before */
+  return { v2: true, prepaidPct: pct, prepaidFlat: r(c.prepaid_flat, 50), codFee: r(c.cod_fee, 29), shippingFee: r(c.ship_fee, 0), freeShippingAbove: r(c.free_ship_above, 0) };
 }
 
 export function quoteBoth(lines, cfg = {}) {
