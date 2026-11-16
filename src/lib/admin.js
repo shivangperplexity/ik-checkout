@@ -1549,6 +1549,35 @@ const ACTIONS = {
     return { ok: true };
   },
   /** "Mark as prepaid": the customer paid another way. amount in ₹ (blank = the whole COD balance), ref = UPI / bank ref. */
+  /** One-off price cut (17 Nov 2026): 349 -> 299, 499 -> 399, every other price above 349 -> minus 100. The old price
+   *  becomes the compare-at price (unless a higher one is set). Done products get the tag "repriced-nov17" and are
+   *  skipped, so running it again never cuts twice. Pages of 50 products; pass `after` from the last reply; dry = preview. */
+  async bulk_reprice(env, b) {
+    const { gql } = await import('./shopify.js');
+    const TAG = 'repriced-nov17';
+    const map = (p) => (p === 349 ? 299 : p === 499 ? 399 : p > 349 ? p - 100 : p);
+    const d = await gql(env, `query($a:String){ products(first:50, after:$a, query:"status:active"){ pageInfo{ hasNextPage endCursor } nodes{ id title tags variants(first:30){ nodes{ id price compareAtPrice } } } } }`, { a: b.after || null });
+    const out = [];
+    for (const p of d.products.nodes) {
+      if ((p.tags || []).includes(TAG)) continue;
+      const vs = p.variants.nodes.map((v) => {
+        const old = Math.round(Number(v.price)), nw = map(old);
+        if (nw === old) return null;
+        const ca = Math.round(Number(v.compareAtPrice || 0));
+        return { id: v.id, price: String(nw), compareAtPrice: String(ca > old ? ca : old), old };
+      }).filter(Boolean);
+      if (!vs.length) continue;
+      const row = { t: p.title, v: [...new Set(vs.map((x) => x.old + '→' + x.price))].join(', ') };
+      if (!b.dry) {
+        const r = await gql(env, `mutation($p:ID!,$v:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$p, variants:$v){ userErrors{ message } } }`, { p: p.id, v: vs.map(({ old, ...x }) => x) });
+        const ue = r.productVariantsBulkUpdate?.userErrors || [];
+        if (ue.length) row.err = ue[0].message;
+        else await gql(env, `mutation($id:ID!,$t:[String!]!){ tagsAdd(id:$id, tags:$t){ userErrors{ message } } }`, { id: p.id, t: [TAG] }).catch(() => {});
+      }
+      out.push(row);
+    }
+    return { ok: true, dry: !!b.dry, next: d.products.pageInfo.hasNextPage ? d.products.pageInfo.endCursor : null, changed: out };
+  },
   /** Close a paid attempt that has no Shopify order (e.g. paid by UPI, then ordered again as COD and that order was settled). No refund. */
   async close_attempt(env, b) {
     const r = await env.DB.prepare("UPDATE orders SET status='cancelled', partial_reason=COALESCE(partial_reason,'') || ? WHERE txnid=? AND order_name IS NULL AND status IN ('paid_needs_attention','pending_payment','failed')")
