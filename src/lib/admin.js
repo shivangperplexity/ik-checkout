@@ -1549,6 +1549,13 @@ const ACTIONS = {
     return { ok: true };
   },
   /** "Mark as prepaid": the customer paid another way. amount in ₹ (blank = the whole COD balance), ref = UPI / bank ref. */
+  /** Close a paid attempt that has no Shopify order (e.g. paid by UPI, then ordered again as COD and that order was settled). No refund. */
+  async close_attempt(env, b) {
+    const r = await env.DB.prepare("UPDATE orders SET status='cancelled', partial_reason=COALESCE(partial_reason,'') || ? WHERE txnid=? AND order_name IS NULL AND status IN ('paid_needs_attention','pending_payment','failed')")
+      .bind(' | closed from dashboard' + (b.note ? ': ' + String(b.note).slice(0, 200) : ''), String(b.txnid || '')).run();
+    if (!(r.meta?.changes ?? r.changes ?? 1)) throw new Error('No open paid attempt with that transaction id');
+    return { ok: true };
+  },
   async mark_prepaid(env, b) {
     const { manualPrepaid } = await import('./wa-convert.js');
     const { withSettings } = await import('./settings.js');
