@@ -144,7 +144,7 @@ export async function autoReattempt(env, { force = false, dry = false } = {}) {
   /* keep the Shipments tab honest round the clock, even when auto re-attempt is off or it is night */
   const synced = await syncNdrStages(env, rows).catch((e) => { console.error('sp ndr sync', e.message); return 0; });
   if (!c.auto && !force) return { skipped: 'off', synced };
-  if (!force && (m < 8 * 60 || m >= 23 * 60)) return { skipped: 'outside 8 am - 11 pm', synced };
+  if (!force && m < 6 * 60) return { skipped: 'outside 6 am - midnight', synced };
   const list = rows.filter(isOpenNdr);
   const out = { open: list.length, synced, reopened: [], skipped: [], failed: [] };
   if (!list.length) return out;
@@ -157,7 +157,8 @@ export async function autoReattempt(env, { force = false, dry = false } = {}) {
     if (r.order_status === 'cancelled') { out.skipped.push(`${name}: order cancelled`); continue; }
     if (r.ndr_choice === 'return' && r.ndr_by && r.ndr_by !== 'auto') { out.skipped.push(`${name}: customer chose return`); continue; }
     const key = `spndr:${o.awb}:${o.attempts}`;
-    if (!dry && !(await claim(env, key, 20 * 3600))) { out.skipped.push(`${name}: already re-opened for attempt ${o.attempts}`); continue; }
+    /* ShipPrime sometimes takes a re-open without recording it (the NDR stays "no action"): try again after 2 hours */
+    if (!dry && !(await claim(env, key, 2 * 3600))) { out.skipped.push(`${name}: re-opened for attempt ${o.attempts} in the last 2 h`); continue; }
     if (dry) { out.reopened.push(`${name} (would re-open)`); continue; }
     try {
       await reattempt(env, o.sp_id);

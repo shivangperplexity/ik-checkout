@@ -2240,7 +2240,12 @@ const ACTIONS = {
   async ndr_run(env, b) {
     const { autoNdr } = await import('./ndr-rules.js');
     const { withSettings } = await import('./settings.js');
-    return { ok: true, result: await autoNdr(await withSettings(await withSettingsFresh(env)), { dry: !!b.dry }) };
+    const f = await withSettings(await withSettingsFresh(env));
+    const result = await autoNdr(f, { dry: !!b.dry });
+    /* ShipPrime NDRs go through its own dashboard API: run that too, so "Run now" covers both carriers */
+    let sp = null;
+    try { const S = await import('./sp-ndr.js'); if (S.dashCfg(f).token) sp = await S.autoReattempt(f, { force: true, dry: !!b.dry }); } catch (e) { sp = { error: String(e.message || e).slice(0, 200) }; }
+    return { ok: true, result, sp };
   },
   /** action: 'reattempt' (optionally with a new date/phone) or 'return' (start RTO). */
   async ndr_do(env, b) {
