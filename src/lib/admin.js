@@ -1295,7 +1295,8 @@ const ACTIONS = {
       today: { booked: all.filter((x) => x.booked_at >= today0).length, picked: all.filter((x) => x.picked_at && x.picked_at >= today0).length,
         delivered: all.filter((x) => x.delivered_at && x.delivered_at >= today0).length, pickup_pending: live.filter((x) => x.stage === 'pickup_pending').length,
         packed: all.filter((x) => x.packed_at && x.packed_at >= today0).length },
-      stats: { booked: liveR.length, rto_pct: liveR.length ? Math.round(rto.length * 1000 / liveR.length) / 10 : 0,
+      stats: { booked: liveR.length, /* RTO % of parcels that finished (delivered or returned): parcels still on the way are not counted, else a recent range showed ~1% */
+        rto_pct: (() => { const fin = liveR.filter((x) => x.stage === 'delivered').length + rto.length; return fin ? Math.round(rto.length * 1000 / fin) / 10 : 0; })(),
         rto_cost: Math.round(rto.reduce((a, x) => a + x.charge, 0)), spend: Math.round(liveR.reduce((a, x) => a + x.charge, 0)),
         profit: Math.round(profit), profit_delivered: Math.round(profitDelivered), rto_loss: Math.round(rtoLoss), delivered: liveR.filter((x) => x.stage === 'delivered').length } };
   },
