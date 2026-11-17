@@ -2868,11 +2868,10 @@ export async function runAutomations(env) {
 /* Courier gave no delivery date: our own estimate from the pickup day (Mumbai/Thane next day, rest of Maharashtra
    +2, other states +4), Sundays skipped. Only for parcels on the way. */
 function estEdd(r, stage) {
-  if (!['transit', 'ofd', 'ndr'].includes(stage) || !r.picked_at) return '';
+  if (!['transit', 'ofd'].includes(stage) || !r.picked_at) return '';
   const pin = String(r.pincode || '');
   let n = /^(400\d{3}|40110\d|421\d{3}|410[2]\d{2}|4007\d{2})$/.test(pin) ? 1 : /^4[0-4]\d{4}$/.test(pin) && !/^403/.test(pin) ? 2 : 4;
   let d = new Date((Number(r.picked_at) + 19800) * 1000);
   while (n > 0) { d = new Date(+d + 86400000); if (d.getUTCDay() !== 0) n--; }
-  const iso = d.toISOString().slice(0, 10), today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
-  return iso < today ? today : iso;   /* late parcels: due now */
+  return d.toISOString().slice(0, 10);   /* a past date = running late */
 }
