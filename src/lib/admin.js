@@ -1566,6 +1566,39 @@ const ACTIONS = {
     const out = [...g.values()].filter((x) => x.orders >= (Number(b.min) || 8)).map((x) => ({ city: x.city, orders: x.orders, prepaid_pct: Math.round(100 * x.prepaid / x.orders), aov: Math.round(x.aov / x.orders), rto_pct: x.del + x.rto ? Math.round(100 * x.rto / (x.del + x.rto)) : null, closed: x.del + x.rto }));
     return { ok: true, total: rows.length, cities: out.sort((a, b2) => b2.orders - a.orders).slice(0, 40) };
   },
+  /** Collection order "mostly expensive, a cheap bestseller now and then": designs from Rs 499 up by price (high first,
+   *  bestsellers first within a price), and after every `every` of them one cheaper design in bestseller order.
+   *  b.handles = collection handles (default: every collection with 5+ products). Sets sort to MANUAL. */
+  async scatter_sort(env, b) {
+    const { gql } = await import('./shopify.js');
+    const every = Math.max(1, Math.min(6, Number(b.every) || 3)), cut = Number(b.cut) || 499;
+    let handles = Array.isArray(b.handles) ? b.handles : null;
+    if (!handles) { const d = await gql(env, `{ collections(first:100){ nodes{ handle productsCount{ count } } } }`); handles = d.collections.nodes.filter((c) => c.productsCount.count >= 5).map((c) => c.handle); }
+    const out = [];
+    for (const h of handles) {
+      let id = null, list = [], after = null;
+      do {
+        const d = await gql(env, `query($h:String!,$a:String){ collectionByHandle(handle:$h){ id products(first:250, after:$a, sortKey:BEST_SELLING){ pageInfo{ hasNextPage endCursor } nodes{ id status priceRangeV2{ minVariantPrice{ amount } } } } } }`, { h, a: after });
+        const c = d.collectionByHandle; if (!c) break; id = c.id;
+        list.push(...c.products.nodes.map((n, i) => ({ id: n.id, p: Number(n.priceRangeV2.minVariantPrice.amount), r: list.length + i, on: n.status === 'ACTIVE' })));
+        after = c.products.pageInfo.hasNextPage ? c.products.pageInfo.endCursor : null;
+      } while (after);
+      if (!id) { out.push({ h, err: 'not found' }); continue; }
+      const on = list.filter((x) => x.on), off = list.filter((x) => !x.on);
+      const hi = on.filter((x) => x.p >= cut).sort((a, b2) => b2.p - a.p || a.r - b2.r), lo = on.filter((x) => x.p < cut).sort((a, b2) => a.r - b2.r);
+      const ord = []; let i = 0, j = 0;
+      while (i < hi.length || j < lo.length) { for (let k = 0; k < every && i < hi.length; k++) ord.push(hi[i++]); if (j < lo.length) ord.push(lo[j++]); if (i >= hi.length) while (j < lo.length) ord.push(lo[j++]); }
+      ord.push(...off);
+      await gql(env, `mutation($c:CollectionUpdateInput!){ collectionUpdate(collection:$c){ userErrors{ message } } }`, { c: { id, sortOrder: 'MANUAL' } });
+      let err = null;
+      for (let s0 = 0; s0 < ord.length; s0 += 250) {
+        const r = await gql(env, `mutation($id:ID!,$m:[MoveInput!]!){ collectionReorderProducts(id:$id, moves:$m){ userErrors{ message } } }`, { id, m: ord.slice(s0, s0 + 250).map((x, k) => ({ id: x.id, newPosition: String(s0 + k) })) });
+        const ue = r.collectionReorderProducts?.userErrors || []; if (ue.length) err = ue[0].message;
+      }
+      out.push({ h, n: ord.length, hi: hi.length, lo: lo.length, top: ord.slice(0, 8).map((x) => x.p).join(','), ...(err ? { err } : {}) });
+    }
+    return { ok: true, out };
+  },
   /** One-off price cut (17 Nov 2026): 349 -> 299, 499 -> 399, every other price above 349 -> minus 100. The old price
    *  becomes the compare-at price (unless a higher one is set). Done products get the tag "repriced-nov17" and are
    *  skipped, so running it again never cuts twice. Pages of 50 products; pass `after` from the last reply; dry = preview. */
