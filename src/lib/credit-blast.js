@@ -106,7 +106,9 @@ export async function creditTick(env, { per = 20 } = {}) {
   if (st.until && now() > st.until - 86400) { await save(env, { ...st, status: 'done', finished_at: now(), why: 'credit expires within a day' }); return { done: true }; }
   const h = new Date(Date.now() + 19800000).getUTCHours();
   if (h < 10 || h >= 20) return { waiting: 'daytime only' };
-  const { metaSendTemplate } = await import('./whatsapp.js');
+  const { metaSendTemplate, metaTemplate } = await import('./whatsapp.js');
+  const t = await metaTemplate(env, TEMPLATE).catch(() => null);
+  if (!t || t.status !== 'APPROVED') return { waiting: 'template ' + (t ? t.status : 'not found') };
   const list = await audience(env, { days: st.days || 30 });
   if (!list.length) { await save(env, { ...st, status: 'done', finished_at: now() }); return { done: true }; }
   let sent = 0, failed = 0;
