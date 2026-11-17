@@ -1589,7 +1589,7 @@ const ACTIONS = {
       const ord = []; let i = 0, j = 0;
       while (i < hi.length || j < lo.length) { for (let k = 0; k < every && i < hi.length; k++) ord.push(hi[i++]); if (j < lo.length) ord.push(lo[j++]); if (i >= hi.length) while (j < lo.length) ord.push(lo[j++]); }
       ord.push(...off);
-      await gql(env, `mutation($c:CollectionUpdateInput!){ collectionUpdate(collection:$c){ userErrors{ message } } }`, { c: { id, sortOrder: 'MANUAL' } });
+      await gql(env, `mutation($c:CollectionInput!){ collectionUpdate(input:$c){ userErrors{ message } } }`, { c: { id, sortOrder: 'MANUAL' } });
       let err = null;
       for (let s0 = 0; s0 < ord.length; s0 += 250) {
         const r = await gql(env, `mutation($id:ID!,$m:[MoveInput!]!){ collectionReorderProducts(id:$id, moves:$m){ userErrors{ message } } }`, { id, m: ord.slice(s0, s0 + 250).map((x, k) => ({ id: x.id, newPosition: String(s0 + k) })) });
