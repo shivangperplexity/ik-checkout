@@ -1599,6 +1599,25 @@ const ACTIONS = {
     }
     return { ok: true, out };
   },
+  /** Undo bulk_reprice: every product tagged "repriced-nov17" goes back up by Rs 100 (all cuts were -100; no 349 existed),
+   *  the compare-at price we added (= old price) is cleared, and the tag removed. 50 products per call; call until left=0. */
+  async revert_reprice(env, b) {
+    const { gql } = await import('./shopify.js');
+    const TAG = 'repriced-nov17';
+    const d = await gql(env, `{ products(first:50, query:"tag:${TAG}"){ nodes{ id title tags variants(first:30){ nodes{ id price compareAtPrice } } } } }`);
+    const out = [];
+    for (const p of d.products.nodes) {
+      if (!(p.tags || []).includes(TAG)) continue;
+      const vs = p.variants.nodes.map((v) => { const nw = Math.round(Number(v.price)), old = nw + 100, ca = Math.round(Number(v.compareAtPrice || 0));
+        return { id: v.id, price: String(old), compareAtPrice: ca === old || ca === 0 ? null : String(ca) }; });
+      const r = await gql(env, `mutation($p:ID!,$v:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$p, variants:$v){ userErrors{ message } } }`, { p: p.id, v: vs });
+      const ue = r.productVariantsBulkUpdate?.userErrors || [];
+      if (ue.length) { out.push({ t: p.title, err: ue[0].message }); continue; }
+      await gql(env, `mutation($id:ID!,$t:[String!]!){ tagsRemove(id:$id, tags:$t){ userErrors{ message } } }`, { id: p.id, t: [TAG] });
+      out.push({ t: p.title, v: vs.map((x) => x.price).join(',') });
+    }
+    return { ok: true, done: out.length, errors: out.filter((x) => x.err), sample: out.slice(0, 5) };
+  },
   /** One-off price cut (17 Nov 2026): 349 -> 299, 499 -> 399, every other price above 349 -> minus 100. The old price
    *  becomes the compare-at price (unless a higher one is set). Done products get the tag "repriced-nov17" and are
    *  skipped, so running it again never cuts twice. Pages of 50 products; pass `after` from the last reply; dry = preview. */
