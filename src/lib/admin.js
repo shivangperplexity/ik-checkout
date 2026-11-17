@@ -1549,6 +1549,23 @@ const ACTIONS = {
     return { ok: true };
   },
   /** "Mark as prepaid": the customer paid another way. amount in ₹ (blank = the whole COD balance), ref = UPI / bank ref. */
+  /** Maharashtra buyer quality by city: orders, prepaid share, delivered vs RTO (shipped parcels only). */
+  async city_quality(env, b) {
+    const q = async (sql, ...v) => (await env.DB.prepare(sql).bind(...v).all()).results;
+    const rows = await q("SELECT o.city, o.pincode, o.method, o.total_paise, s.stage FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id WHERE o.order_id IS NOT NULL AND o.status<>'cancelled' AND (o.state_code='MH' OR o.pincode LIKE '4%')");
+    const norm = (c, pin) => { c = String(c || '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim(); const P = String(pin || '');
+      if (/navi mumbai|kharghar|panvel|ulwe|nerul|vashi|airoli|belapur|kamothe|seawoods|ghansoli|kopar/.test(c) || /^4(00703|00705|00706|00708|00709|00614|10206|10208|10209|10210|10218|10221)/.test(P)) return 'Navi Mumbai/Panvel';
+      if (/thane|kalyan|dombivli|bhiwandi|ulhasnagar|ambernath|badlapur|mira|bhayandar|vasai|virar/.test(c) || /^4(006|012|013|016|014|21)/.test(P)) return 'Thane/MMR outer';
+      if (/mumbai|bombay/.test(c) || /^400/.test(P)) return 'Mumbai';
+      if (/pune|pimpri|chinchwad/.test(c) || /^41[01]/.test(P)) return 'Pune';
+      return c ? c.split(' ')[0] : 'unknown'; };
+    const g = new Map();
+    for (const r of rows) { const k = norm(r.city, r.pincode); const x = g.get(k) || { city: k, orders: 0, prepaid: 0, aov: 0, del: 0, rto: 0 };
+      x.orders++; if (r.method !== 'cod') x.prepaid++; x.aov += Number(r.total_paise || 0) / 100;
+      if (r.stage === 'delivered') x.del++; if (['rto', 'returned', 'rto_delivered'].includes(r.stage)) x.rto++; g.set(k, x); }
+    const out = [...g.values()].filter((x) => x.orders >= (Number(b.min) || 8)).map((x) => ({ city: x.city, orders: x.orders, prepaid_pct: Math.round(100 * x.prepaid / x.orders), aov: Math.round(x.aov / x.orders), rto_pct: x.del + x.rto ? Math.round(100 * x.rto / (x.del + x.rto)) : null, closed: x.del + x.rto }));
+    return { ok: true, total: rows.length, cities: out.sort((a, b2) => b2.orders - a.orders).slice(0, 40) };
+  },
   /** One-off price cut (17 Nov 2026): 349 -> 299, 499 -> 399, every other price above 349 -> minus 100. The old price
    *  becomes the compare-at price (unless a higher one is set). Done products get the tag "repriced-nov17" and are
    *  skipped, so running it again never cuts twice. Pages of 50 products; pass `after` from the last reply; dry = preview. */
