@@ -181,7 +181,8 @@ export function codMode(env) {
 export function promoOf(env, code) {
   const c = String(code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
   const p = c && (env.SETTINGS?.promos || DEFAULTS.promos || {})[c];
-  return p && p.on !== false ? { code: c, ...p } : null;
+  /* until (unix seconds): the code stops working after it (e.g. the CREDIT50 abandoned-checkout credit) */
+  return p && p.on !== false && !(Number(p.until) > 0 && Date.now() / 1000 > Number(p.until)) ? { code: c, ...p } : null;
 }
 export function codOn(env, attrs) {
   if (attrs && promoOf(env, attrs.ref)?.nocod) return false;
