@@ -1618,6 +1618,19 @@ const ACTIONS = {
     }
     return { ok: true, done: out.length, errors: out.filter((x) => x.err), sample: out.slice(0, 5) };
   },
+  /** Text replace in Shopify pages (body + SEO title/description): b.handles, b.from, b.to */
+  async page_replace(env, b) {
+    const { gql } = await import('./shopify.js'); const out = [];
+    for (const h of b.handles || []) {
+      const d = await gql(env, `query($q:String!){ pages(first:1, query:$q){ nodes{ id body t: metafield(namespace:"global", key:"title_tag"){ value } s: metafield(namespace:"global", key:"description_tag"){ value } } } }`, { q: 'handle:' + h });
+      const pg = d.pages.nodes[0]; if (!pg) { out.push({ h, err: 'not found' }); continue; }
+      const rep = (x) => String(x || '').split(b.from).join(b.to);
+      const mf = [['title_tag', pg.t?.value], ['description_tag', pg.s?.value]].filter(([, v]) => v).map(([key, v]) => ({ namespace: 'global', key, type: 'single_line_text_field', value: rep(v) }));
+      const r = await gql(env, `mutation($id:ID!,$p:PageUpdateInput!){ pageUpdate(id:$id, page:$p){ userErrors{ message } } }`, { id: pg.id, p: { body: rep(pg.body), metafields: mf } });
+      out.push({ h, err: r.pageUpdate?.userErrors?.[0]?.message || null });
+    }
+    return { ok: true, out };
+  },
   /** One-off price cut (17 Nov 2026): 349 -> 299, 499 -> 399, every other price above 349 -> minus 100. The old price
    *  becomes the compare-at price (unless a higher one is set). Done products get the tag "repriced-nov17" and are
    *  skipped, so running it again never cuts twice. Pages of 50 products; pass `after` from the last reply; dry = preview. */
