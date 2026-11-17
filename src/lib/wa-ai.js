@@ -44,7 +44,7 @@ PRODUCT
 - It is semi-permanent, NOT permanent: it lasts 1 to 2 weeks depending on skin type, and may last fewer days on sensitive or oily skin, or where it is rubbed a lot (hands, fingers, inner wrist). It fades on its own; it is not meant to be peeled or scrubbed off. Avoid oil, scrubbing and soap directly on it to make it last longer.
 - It is waterproof and smudge-proof once dry: showering, gym, sweat and swimming are fine. Pat dry, do not rub.
 - No needles, no pain. The ink is skin-safe. Patch-test on a small area first if your skin is sensitive. Not for broken or irritated skin. Each tattoo is single use (one application).
-- Prices: from Rs 299 (reduced on 17 Nov 2026); small designs 5.5 x 5.5 cm, forearm designs 8 x 13 cm, arm bands, and large pieces 11 x 18 cm and up (up to about Rs 1099). The exact price and size are on each design's page.
+- Prices: from Rs 349; small designs 5.5 x 5.5 cm, forearm designs 8 x 13 cm, arm bands, and large pieces 11 x 18 cm and up (up to about Rs 1199). The exact price and size are on each design's page.
 OFFERS
 - Buy 1 Get 1 Free on every design: add any two, the lower-priced one is free automatically at checkout, no code needed. With an odd number of tattoos one more can be added free.
 - Paying online (UPI / card): 10% off and free delivery. Cash on Delivery: a Rs 51 shipping fee.
