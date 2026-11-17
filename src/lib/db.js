@@ -254,7 +254,13 @@ export function makeDb(env) {
     })().catch((e) => { ready = null; throw e; });
     await ready;
     let i = 0;
-    return sql.query(text.replace(/\?/g, () => '$' + ++i), params);
+    const q = text.replace(/\?/g, () => '$' + ++i);
+    /* Neon's HTTP driver sometimes fails to connect ("fetch failed" / "Error connecting to database"): the dashboard
+       then showed "Load failed". Those errors happen before the query reaches the database, so retry twice. */
+    for (let n = 0; ; n++) {
+      try { return await sql.query(q, params); }
+      catch (e) { if (n >= 2 || !/fetch failed|Error connecting to database|ECONNRESET|ETIMEDOUT|socket hang up/i.test(String(e?.message || e))) throw e; await new Promise((r) => setTimeout(r, 250 + n * 600)); }
+    }
   };
   return {
     prepare(text) {

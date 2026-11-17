@@ -1211,8 +1211,8 @@ const ACTIONS = {
     try {
       const fresh = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND COALESCE(stage,'') NOT IN ('delivered','lost','cancelled') AND created_at > ?
           AND COALESCE(tracked_at,0) < (CASE WHEN COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed','ofd','ndr') THEN ?::bigint ELSE ?::bigint END)
-          ORDER BY COALESCE(tracked_at,0) LIMIT 24`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
-      if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } })); }
+          ORDER BY COALESCE(tracked_at,0) LIMIT 10`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
+      if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.race([new Promise((r) => setTimeout(r, 6000)), Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } }))]); }
     } catch (e) { console.error('ship first check', e); }
     const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json, o.advance_paise, o.converted_at, o.status AS order_status, o.state_code,
         rv.src_label, rv.src_detail, rv.region
@@ -1222,7 +1222,7 @@ const ACTIONS = {
       /* not checked yet: only trust an older reading if the parcel was clearly delivered / returned */
       const legacy = stageOf(r.track_status || '');
       const stage = r.status === 'cancelled' ? 'cancelled' : (r.stage || (['delivered', 'rto'].includes(legacy) ? legacy : 'pickup_pending'));
-      return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || '', ndr_choice: r.ndr_choice || '', ndr_date: r.ndr_date || '', total_paise: num(r.total_paise), contents_json: r.contents_json || '',
+      return { ...publicRec(r), stage, stage_label: STAGE_LABEL[stage] || stage, sr_status: r.sr_status || '', edd: r.edd || estEdd(r, stage), edd_est: !r.edd && !!estEdd(r, stage), ndr_choice: r.ndr_choice || '', ndr_date: r.ndr_date || '', total_paise: num(r.total_paise), contents_json: r.contents_json || '',
         cancel_state: r.cancel_state || '', cancel_note: r.cancel_note || '', customer: `${r.first_name || ''} ${r.last_name || ''}`.trim(), city: r.city || '', pincode: r.pincode || '',
         cod: codDue({ ...r, status: r.order_status }) > 0, cod_due: codDue({ ...r, status: r.order_status }) / 100, advance: num(r.advance_paise) / 100, total: num(r.total_paise) / 100,
         cod_mismatch: r.cod_paise != null && r.sr_total_paise != null && Math.abs(num(r.cod_paise) - num(r.sr_total_paise)) > 100 ? { ours: num(r.cod_paise) / 100, shiprocket: num(r.sr_total_paise) / 100 } : null, phone: r.phone || '', booked_at: num(r.created_at), tracked_at: num(r.tracked_at) || null, packed_at: num(r.packed_at) || null,
@@ -2863,4 +2863,16 @@ export async function runAutomations(env) {
     if (budget > 3000) { const { pinWarm } = await import('./edd.js'); const r = await pinWarm(env, { budgetMs: budget }); if (r.done || r.failed) out.pinWarm = r; }
   } catch (e) { console.error('pin warm', e.message); }
   return out;
+}
+
+/* Courier gave no delivery date: our own estimate from the pickup day (Mumbai/Thane next day, rest of Maharashtra
+   +2, other states +4), Sundays skipped. Only for parcels on the way. */
+function estEdd(r, stage) {
+  if (!['transit', 'ofd', 'ndr'].includes(stage) || !r.picked_at) return '';
+  const pin = String(r.pincode || '');
+  let n = /^(400\d{3}|40110\d|421\d{3}|410[2]\d{2}|4007\d{2})$/.test(pin) ? 1 : /^4[0-4]\d{4}$/.test(pin) && !/^403/.test(pin) ? 2 : 4;
+  let d = new Date((Number(r.picked_at) + 19800) * 1000);
+  while (n > 0) { d = new Date(+d + 86400000); if (d.getUTCDay() !== 0) n--; }
+  const iso = d.toISOString().slice(0, 10), today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
+  return iso < today ? today : iso;   /* late parcels: due now */
 }
