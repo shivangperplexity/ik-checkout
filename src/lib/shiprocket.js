@@ -18,7 +18,7 @@ import { perfOf, savePerf } from './allocate.js';
 import { codDue } from './partial-cod.js';
 import { packCfg, packOrder } from './packing.js';
 import { summarize, PRE } from './sr-scan.js';
-import { spTrackRaw, spCancel, trackUrlOf } from './shipprime.js';
+import { spTrackRaw, spCancel, trackUrlOf, spPriority } from './shipprime.js';
 
 const SR = 'https://apiv2.shiprocket.in/v1/external';
 const TIMEOUT = 15000;
@@ -345,6 +345,10 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
      the pick (default Rs 25) and is not more than the tolerance slower than the fastest option. */
   const pref = preferPick(options, pick, { cod, prefer: codPrefer(s), extra: s.cod_prefer_extra ?? 25, toleranceDays: c.toleranceDays });
   if (pref && !fallback) { pick = pref.pick; riskNote = pref.note; }
+  /* Courier priority (owner, 13 Nov 2026) applies to Shiprocket bookings too: before 19 Nov only ShipPrime used it, so
+     Shiprocket bookings still went to Xpressbees (most of this store's RTO). Same setting: shipping.sp_priority. */
+  const pri = srPriorityPick(options, spPriority(s));
+  if (pri) { pick = pri; riskNote = `Priority courier: ${pri.courier} (₹${pri.charge})`; }
   const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
   const onlyNever = !r.list.some((o) => !o.never) && r.list.some((o) => o.never);
   return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever, risk_note: riskNote, risk_table: risk?.table || null };
@@ -539,4 +543,16 @@ export async function srProbe(env) {
       .map((r) => `${r.order_name}:${r.cancel_state}:${String(r.cancel_note || '').slice(0, 140)}`);
   } catch (e) { out.stuck = 'db ' + e.message; }
   return out;
+}
+
+/** ShipPrime-style priority codes -> Shiprocket courier names. */
+const SR_CODE = { DELHIVERY_AIR: (n) => /delhivery/.test(n) && /\bair\b/.test(n), BLUEDART: (n) => /blue ?dart/.test(n), EKART: (n) => /ekart/.test(n), XPRESSBEES: (n) => /xpress ?bees/.test(n), DELHIVERY: (n) => /delhivery/.test(n) && !/\bair\b/.test(n), SHADOWFAX: (n) => /shadowfax/.test(n), DTDC: (n) => /dtdc/.test(n) };
+/** Pure: the Shiprocket option the priority groups give (cheapest inside the first group that serves the PIN), or null. */
+export function srPriorityPick(options, groups) {
+  const ok = (o) => o && o.courier && o.ok !== false && Number(o.charge) > 0;
+  for (const g of groups || []) {
+    const c = (options || []).filter((o) => ok(o) && g.some((code) => (SR_CODE[code] || ((n) => n.replace(/[^a-z]/g, '').includes(code.toLowerCase().replace(/[^a-z]/g, ''))))(String(o.courier).toLowerCase()))).sort((a, b) => a.charge - b.charge)[0];
+    if (c) return c;
+  }
+  return null;
 }
