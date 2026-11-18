@@ -1219,7 +1219,7 @@ const ACTIONS = {
     const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json, o.advance_paise, o.converted_at, o.status AS order_status, o.state_code,
         rv.src_label, rv.src_detail, rv.region
         FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id LEFT JOIN rev_orders rv ON rv.order_id = s.order_id
-        WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
+        WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
       /* not checked yet: only trust an older reading if the parcel was clearly delivered / returned */
       const legacy = stageOf(r.track_status || '');
