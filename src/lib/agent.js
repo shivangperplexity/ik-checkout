@@ -11,7 +11,7 @@ import { json, hmacSha256hex, safeEqual } from './util.js';
 const unb64 = (s) => decodeURIComponent(escape(atob(String(s).replace(/-/g, '+').replace(/_/g, '/'))));
 
 // Read-only reporting token. This separate key cannot run any admin mutation.
-const REPORT_ACTIONS = new Set(['ads_probe', 'ads_overview', 'ads_tree', 'meta_status']);
+const REPORT_ACTIONS = new Set(['ads_probe', 'ads_overview', 'ads_tree', 'ads_creative_detail', 'meta_status']);
 
 export async function handleAgent(req, env) {
   const key = String(env.AGENT_KEY || '');
