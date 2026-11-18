@@ -93,3 +93,25 @@ test('staleOfd: ShipPrime OFD from an earlier IST day, or after a Manage NDR fai
   assert.equal(staleOfd({ provider: 'shiprocket' }, { stage: 'ofd', lastTs: y }, t), false);
   assert.equal(staleOfd(sp, { stage: 'transit', lastTs: y }, t), false);
 });
+
+
+test('strict manual sync rejects empty carrier responses instead of silently counting them', async () => {
+  const w = world((url, o, ok) => ok({ tracking_data: {} }));
+  try {
+    await assert.rejects(refreshShipment(w.env, rec, null, { strict: true }), /no usable tracking status/i);
+    assert.equal(w.runs.length, 0, 'empty response must not update the shipment row');
+  } finally { w.done(); }
+});
+
+test('late stale tracking never moves a delivered parcel back to in-transit', async () => {
+  const w = world((url, o, ok) => ok({ tracking_data: {
+    shipment_track: [{ current_status: 'IN TRANSIT' }],
+    shipment_track_activities: [{ activity: 'Shipment picked up', date: '2026-11-01 10:00:00' }],
+  } }));
+  try {
+    const stage = await refreshShipment(w.env, { ...rec, stage: 'delivered' });
+    assert.equal(stage, 'delivered');
+    assert.ok(w.runs.some(([sql]) => /^UPDATE shipments SET tracked_at=/.test(sql)), 'tracking check timestamp recorded');
+    assert.ok(!w.runs.some(([sql]) => /^UPDATE shipments SET stage=/.test(sql)), 'final stage left intact');
+  } finally { w.done(); }
+});
