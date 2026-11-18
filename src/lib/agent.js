@@ -10,14 +10,23 @@ import { json, hmacSha256hex, safeEqual } from './util.js';
 
 const unb64 = (s) => decodeURIComponent(escape(atob(String(s).replace(/-/g, '+').replace(/_/g, '/'))));
 
+// Read-only reporting token. This separate key cannot run any admin mutation.
+const REPORT_ACTIONS = new Set(['ads_probe', 'ads_overview', 'ads_tree', 'meta_status']);
+
 export async function handleAgent(req, env) {
   const key = String(env.AGENT_KEY || '');
-  if (key.length < 32) return json({ ok: false, error: 'not found' }, 404);
+  const reportKey = String(env.CHATGPT_AGENT_KEY || '');
+  if (key.length < 32 && reportKey.length < 32) return json({ ok: false, error: 'not found' }, 404);
   const q = new URL(req.url).searchParams;
   const ts = Number(q.get('ts')), a = String(q.get('act') || ''), p = String(q.get('p') || ''), s = String(q.get('s') || '');
   if (!ts || Math.abs(Date.now() / 1000 - ts) > 300) return json({ ok: false, error: 'expired' }, 401);
   if (!/^[a-z0-9_]{2,40}$/.test(a) || !/^[0-9a-f]{64}$/.test(s)) return json({ ok: false, error: 'bad request' }, 400);
-  if (!safeEqual(await hmacSha256hex(key, `${ts}.${a}.${p}`), s)) return json({ ok: false, error: 'unauthorized' }, 401);
+  const signed = `${ts}.${a}.${p}`;
+  const reportAllowed = reportKey.length >= 32 && REPORT_ACTIONS.has(a) &&
+    safeEqual(await hmacSha256hex(reportKey, signed), s);
+  const adminAllowed = !reportAllowed && key.length >= 32 &&
+    safeEqual(await hmacSha256hex(key, signed), s);
+  if (!reportAllowed && !adminAllowed) return json({ ok: false, error: 'unauthorized' }, 401);
   const { claim } = await import('./once.js');
   if (!(await claim(env, 'agent:' + s, 900))) return json({ ok: false, error: 'already used' }, 409);
   let args = {};
