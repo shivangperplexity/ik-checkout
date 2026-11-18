@@ -2104,6 +2104,10 @@ const ACTIONS = {
     return { ok: true, results };
   },
   async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
+  /* Delhivery tracking-link WhatsApp, lib/dlv-links.js */
+  async dlv_links(env) { const D = await import('./dlv-links.js'); return D.overview(env); },
+  async dlv_links_setup(env, b = {}) { const D = await import('./dlv-links.js'); return D.setup(env, { at: Number(b.at) }); },
+  async dlv_links_tick(env) { const D = await import('./dlv-links.js'); return { ok: true, ...(await D.dlvTick(env)) }; },
   /* ₹50 credit (CREDIT50) for abandoned checkouts, lib/credit-blast.js */
   async credit50(env) { const C = await import('./credit-blast.js'); return C.overview(env); },
   async credit50_setup(env, b = {}) { const C = await import('./credit-blast.js'); return C.setup(env, { validDays: Math.min(30, Math.max(1, Number(b.valid_days) || 7)), days: Math.min(90, Math.max(1, Number(b.days) || 30)) }); },
@@ -2888,6 +2892,7 @@ export async function runAutomations(env) {
   try { const { blogTick } = await import('./blog.js'); const r = await blogTick(env); if (r.published || r.error) out.blog = r; } catch (e) { console.error('blog', e.message); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
+  try { const { dlvTick } = await import('./dlv-links.js'); const r = await dlvTick(env); if (r.sent || r.failed) out.dlv_links = r; } catch (e) { console.error('dlv links tick', e.message); }
   try { const { creditTick } = await import('./credit-blast.js'); const r = await creditTick(env); if (r.sent || r.failed) out.credit50 = r; } catch (e) { console.error('credit50 tick', e.message); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
   try { const { trackBlast } = await import('./track-blast.js'); const r = await trackBlast(env); if (r.sent !== undefined && !r.finished) out.trackBlast = r; } catch (e) { console.error('track blast', e); }
