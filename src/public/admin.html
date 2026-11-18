@@ -1589,22 +1589,28 @@ function shRefresh(btn,ids){
  var selected=Array.isArray(ids),all=[],done=0,checked=0,skipped=0,failed=[],retryIds=[];
  function progress(s){SH.syncProgress=s;var top=$('#sh_rf');if(top){top.disabled=true;top.textContent=s}if(btn&&btn.isConnected){btn.disabled=true;btn.textContent=s}}
  function batches(list,retry){
-  var offset=0;
-  function next(){
-   if(offset>=list.length)return Promise.resolve();
-   var part=list.slice(offset,offset+8);offset+=part.length;
-   return rpc('ship_refresh',{ids:part}).then(function(r){
+  var offset=0,finished=0;
+  function worker(){
+   var start=offset;offset+=8;
+   if(start>=list.length)return Promise.resolve();
+   var part=list.slice(start,start+8);
+   return rpc('ship_refresh',{ids:part}).catch(function(e){
+    if(e.fatal)throw e;
+    return {refreshed:0,failed:part.map(function(id){return {id:id,error:String(e.message||e)}})};
+   }).then(function(r){
     checked+=r.refreshed||0;
     if(!retry){done+=part.length;skipped+=(r.skipped||[]).length}
+    else finished+=part.length;
     if(r.failed&&r.failed.length){
      if(retry)failed=failed.concat(r.failed);
      else retryIds=retryIds.concat(r.failed.map(function(x){return x.id}));
     }
-    progress(retry?'Retrying failed shipments · '+offset+'/'+list.length:'Syncing shipments · '+done+'/'+all.length);
-    return next();
+    progress(retry?'Retrying failed shipments · '+finished+'/'+list.length:'Syncing shipments · '+done+'/'+all.length);
+    return worker();
    });
   }
-  return next();
+  /* Two bounded batches at once: quicker without sending hundreds of simultaneous carrier requests. */
+  return Promise.all([worker(),worker()]);
  }
  progress(SH.syncProgress);
  (selected?Promise.resolve({ids:ids}):rpc('ship_sync_list')).then(function(plan){
