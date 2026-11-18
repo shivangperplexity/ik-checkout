@@ -27,9 +27,9 @@ export { stageOf };
 export const LABEL = { pickup_pending: 'Pickup pending', pickup_failed: 'Pickup failed', transit: 'In transit', ofd: 'Out for delivery', ndr: 'NDR', delivered: 'Delivered', rto: 'RTO', lost: 'Lost / damaged', cancelled: 'Cancelled' };
 
 /** Where a booking is, read like Shiprocket's tracking page (lib/sr-scan.js); before the first scan, from the Shiprocket order. */
-async function srStatus(env, rec, raw = null) {
-  let sum = null;
-  try { sum = summarize(raw || await trackRaw(env, rec.awb, rec)); } catch { /* no scans yet or tracking down */ }
+async function srStatus(env, rec, raw = null, { strict = false } = {}) {
+  let sum = null, trackError = null;
+  try { sum = summarize(raw || await trackRaw(env, rec.awb, rec)); } catch (e) { trackError = e; /* no scans yet or tracking down */ }
   if (sum && (sum.current || sum.scans.length)) {
     const text = [sum.current, sum.newest && sum.newest.toLowerCase() !== sum.current.toLowerCase() ? sum.newest : ''].filter(Boolean).join(' · ');
     const at = attemptsOf(sum.scans);
@@ -43,6 +43,7 @@ async function srStatus(env, rec, raw = null) {
       if (text) { const st = stageOf(text); return { stage: st, picked: !['pickup_pending', 'pickup_failed', 'cancelled'].includes(st), text, edd: sum?.edd || '' }; }
     } catch { /* keep unknown */ }
   }
+  if (strict && trackError) throw trackError;
   return null;
 }
 
@@ -61,8 +62,8 @@ export function staleOfd(rec, s, t = Math.floor(Date.now() / 1000)) {
 }
 
 /** Refresh one shipment row; returns the new stage. Also keeps things consistent if it was cancelled inside Shiprocket. */
-export async function refreshShipment(env, rec, raw = null) {
-  const s = await srStatus(env, rec, raw);
+export async function refreshShipment(env, rec, raw = null, options = {}) {
+  const s = await srStatus(env, rec, raw, options);
   const t = now();
   if (!s) {
     await env.DB.prepare('UPDATE shipments SET tracked_at=? WHERE order_id=?').bind(t, String(rec.order_id)).run();
