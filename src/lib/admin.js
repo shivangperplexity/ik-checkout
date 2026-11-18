@@ -2299,7 +2299,11 @@ const ACTIONS = {
       try {
         const a = await A.graph(fresh, 'GET', id, { fields: 'id,name,creative{id,name,image_url,thumbnail_url,body,title,object_story_spec,asset_feed_spec}' });
         const c = a.creative || {}, story = c.object_story_spec || {}, link = story.link_data || {}, photo = story.photo_data || {}, tpl = story.template_data || {}, feed = c.asset_feed_spec || {};
-        return { id: a.id, name: a.name, creative_id: c.id || '',
+        let largeThumbnail = '';
+        if (/^\d{6,25}$/.test(String(c.id || ''))) {
+          try { const h = await A.graph(fresh, 'GET', String(c.id), { fields: 'thumbnail_url', thumbnail_width:720, thumbnail_height:720 }); largeThumbnail = h.thumbnail_url || ''; } catch { /* best-effort only */ }
+        }
+        return { id: a.id, name: a.name, creative_id: c.id || '', large_thumbnail: largeThumbnail,
           image: c.image_url || link.picture || photo.url || tpl.image_url || tpl.picture || tpl.child_attachments?.[0]?.picture || '', thumbnail: c.thumbnail_url || '',
           text: tpl.message || link.message || photo.caption || c.body || feed.bodies?.[0]?.text || '',
           headline: tpl.name || link.name || c.title || feed.titles?.[0]?.text || '',
