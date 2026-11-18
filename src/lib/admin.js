@@ -1649,6 +1649,20 @@ const ACTIONS = {
     }
     return { ok: true, out };
   },
+  /** Raw courier tracking for a few recent parcels (OFD/delivered), to see which scans carry the delivery agent's name/phone. */
+  async track_raw(env, b) {
+    const { trackRaw } = await import('./shiprocket.js').catch(() => ({}));
+    const sp = await import('./shipprime.js');
+    let rows = b.awb ? [{ awb: b.awb, courier: b.courier || '', provider: 'shipprime' }] : (await env.DB.prepare("SELECT awb, courier, provider FROM shipments WHERE provider='shipprime' AND awb<>'' AND stage IN ('ofd','delivered','ndr') AND tracked_at > ? ORDER BY tracked_at DESC LIMIT 40").bind(Math.floor(Date.now() / 1000) - 3 * 86400).all()).results;
+    const seen = new Set(), out = [];
+    for (const r of rows) {
+      const c = String(r.courier || '').toLowerCase().replace(/\s+/g, ' ');
+      if (!b.awb && (seen.has(c) || seen.size >= 4)) continue; seen.add(c);
+      try { const j = await sp.spTrackRaw(env, r.awb, r.courier); const txt = JSON.stringify(j); out.push({ awb: r.awb, courier: r.courier, phones: [...new Set(txt.match(/(?<!\d)[6-9]\d{9}(?!\d)/g) || [])].slice(0, 5), raw: txt.slice(0, Number(b.chars) || 2500) }); }
+      catch (e) { out.push({ awb: r.awb, courier: r.courier, err: String(e.message || e).slice(0, 200) }); }
+    }
+    return { ok: true, out };
+  },
   /** One-off price cut (17 Nov 2026): 349 -> 299, 499 -> 399, every other price above 349 -> minus 100. The old price
    *  becomes the compare-at price (unless a higher one is set). Done products get the tag "repriced-nov17" and are
    *  skipped, so running it again never cuts twice. Pages of 50 products; pass `after` from the last reply; dry = preview. */
