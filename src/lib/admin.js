@@ -2298,13 +2298,15 @@ const ACTIONS = {
     const ads = await Promise.all(ids.map(async (id) => {
       try {
         const a = await A.graph(fresh, 'GET', id, { fields: 'id,name,creative{id,name,image_url,thumbnail_url,body,title,object_story_spec,asset_feed_spec}' });
-        const c = a.creative || {}, story = c.object_story_spec || {}, link = story.link_data || {}, photo = story.photo_data || {}, feed = c.asset_feed_spec || {};
+        const c = a.creative || {}, story = c.object_story_spec || {}, link = story.link_data || {}, photo = story.photo_data || {}, tpl = story.template_data || {}, feed = c.asset_feed_spec || {};
         return { id: a.id, name: a.name, creative_id: c.id || '',
-          image: c.image_url || link.picture || photo.url || '', thumbnail: c.thumbnail_url || '',
-          text: link.message || photo.caption || c.body || feed.bodies?.[0]?.text || '',
-          headline: link.name || c.title || feed.titles?.[0]?.text || '',
-          link: link.link || '',
+          image: c.image_url || link.picture || photo.url || tpl.image_url || tpl.picture || tpl.child_attachments?.[0]?.picture || '', thumbnail: c.thumbnail_url || '',
+          text: tpl.message || link.message || photo.caption || c.body || feed.bodies?.[0]?.text || '',
+          headline: tpl.name || link.name || c.title || feed.titles?.[0]?.text || '',
+          link: tpl.link || link.link || '',
           feed_images: (feed.images || []).slice(0, 10).map((x) => ({ url: x.url || '', hash: x.hash || '' })),
+          attachment_images: (tpl.child_attachments || []).slice(0, 10).map((x) => ({ picture: x.picture || x.image_url || '', name: x.name || '', description: x.description || '' })),
+          template_keys: Object.keys(tpl),
           format: Object.keys(story).filter((k) => k.endsWith('_data')) };
       } catch (e) { return { id, error: String(e.message || e).slice(0, 180) }; }
     }));
