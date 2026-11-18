@@ -66,8 +66,15 @@ export async function refreshShipment(env, rec, raw = null, options = {}) {
   const s = await srStatus(env, rec, raw, options);
   const t = now();
   if (!s) {
+    // A successful HTTP request with an empty tracking payload is not a successful manual sync.
+    if (options.strict) throw new Error('Carrier returned no usable tracking status for AWB ' + rec.awb);
     await env.DB.prepare('UPDATE shipments SET tracked_at=? WHERE order_id=?').bind(t, String(rec.order_id)).run();
     return rec.stage || 'pickup_pending';
+  }
+  // Couriers occasionally return an older scan: never move a final parcel back to an in-flight count.
+  if (['delivered', 'rto', 'lost', 'cancelled'].includes(rec.stage) && !['delivered', 'rto', 'lost', 'cancelled'].includes(s.stage)) {
+    await env.DB.prepare('UPDATE shipments SET tracked_at=? WHERE order_id=?').bind(t, String(rec.order_id)).run();
+    return rec.stage;
   }
   const stage = staleOfd(rec, s, t) ? 'ndr' : s.stage, picked = s.picked;
   if (stage !== s.stage) s.text = `Not delivered${rec.sp_ndr_reason ? ' - ' + rec.sp_ndr_reason : ''} (courier still shows Out for delivery)`;
@@ -101,8 +108,15 @@ export async function refreshDue(env, { max = 25 } = {}) {
       AND (stage IN ('rto','ndr') OR COALESCE(rto,false)) AND attempts IS NULL ORDER BY created_at DESC LIMIT 10`).all()).results;
   const seen = new Set(rows.map((r) => r.order_id));
   for (const r of missing) if (!seen.has(r.order_id)) rows.push(r);
-  let n = 0;
-  for (const r of rows) { try { await refreshShipment(env, r); n++; } catch (e) { console.error('refresh', r.order_id, e.message); } }
+  // Bounded async worker pool: process I/O-bound courier tracking concurrently without API flooding.
+  let n = 0, cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(4, rows.length) }, async () => {
+    while (cursor < rows.length) {
+      const r = rows[cursor++];
+      try { await refreshShipment(env, r); n++; }
+      catch (e) { console.error('refresh', r.order_id, e.message); }
+    }
+  }));
   return { refreshed: n };
 }
 
