@@ -2290,6 +2290,26 @@ const ACTIONS = {
   /* ---------- Meta Marketing API (lib/meta-ads.js) ---------- */
   /* ---- ads studio (lib/ads-studio.js, dashboard → More → Meta ads) ---- */
   async ads_tree(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.tree(await withSettingsFresh(env), { preset: String(b.preset || 'last_7d') })) }; },
+  /** Read-only Meta ad creative metadata: image, copy, headline, no tokens or mutations. */
+  async ads_creative_detail(env, b) {
+    const A = await import('./meta-ads.js'), fresh = await withSettingsFresh(env);
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter((id) => /^\d{6,25}$/.test(id)).slice(0, 10);
+    if (!ids.length) throw new Error('Provide valid ad IDs');
+    const ads = await Promise.all(ids.map(async (id) => {
+      try {
+        const a = await A.graph(fresh, 'GET', id, { fields: 'id,name,creative{id,name,image_url,thumbnail_url,body,title,object_story_spec,asset_feed_spec}' });
+        const c = a.creative || {}, story = c.object_story_spec || {}, link = story.link_data || {}, photo = story.photo_data || {}, feed = c.asset_feed_spec || {};
+        return { id: a.id, name: a.name, creative_id: c.id || '',
+          image: c.image_url || link.picture || photo.url || '', thumbnail: c.thumbnail_url || '',
+          text: link.message || photo.caption || c.body || feed.bodies?.[0]?.text || '',
+          headline: link.name || c.title || feed.titles?.[0]?.text || '',
+          link: link.link || '',
+          feed_images: (feed.images || []).slice(0, 10).map((x) => ({ url: x.url || '', hash: x.hash || '' })),
+          format: Object.keys(story).filter((k) => k.endsWith('_data')) };
+      } catch (e) { return { id, error: String(e.message || e).slice(0, 180) }; }
+    }));
+    return { ok: true, ads };
+  },
   async ads_ad_status(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.adStatus(await withSettingsFresh(env), b.id, b.status)) }; },
   async ads_template(env, b) { const A = await import('./ads-studio.js'); const f = await withSettingsFresh(env); const t = await A.bestAd(f, String(b.adset_id || '')); return { ok: true, template: t ? await A.templateOf(f, t.id) : null }; },
   async ads_video_start(env, b) { const A = await import('./ads-studio.js'); return { ok: true, ...(await A.videoStart(await withSettingsFresh(env), b)) }; },
