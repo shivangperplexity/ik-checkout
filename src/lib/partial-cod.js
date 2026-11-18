@@ -11,7 +11,7 @@
 //             history        this phone number had a parcel returned (RTO) or cancelled a COD order before
 //             high_value     COD orders at or above this many rupees (0 = off)
 //             night          orders placed 11 pm - 6 am IST (Nov 2026: 66% of those COD parcels came back)
-//             states         state codes, comma separated (e.g. RJ,MP), read from the PIN code
+//             states         state codes, comma separated (e.g. RJ,MP), read from the PIN code; "!MH" = every state but MH
 //   advance_low  the smaller advance (default 49) when the only reasons are night / state; history, PIN, address and
 //              value reasons take `advance` (default 99)
 //   history_cancel  false = only a past RTO counts as history, not a past COD cancel
@@ -175,7 +175,11 @@ export async function decide(env, buyer = {}, totalPaise = 0) {
   if (wantPin) { const r = pinRisk(c, buyer.pincode, stats); if (r) reasons.push('rto_pin:' + r); }
   if (hist && (hist === 'past_rto' || c.history_cancel !== false)) reasons.push(hist);
   if (c.night && isNight()) reasons.push('night');
-  { const st = pinState(buyer.pincode), list = String(c.states || '').toUpperCase().split(/[\s,;]+/).filter(Boolean); if (st && list.includes(st)) reasons.push('state:' + st); }
+  { const st = pinState(buyer.pincode), list = String(c.states || '').toUpperCase().split(/[\s,;]+/).filter(Boolean);
+    /* "!MH" = every state except Maharashtra (owner, 19 Nov 2026: COD outside MH came back ~50% of the time) */
+    const keep = list.filter((x) => x.startsWith('!')).map((x) => x.slice(1)), valid = /^\d{6}$/.test(String(buyer.pincode || ''));
+    if (st && list.includes(st)) reasons.push('state:' + st);
+    else if (keep.length && valid && !keep.includes(st)) reasons.push('state:' + (st || 'outside-' + keep.join('-'))); }
   if (Number(c.high_value) > 0 && totalPaise >= Number(c.high_value) * 100) reasons.push('high_value');
   /* Only the address can be fixed by the shopper; with any other reason the hint would not lift the advance. */
   return out(reasons, reasons.length === 1 && reasons[0].startsWith('vague_address') ? hint : '');

@@ -83,3 +83,13 @@ test('partial v2: past RTO = ₹99, night / RJ-MP only = ₹49, a past cancel al
   d = await decide(env(0, 1), buyer('400001'), 50000); assert.equal(d.partial, false);
   d = await decide(env(1, 0), buyer('302001'), 50000); assert.equal(d.advance, 9900);
 });
+
+test('states "!MH": advance everywhere outside Maharashtra', async () => {
+  const c = { mode: 'risky', states: '!MH', vague_address: false, rto_pin: false, history: false };
+  const addr = { phone: '9876543210', address1: 'Flat 4, Sai Heights' };
+  assert.equal((await decide(env(c), { ...addr, pincode: '411001' }, 49900)).partial, false, 'Pune: full COD');
+  const ka = await decide(env(c), { ...addr, pincode: '560001' }, 49900);
+  assert.equal(ka.partial, true, 'Bangalore: advance');
+  assert.equal(ka.advance, 4900, 'state-only reason: the small advance');
+  assert.equal((await decide(env(c), { ...addr, pincode: '201001' }, 49900)).partial, true, 'UP: advance');
+});
