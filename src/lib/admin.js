@@ -1202,22 +1202,24 @@ const ACTIONS = {
    * Shipments tab. range: today | yesterday | 7d | 30d | all (by booking date, IST); stage: one of STAGES or 'all';
    * q: order / AWB / name / phone. Counts per stage are for the range; "attention" is across all dates.
    */
+  /** Every active AWB in the Shipments dashboard's 90-day window, not just its first 500 visible rows. */
+  async ship_sync_list(env) {
+    const rows = (await env.DB.prepare(`SELECT order_id, provider FROM shipments
+      WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND created_at > ?
+      ORDER BY created_at DESC, order_id DESC`).bind(now() - 90 * 86400).all()).results;
+    return { ok: true, ids: rows.map((r) => String(r.order_id)), total: rows.length,
+      shipprime: rows.filter((r) => r.provider === 'shipprime').length };
+  },
   async shipments(env, b) {
     const t = now(), DAY = 86400, today0 = Math.floor((t + 19800) / DAY) * DAY - 19800;
     const range = ['today', 'yesterday', '7d', '30d', 'all'].includes(b.range) ? b.range : 'all';
     const from = { today: today0, yesterday: today0 - DAY, '7d': today0 - 6 * DAY, '30d': today0 - 29 * DAY, all: 0 }[range];
     const to = range === 'yesterday' ? today0 : t + DAY;
-    /* parcels never checked yet (new bookings, or just after an update): ask Shiprocket now, a few at a time */
-    try {
-      const fresh = (await env.DB.prepare(`SELECT * FROM shipments WHERE awb IS NOT NULL AND awb<>'' AND COALESCE(status,'')<>'cancelled' AND COALESCE(stage,'') NOT IN ('delivered','lost','cancelled') AND created_at > ?
-          AND COALESCE(tracked_at,0) < (CASE WHEN COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed','ofd','ndr') THEN ?::bigint ELSE ?::bigint END)
-          ORDER BY COALESCE(tracked_at,0) LIMIT 10`).bind(t - 45 * DAY, t - 10 * 60, t - 30 * 60).all()).results;
-      if (fresh.length) { const fe = await withSettingsFresh(env); let i = 0; await Promise.race([new Promise((r) => setTimeout(r, 6000)), Promise.all(Array.from({ length: Math.min(4, fresh.length) }, async () => { while (i < fresh.length) { const r = fresh[i++]; await refreshShipment(fe, r).catch((e) => console.error('ship first check', r.order_id, e.message)); } }))]); }
-    } catch (e) { console.error('ship first check', e); }
+    /* Dashboard reads must be side-effect free. Tracking refreshes run on the 5-minute cron or via the explicit full-sync action. */
     const rows = (await env.DB.prepare(`SELECT s.*, t.status AS track_status, o.method, o.first_name, o.last_name, o.city, o.pincode, o.total_paise, o.phone, o.packed_at, o.contents_json, o.advance_paise, o.converted_at, o.status AS order_status, o.state_code,
         rv.src_label, rv.src_detail, rv.region
         FROM shipments s LEFT JOIN ship_track t ON t.order_id = s.order_id LEFT JOIN orders o ON o.order_id = s.order_id LEFT JOIN rev_orders rv ON rv.order_id = s.order_id
-        WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 2000`).bind(t - 90 * DAY).all()).results;
+        WHERE s.awb IS NOT NULL AND s.awb<>'' AND s.created_at > ? ORDER BY s.created_at DESC`).bind(t - 90 * DAY).all()).results;
     const all = rows.map((r) => {
       /* not checked yet: only trust an older reading if the parcel was clearly delivered / returned */
       const legacy = stageOf(r.track_status || '');
@@ -1364,13 +1366,28 @@ const ACTIONS = {
         AND COALESCE(stage,'pickup_pending') IN ('pickup_pending','pickup_failed') AND COALESCE(cancel_state,'')<>'picked' AND created_at > ? ORDER BY created_at`).bind(now() - 45 * 86400).all()).results;
     return { ok: true, ids: rows.map((r) => String(r.order_id)) };
   },
-  /** Re-check these shipments with Shiprocket now (max 80). */
+  /** Check a bounded batch against its actual carrier. Report failed checks instead of pretending every AWB refreshed. */
   async ship_refresh(env, b) {
-    const recs = await shipRecs(env, b.ids, 80);
-    const fresh = await withSettingsFresh(env);
-    let i = 0, n = 0;
-    await Promise.all(Array.from({ length: Math.min(4, recs.length) }, async () => { while (i < recs.length) { const r = recs[i++]; try { await refreshShipment(fresh, r); n++; } catch (e) { console.error('ship_refresh', r.order_id, e.message); } } }));
-    return { ok: true, refreshed: n, asked: recs.length };
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter(Boolean))];
+    if (!ids.length) throw new Error('Select at least one shipment');
+    if (ids.length > 80) throw new Error('Check at most 80 shipments per batch');
+    const recs = await shipRecs(env, ids, 80), fresh = await withSettingsFresh(env);
+    const seen = new Set(recs.map((r) => String(r.order_id)));
+    const skipped = ids.filter((id) => !seen.has(id));
+    let i = 0, checked = 0;
+    const failed = [];
+    await Promise.all(Array.from({ length: Math.min(4, recs.length) }, async () => {
+      while (i < recs.length) {
+        const r = recs[i++];
+        try { await refreshShipment(fresh, r, null, { strict: true }); checked++; }
+        catch (e) {
+          const error = String(e.message || e).slice(0, 160);
+          console.error('ship_refresh', r.order_id, error);
+          failed.push({ id: String(r.order_id), error });
+        }
+      }
+    }));
+    return { ok: true, refreshed: checked, asked: ids.length, skipped, failed };
   },
   /** Ask the courier to come (again); optional date YYYY-MM-DD. */
   async ship_pickup(env, b) {

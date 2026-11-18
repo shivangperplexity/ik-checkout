@@ -1234,7 +1234,7 @@ function trLabel(k){var t=(W&&W.triggers||[]).filter(function(x){return x.key===
 function bindWaTabs(){$('#t1').onclick=function(){S.msgTab=false;drawWa()};$('#t2').onclick=function(){S.msgTab=true;drawWa()}}
 
 /* ---- shipments: every Shiprocket parcel by stage, with pickup / cancel / label / manifest controls ---- */
-var SH={range:'all',stage:'all',q:'',sel:{},report:'',rows:{},issues:0,showDis:false};
+var SH={range:'all',stage:'all',q:'',sel:{},report:'',rows:{},issues:0,showDis:false,syncing:false,syncProgress:'',syncLast:''};
 var STG=[['all','All'],['to_pack','To pack'],['due_today','Due today'],['pickup_pending','Pickup pending'],['pickup_failed','Pickup failed'],['transit','In transit'],['ofd','Out for delivery'],['ndr','NDR'],['delivered','Delivered'],['rto','RTO'],['lost','Lost / damaged'],['cancelled','Cancelled']];
 function eddNice(d){var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||'');if(!m)return '';var t=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],6)),today=new Date(Date.now()+19800e3).toISOString().slice(0,10),iso=m[0].slice(0,10);if(iso===today)return 'today';var tm=new Date(Date.now()+19800e3+86400e3).toISOString().slice(0,10);if(iso===tm)return 'tomorrow';return t.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',timeZone:'Asia/Kolkata'})+(iso<today?' (overdue)':'')}
 var STGC={pickup_pending:'warn',pickup_failed:'bad',ndr:'bad',rto:'bad',lost:'bad',delivered:'ok',ofd:'ok'};
@@ -1245,7 +1245,7 @@ function loadShip(quiet){
  Promise.all([rpc('shipments',{range:SH.range,stage:SH.stage,q:SH.q}),SH.stage==='all'||SH.stage==='ndr'?rpc('ndr_list').catch(function(){return{ndr:[]}}):Promise.resolve({ndr:[]}),rpc('audit',{}).catch(function(){return{open:0}})]).then(function(a){if(tab!=='ship')return;var j=a[0],n=a[1].ndr||[],at=j.attention,td=j.today,c=j.counts;SH.issues=a[2].open||0;
   SH.rows={};j.shipments.forEach(function(x){SH.rows[x.order_id]=x});
   var h='<div class="row" style="margin-bottom:10px">'+[['today','Today'],['yesterday','Yesterday'],['7d','7 days'],['30d','30 days'],['all','All']].map(function(r){return '<button class="chip'+(SH.range===r[0]?' on':'')+'" data-r="'+r[0]+'">'+r[1]+'</button>'}).join('')
-   +'<input type="search" id="sh_q" placeholder="Order, AWB, name, phone, PIN" value="'+esc(SH.q)+'" style="max-width:260px"><span class="grow"></span><button class="btn ghost sm" id="sh_rf">Refresh status</button></div>';
+   +'<input type="search" id="sh_q" placeholder="Order, AWB, name, phone, PIN" value="'+esc(SH.q)+'" style="max-width:260px"><span class="grow"></span><button class="btn ghost sm" id="sh_rf"'+(SH.syncing?' disabled':'')+'>'+(SH.syncing?esc(SH.syncProgress||'Syncing…'):'↻ Sync all · ShipPrime + Shiprocket')+'</button>'+(SH.syncLast?'<span class="small mut">'+esc(SH.syncLast)+'</span>':'')+'</div>';
   var st=j.stats||{};
   var wal=j.wallet==null?'<span class="mut" title="'+esc(j.wallet_error||'')+'">Shiprocket wallet: unavailable</span>':'<b style="color:'+(j.wallet<300?'var(--bad)':j.wallet<1000?'var(--warn)':'inherit')+'">Shiprocket wallet '+rup(j.wallet)+'</b>'+(j.wallet<300?' <span class="small err">· top up, bookings will fail</span>':'');
   h+='<div class="card small" style="margin-bottom:10px">'+wal+' <span class="mut">· </span><b>Today:</b> '+td.booked+' booked · '+(td.packed||0)+' packed · '+td.picked+' picked up · '+td.delivered+' delivered · '+td.pickup_pending+' waiting for pickup'
@@ -1307,7 +1307,7 @@ function loadShip(quiet){
    var f=t.closest('[data-f]');if(f){SH.stage=f.dataset.f;SH.sel={};loadShip();return}
    var bk=t.closest('[data-blk]');if(bk){SH.range='all';SH.stage='pickup_pending';SH.q=bk.dataset.blk;SH.sel={};loadShip();return}
    var av=t.closest('[data-att]');if(av){SH.range='all';SH.stage=av.dataset.att==='cap'?'all':av.dataset.att;if(av.dataset.att==='cap')SH.q='';SH.sel={};loadShip();return}
-   if(t.id==='sh_rf'){shRefresh(t,Object.keys(SH.rows));return}
+   if(t.id==='sh_rf'){shRefresh(t);return}
    if(t.id==='sh_cxall'){cancelAllPending(t);return}
    if(t.id==='sh_vfy'){verifyMode();return}
    if(t.id==='sh_all'){var on=t.checked;Object.keys(SH.rows).forEach(function(k){if(SH.rows[k].stage!=='cancelled'){if(on)SH.sel[k]=1;else delete SH.sel[k]}});[].forEach.call(document.querySelectorAll('input.ssel'),function(i){if(!i.disabled)i.checked=on});shBar();return}
@@ -1583,8 +1583,56 @@ function shBar(){var b=$('#sh_bar');if(!b)return;var ids=shSel();b.classList.tog
   +'<button class="btn ghost sm" data-act="manifest">Manifest</button><button class="btn ghost sm" data-act="refresh">Refresh status</button>'
   +(pk?'<button class="btn bad sm" data-act="cancel">Cancel shipment · '+pk+'</button><button class="btn bad sm" data-act="cancel_order">Cancel order · '+pk+'</button>':'')+'<button class="btn ghost sm" data-act="clear">Clear</button>';
  var a=$('#sh_all');if(a){var lv=Object.keys(SH.rows).filter(function(k){return SH.rows[k].stage!=='cancelled'});a.checked=lv.length>0&&lv.every(function(k){return SH.sel[k]})}}
-function shRefresh(btn,ids){if(!ids.length)return;var t=btn.textContent;btn.disabled=true;btn.textContent='Checking with Shiprocket…';
- rpc('ship_refresh',{ids:ids.slice(0,80)}).then(function(r){toast('Updated '+r.refreshed+' shipment'+(r.refreshed===1?'':'s'));loadShip()}).catch(function(er){toast(er.message)}).then(function(){btn.disabled=false;btn.textContent=t})}
+function shRefresh(btn,ids){
+ if(SH.syncing)return toast('A shipment sync is already running');
+ SH.syncing=true;SH.syncProgress='Getting the shipment list…';
+ var selected=Array.isArray(ids),all=[],done=0,checked=0,skipped=0,failed=[],retryIds=[];
+ function progress(s){SH.syncProgress=s;var top=$('#sh_rf');if(top){top.disabled=true;top.textContent=s}if(btn&&btn.isConnected){btn.disabled=true;btn.textContent=s}}
+ function batches(list,retry){
+  var offset=0,finished=0;
+  function worker(){
+   var start=offset;offset+=8;
+   if(start>=list.length)return Promise.resolve();
+   var part=list.slice(start,start+8);
+   return rpc('ship_refresh',{ids:part}).catch(function(e){
+    if(e.fatal)throw e;
+    return {refreshed:0,failed:part.map(function(id){return {id:id,error:String(e.message||e)}})};
+   }).then(function(r){
+    checked+=r.refreshed||0;
+    if(!retry){done+=part.length;skipped+=(r.skipped||[]).length}
+    else finished+=part.length;
+    if(r.failed&&r.failed.length){
+     if(retry)failed=failed.concat(r.failed);
+     else retryIds=retryIds.concat(r.failed.map(function(x){return x.id}));
+    }
+    progress(retry?'Retrying failed shipments · '+finished+'/'+list.length:'Syncing shipments · '+done+'/'+all.length);
+    return worker();
+   });
+  }
+  /* Two bounded batches at once: quicker without sending hundreds of simultaneous carrier requests. */
+  return Promise.all([worker(),worker()]);
+ }
+ progress(SH.syncProgress);
+ (selected?Promise.resolve({ids:ids}):rpc('ship_sync_list')).then(function(plan){
+  all=[...new Set((plan.ids||[]).map(String))];
+  if(!all.length)return;
+  progress('Syncing shipments · 0/'+all.length);
+  return batches(all,false).then(function(){
+   if(retryIds.length){progress('Retrying '+retryIds.length+' failed checks…');return batches([...new Set(retryIds)],true)}
+  });
+ }).then(function(){
+  var problems=failed.length;
+  SH.syncLast='Last sync: '+new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'numeric',minute:'2-digit'})
+   +' · '+checked+'/'+all.length+' checked'+(skipped?' · '+skipped+' no longer active':'')+(problems?' · '+problems+' errors':'');
+  SH.report=problems?'<div class="card" style="margin-bottom:10px;border-color:var(--warn)"><b>'+problems+' shipments could not be verified with the courier</b><p class="small mut">The rest were checked. Failed AWBs are not counted as successfully refreshed.</p>'
+   +failed.slice(0,25).map(function(x){return '<div class="small err">'+esc(x.id)+': '+esc(x.error||'Tracking unavailable')+'</div>'}).join('')
+   +(problems>25?'<p class="small mut">And '+(problems-25)+' more.</p>':'')+'</div>':'';
+  toast(all.length?(problems?'Checked '+checked+' of '+all.length+' · '+problems+' failed (details below)':'Checked '+checked+' shipments from the couriers'):'No active shipments to refresh');
+ }).catch(function(e){
+  SH.syncLast='Sync interrupted after '+done+' of '+all.length+' · '+String(e.message||e);
+  toast('Shipment sync interrupted: '+String(e.message||e));
+ }).then(function(){SH.syncing=false;SH.syncProgress='';if(tab==='ship')loadShip()});
+}
 function shReport(title,res){var ok=res.filter(function(r){return r.ok}).length;
  SH.report='<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(title)+': '+ok+' of '+res.length+' done</b><span class="grow"></span><button class="btn ghost sm" id="rep_xs">Dismiss</button></div>'
   +res.map(function(r){return '<div class="small'+(r.ok?'':' err')+'" style="margin-top:4px"><b>'+esc(r.name||r.id)+'</b> · '+esc(r.note||'')+'</div>'}).join('')+'</div>';
