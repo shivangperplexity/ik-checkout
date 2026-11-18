@@ -26,7 +26,7 @@ export async function audience(env) {
   const done = new Set((await q("SELECT order_name FROM messages WHERE direction='out' AND trigger=? AND status NOT IN ('failed','skipped')", TRIGGER)).map((r) => r.order_name));
   const opt = new Set((await q('SELECT phone FROM wa_optout')).map((r) => p10(r.phone)));
   const rows = await q(`SELECT s.order_name, s.awb, s.courier, s.stage, o.phone, o.first_name AS name FROM shipments s JOIN orders o ON o.order_id=s.order_id
-    WHERE s.awb<>'' AND LOWER(s.courier) LIKE '%delhivery%' AND s.stage IN ('pickup_pending','transit','ofd','ndr') AND s.booked_at > ?`, now() - 30 * 86400);
+    WHERE s.awb<>'' AND LOWER(s.courier) LIKE '%delhivery%' AND s.stage IN ('pickup_pending','transit','ofd','ndr') AND s.created_at > ?`, now() - 30 * 86400);
   return rows.filter((r) => /^[6-9]\d{9}$/.test(p10(r.phone)) && !opt.has(p10(r.phone)) && !done.has(r.order_name))
     .map((r) => ({ phone: p10(r.phone), name: String(r.name || '').trim().split(/\s+/)[0] || 'there', order: r.order_name, awb: r.awb, stage: r.stage }));
 }
