@@ -1603,7 +1603,16 @@ const ACTIONS = {
       } while (after);
       if (!id) { out.push({ h, err: 'not found' }); continue; }
       const on = list.filter((x) => x.on), off = list.filter((x) => !x.on);
-      const hi = on.filter((x) => x.p >= cut).sort((a, b2) => b2.p - a.p || a.r - b2.r), lo = on.filter((x) => x.p < cut).sort((a, b2) => a.r - b2.r);
+      let hi = on.filter((x) => x.p >= cut).sort((a, b2) => b2.p - a.p || a.r - b2.r), lo = on.filter((x) => x.p < cut).sort((a, b2) => a.r - b2.r);
+      if (b.mix) {
+        /* mix mode: not strictly by price and not by sales. Big designs rotate across price levels (1099, 899, 699, 1099...)
+           in a seeded random order inside each level; cheap ones are a seeded shuffle. Same seed = same order. */
+        let seed = Number(b.seed) || 17; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+        const shuf = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+        const lv = [...new Set(hi.map((x) => x.p))].sort((a, b2) => b2 - a).map((pr) => shuf(hi.filter((x) => x.p === pr)));
+        const h2 = []; while (lv.some((l) => l.length)) for (const l of lv) if (l.length) h2.push(l.shift());
+        hi = h2; lo = shuf(lo);
+      }
       const ord = []; let i = 0, j = 0;
       while (i < hi.length || j < lo.length) { for (let k = 0; k < every && i < hi.length; k++) ord.push(hi[i++]); if (j < lo.length) ord.push(lo[j++]); if (i >= hi.length) while (j < lo.length) ord.push(lo[j++]); }
       ord.push(...off);
