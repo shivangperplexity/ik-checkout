@@ -2113,6 +2113,8 @@ const ACTIONS = {
     return { ok: true, results };
   },
   async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
+  /* Meta ad account money left + low-balance WhatsApp alert, lib/ads-balance.js */
+  async ads_balance(env, b = {}) { const B = await import('./ads-balance.js'); return { ok: true, ...(await B.check(env, { below: b.below })) }; },
   /* Delhivery tracking-link WhatsApp, lib/dlv-links.js */
   async dlv_links(env) { const D = await import('./dlv-links.js'); return D.overview(env); },
   async dlv_links_setup(env, b = {}) { const D = await import('./dlv-links.js'); return D.setup(env, { at: Number(b.at) }); },
@@ -2901,6 +2903,7 @@ export async function runAutomations(env) {
   try { const { blogTick } = await import('./blog.js'); const r = await blogTick(env); if (r.published || r.error) out.blog = r; } catch (e) { console.error('blog', e.message); }
   try { const { packAlerts } = await import('./pack-alert.js'); const r = await packAlerts(env); if (r.pending || r.packed) out.packAlert = r; } catch (e) { console.error('pack alert', e); }
   try { const { autoBook } = await import('./auto-book.js'); const r = await autoBook(env); if (r.booked?.length || r.failed?.length) out.autoBook = r; } catch (e) { console.error('auto book', e); }
+  try { if (new Date().getUTCMinutes() % 15 < 5) { const { check } = await import('./ads-balance.js'); const r = await check(env); if (r.alerted || r.err) out.ads_balance = r; } } catch (e) { console.error('ads balance', e.message); }
   try { const { dlvTick } = await import('./dlv-links.js'); const r = await dlvTick(env); if (r.sent || r.failed) out.dlv_links = r; } catch (e) { console.error('dlv links tick', e.message); }
   try { const { creditTick } = await import('./credit-blast.js'); const r = await creditTick(env); if (r.sent || r.failed) out.credit50 = r; } catch (e) { console.error('credit50 tick', e.message); }
   try { const { broadcastTick } = await import('./broadcast.js'); const r = await broadcastTick(env); if (r.sent || r.failed) out.broadcast = r; } catch (e) { console.error('broadcast', e); }
