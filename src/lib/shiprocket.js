@@ -345,7 +345,7 @@ export async function planShipment(env, order, row, { pickOption, allowNever = f
      the pick (default Rs 25) and is not more than the tolerance slower than the fastest option. */
   const pref = preferPick(options, pick, { cod, prefer: codPrefer(s), extra: s.cod_prefer_extra ?? 25, toleranceDays: c.toleranceDays });
   if (pref && !fallback) { pick = pref.pick; riskNote = pref.note; }
-  const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ courier: o.courier, charge: o.charge, edd: o.edd, excluded: o.excluded }));
+  const excluded = r.list.filter((o) => o.excluded && !options.some((x) => x.id === o.id)).map((o) => ({ id: o.id, courier: o.courier, charge: o.charge, edd: o.edd, eddDate: eddOf(o.edd), excluded: o.excluded, never: !!o.never }));
   const onlyNever = !r.list.some((o) => !o.never) && r.list.some((o) => o.never);
   return { pack, pin, cod, amount, codAmount, options, pick, fallback, why, excluded, onlyNever, risk_note: riskNote, risk_table: risk?.table || null };
 }
@@ -375,7 +375,7 @@ function eddOf(edd) {
  * Book one order with Shiprocket. Safe to call again: it resumes where it stopped and never creates a second
  * Shiprocket order / AWB for the same Shopify order. Addresses are sent to Shiprocket, never stored here.
  */
-export async function bookShipment(env, order, row, { pickOption, allowNever = false }) {
+export async function bookShipment(env, order, row, { pickOption, allowNever = false, courierId = '' }) {
   const db = env.DB, id = String(row.order_id);
   /* the customer is paying online right now (pay-online offer): booking it as COD would race the payment */
   if (!row.converted_at && Number(row.convert_started_at) > Math.floor(Date.now() / 1000) - 15 * 60) throw new Error('The customer is paying online right now (pay-online offer). Book it again in 15 minutes: it will go as prepaid if they paid.');
@@ -392,6 +392,16 @@ export async function bookShipment(env, order, row, { pickOption, allowNever = f
   if (rec?.awb) return { ok: true, already: true, shipment: publicRec(rec) };
 
   const plan = await planShipment(env, order, row, { pickOption, allowNever });
+  /* the courier chosen in the dashboard (Nov 2026: the list showed every courier but booking always took the auto pick) */
+  if (courierId) {
+    /* any courier Shiprocket offers here may be chosen by hand, also one left out by the 'only use' list or blocked in
+       Shiprocket (that is the person's call for this order); the never-use list still needs allow_never */
+    const want = (plan.options || []).find((o) => String(o.id) === String(courierId)) || (plan.excluded || []).find((o) => String(o.id) === String(courierId));
+    if (!want) throw new Error('That courier does not deliver to PIN ' + plan.pin + ' for this order any more. Refresh and choose again.');
+    if (want.never && !allowNever) throw new Error(`${want.courier} is on your never-use list (Settings, Shipping carriers). Tick 'use it anyway' or pick another.`);
+    plan.pick = want;
+    if (rec && !rec.awb && String(rec.courier_id) !== String(want.id)) { await db.prepare('UPDATE shipments SET courier=?, courier_id=?, charge_paise=? WHERE order_id=?').bind(want.courier, String(want.id), Math.round((want.charge || 0) * 100), id).run(); rec.courier = want.courier; rec.courier_id = String(want.id); }
+  }
   if (!plan.pick) throw new Error(plan.why || `Shiprocket has no courier for PIN ${plan.pin} (${plan.cod ? 'COD' : 'prepaid'}).`);
   const t = now();
   if (!rec) {
@@ -449,7 +459,7 @@ export async function bookShipment(env, order, row, { pickOption, allowNever = f
     const why = awbFailReason(a) || 'no reason given';
     reasons.push(`${cur.courier}: ${why}`);
     tried.add(cur.id);
-    if (WALLET.test(why)) break;
+    if (WALLET.test(why) || courierId) break;   /* a courier chosen by hand is not swapped for another */
     const next = plan.options.find((o) => o.id && !tried.has(String(o.id)));
     if (!next) break;
     cur = { id: String(next.id), courier: next.courier, charge: next.charge };

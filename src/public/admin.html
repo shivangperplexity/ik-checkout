@@ -972,7 +972,7 @@ function ratesTable(r){
  var h='';
  if(r.errors&&r.errors.length)h+='<p style="color:#b45309;margin:4px 0">'+r.errors.map(esc).join('<br>')+'</p>';
  if(!r.options.length)return h+'<p>No connected carrier returned a price for '+esc(r.pin)+'.</p>';
- h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(o){var pick=o.key===r.pick;return '<tr style="border-top:1px solid #eee'+(pick?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(o.courier)+'<div class="mut" style="font-weight:400">'+esc(o.provider)+(pick?' · <b style="color:#16a34a">use this</b>':'')+(o.key===r.cheapest&&!pick?' · cheapest':'')+'</div></td><td>'+(o.charge==null?'-':rup(o.charge))+(o.cod_fee?'<div class="mut" style="font-weight:400">incl. COD '+rup(o.cod_fee)+'</div>':'')+'</td><td>'+(esc(o.edd)||'-')+(o.days?'<div class="mut" style="font-weight:400">'+o.days+' d</div>':'')+'</td></tr>'}).join('')+'</table>';
+ h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier <span style="font-weight:400">(tap to choose)</span></th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(o){var pick=o.key===r.pick;return '<tr style="border-top:1px solid #eee'+(pick?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(o.courier)+'<div class="mut" style="font-weight:400">'+esc(o.provider)+(pick?' · <b style="color:#16a34a">use this</b>':'')+(o.key===r.cheapest&&!pick?' · cheapest':'')+'</div></td><td>'+(o.charge==null?'-':rup(o.charge))+(o.cod_fee?'<div class="mut" style="font-weight:400">incl. COD '+rup(o.cod_fee)+'</div>':'')+'</td><td>'+(esc(o.edd)||'-')+(o.days?'<div class="mut" style="font-weight:400">'+o.days+' d</div>':'')+'</td></tr>'}).join('')+'</table>';
  if(r.saving_vs_dearest>0)h+='<p style="margin:6px 0 0"><b>Saves '+rup(r.saving_vs_dearest)+'</b> against the dearest option.</p>';
  return h}
 
@@ -989,14 +989,14 @@ function shipPanel(id,o){
   var pk=r.options.filter(function(x){return x.key===r.pick})[0];
   var h='<p style="margin:0 0 6px"><b>Parcel (automatic):</b> '+esc(r.pack.label)+' · '+r.pack.weight_g+' g</p>';
   if(!r.ready)h+='<p style="color:#b45309;margin:4px 0">Choose your Shiprocket pickup location in Settings first.</p>';
-  var exl=(r.excluded||[]).length?'<details class="small" style="margin-top:6px"><summary class="mut">Left out by your rules ('+r.excluded.length+')</summary>'+r.excluded.map(function(x){return '<div class="mut">'+esc(x.courier)+(x.charge!=null?' · '+rup(x.charge):'')+' · '+esc(x.excluded)+'</div>'}).join('')+'</details>':'';
+  var exl=(r.excluded||[]).length?'<details class="small" style="margin-top:6px"><summary class="mut">Left out by your rules ('+r.excluded.length+')</summary>'+r.excluded.map(function(x){return '<div class="mut'+(x.id&&!x.never?' sr_ex':'')+'" data-k="'+esc(String(x.id||''))+'" style="padding:3px 0'+(x.id&&!x.never?';cursor:pointer;text-decoration:underline dotted':'')+'">'+esc(x.courier)+(x.charge!=null?' · '+rup(x.charge):'')+' · '+esc(x.excluded)+(x.id&&!x.never?' · <b>tap to use</b>':'')+'</div>'}).join('')+'</details>':'';
   if(!r.options.length){h+='<p style="color:var(--bad);margin:6px 0">'+esc(r.why||'Shiprocket has no courier for this PIN.')+'</p>'+exl;
    if(r.only_never)h+='<button class="btn sm" id="sr_nv" style="margin-top:8px">Use '+esc((r.excluded[0]||{}).courier||'it')+' for this order only</button>';
    if(r.cod&&/prepaid/.test(r.why||''))h+='<button class="btn sm" id="sr_pay" style="margin-top:8px">Send pay-online link on WhatsApp</button>';}
   else{
    if(r.fallback)h+='<p class="small" style="color:var(--warn);margin:6px 0">'+esc(r.fallback)+'</p>';
    if(r.risk_note)h+='<p class="small" style="margin:6px 0">🛡 '+esc(r.risk_note)+'</p>';
-   h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(x){var p=x.key===r.pick;return '<tr style="border-top:1px solid #eee'+(p?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(x.courier)+(p?'<div style="font-weight:400;color:#16a34a">will be used</div>':'')+'</td><td>'+(x.charge==null?'-':rup(x.charge))+'</td><td>'+(esc(x.edd)||'-')+'</td></tr>'}).join('')+'</table>';
+   h+='<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr class="mut" style="text-align:left"><th>Courier</th><th>Charge</th><th>Arrives</th></tr>'+r.options.map(function(x){var p=x.key===r.pick;return '<tr class="sr_row" data-k="'+esc(String(x.key))+'" style="cursor:pointer;border-top:1px solid #eee'+(p?';background:#ecfdf5;font-weight:700':'')+'"><td style="padding:6px 4px">'+esc(x.courier)+'<div class="sr_lb" style="font-weight:400;color:#16a34a">'+(p?'will be used':'')+'</div></td><td>'+(x.charge==null?'-':rup(x.charge))+'</td><td>'+(esc(x.edd)||'-')+'</td></tr>'}).join('')+'</table>';
    h+='<button class="btn" id="sr_go" style="margin-top:10px"'+(r.ready&&pk?'':' disabled')+'>Ship with Shiprocket'+(pk&&pk.charge!=null?' · '+rup(pk.charge):'')+'</button>'+(r.fallback?'':exl);
   }
   /* ShipPrime next to Shiprocket: its own couriers and prices; tap a row to choose the courier */
@@ -1029,10 +1029,17 @@ function shipPanel(id,o){
   var ss=$('#sp_set');if(ss)ss.onclick=function(){close();go('settings')};
   var nv=$('#sr_nv');if(nv)nv.onclick=function(){nv.disabled=true;nv.textContent='Loading…';rpc('ship_plan',{id:id,allow_never:true}).then(draw).catch(function(er){nv.disabled=false;toast(er.message)})};
   var sp=$('#sr_pay');if(sp)sp.onclick=function(){sp.disabled=true;sp.textContent='Sending…';rpc('convert_send',{id:id}).then(function(){sp.textContent='Pay-online link sent';toast('Sent. Once they pay, ship it again: it books as prepaid.')}).catch(function(e){sp.disabled=false;sp.textContent='Send pay-online link on WhatsApp';toast(e.message)})};
+  /* Shiprocket courier chosen by hand (tap a row, or a 'left out' courier); booking sends it as courier_id */
+  var srAll=(r.options||[]).concat((r.excluded||[]).filter(function(x){return x.id&&!x.never}).map(function(x){return Object.assign({key:x.id},x)}));
+  var srSel=pk?String(pk.key):'';
+  function srMark(){[].forEach.call(document.querySelectorAll('.sr_row'),function(tr){var on=tr.dataset.k===srSel;tr.style.background=on?'#ecfdf5':'';tr.style.fontWeight=on?'700':'';tr.querySelector('.sr_lb').textContent=on?'will be used':''});
+   [].forEach.call(document.querySelectorAll('.sr_ex'),function(d){d.style.fontWeight=d.dataset.k===srSel?'700':''});
+   var c=srAll.filter(function(x){return String(x.key)===srSel})[0];pk=c||pk;var b=$('#sr_go');if(b){b.textContent='Ship with Shiprocket'+(c?' · '+c.courier+(c.charge!=null?' · '+rup(c.charge):''):'');if(c&&r.ready)b.disabled=false}}
+  [].forEach.call(document.querySelectorAll('.sr_row,.sr_ex'),function(tr){tr.onclick=function(){srSel=tr.dataset.k;srMark()}});
   var g=$('#sr_go');if(g)g.onclick=function(){
    if(!confirm('Book '+(pk?pk.courier:'the cheapest courier')+' for '+o.name+'? This creates the AWB, asks for pickup and charges your Shiprocket wallet.'))return;
    g.disabled=true;g.textContent='Booking…';
-   rpc('ship_book',{id:id,provider:'shiprocket',allow_never:!!r.allow_never}).then(function(b){toast((b.note?b.note+'. ':'')+(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped'));el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
+   rpc('ship_book',{id:id,provider:'shiprocket',allow_never:!!r.allow_never,courier_id:srSel}).then(function(b){toast((b.note?b.note+'. ':'')+(b.fulfilment_error?'Booked. Shopify: '+b.fulfilment_error:'Shipped'));el.innerHTML=shipDone(b.shipment)+(b.fulfilment_error?shopifyWarn(Object.assign({},b.shipment,{fulfil_error:b.fulfilment_error})):'');wireDone(b.shipment);loadOrders(true)}).catch(function(er){g.disabled=false;g.textContent='Ship with Shiprocket';toast(er.message)})}
  }
  function wireDone(sp){
   var d=$('#sr_dc'),c=$('#sr_cx'),f=$('#sr_ff');

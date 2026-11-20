@@ -1152,7 +1152,7 @@ const ACTIONS = {
     const provider = b.provider === 'shipprime' || b.provider === 'shiprocket' ? b.provider : (fresh.SETTINGS.shipping.ship_default === 'shipprime' && spConnected(fresh) ? 'shipprime' : 'shiprocket');
     let r;
     if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec) }; }
-    else r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never });
+    else r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never, courierId: String(b.courier_id || '') });
     /* the AWB exists with the carrier either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
     return { ok: true, shipment: r.shipment, already: !!r.already, fulfilment_error: fulfil, note: r.note || '' };
