@@ -28,7 +28,18 @@ export function otpTemplate() {
 
 /** On unless switched off in settings (cod_otp.on = false), and only with the WhatsApp Cloud API connected. */
 const waOn = (env) => !!(env.WA_PHONE_ID && env.WA_TOKEN) && env.SETTINGS?.cod_otp?.wa !== false;
-export const otpOn = (env) => env.SETTINGS?.cod_otp?.on !== false && (waOn(env) || !!env.RESEND_API_KEY);
+export const otpOn = (env) => env.SETTINGS?.cod_otp?.on !== false && (waOn(env) || smsOn(env) || !!env.RESEND_API_KEY);
+/* Fast2SMS (https://www.fast2sms.com): DLT route when FAST2SMS_SENDER_ID + FAST2SMS_TEMPLATE_ID are set, else its OTP route. */
+export const smsOn = (env) => !!env.FAST2SMS_API_KEY && env.SETTINGS?.cod_otp?.sms !== false;
+export async function smsSendOtp(env, phone, code, f = fetch) {
+  const dlt = env.FAST2SMS_SENDER_ID && env.FAST2SMS_TEMPLATE_ID;
+  const body = dlt ? { route: 'dlt', sender_id: env.FAST2SMS_SENDER_ID, message: env.FAST2SMS_TEMPLATE_ID, variables_values: code, numbers: phone, flash: 0 }
+    : { route: 'otp', variables_values: code, numbers: phone, flash: 0 };
+  const res = await f('https://www.fast2sms.com/dev/bulkV2', { method: 'POST', headers: { authorization: env.FAST2SMS_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.return !== true) throw new Error('SMS: ' + (Array.isArray(j.message) ? j.message.join(' ') : j.message || 'HTTP ' + res.status));
+  return 'sms:' + (j.request_id || '');
+}
 
 const secretOf = (env) => env.ADMIN_SECRET || env.CRON_SECRET || 'ik-otp|' + (env.DATABASE_URL || env.POSTGRES_URL || 'x');
 const hashOf = (env, phone, code) => hmacSha256hex(secretOf(env), `otp:${phone}:${code}`);
@@ -65,11 +76,16 @@ export async function sendOtp(env, phone, { send = metaSendOtp, log = null, emai
   const fresh = !row || Number(row.window_start) < t - 3600;
   if (!fresh && Number(row.sends) >= MAX_SENDS_HOUR) return { ok: false, error: 'Too many codes asked for this number. Please try again in an hour.' };
   const code = newCode();
-  let wamid = '', viaEmail = false;
-  /* WhatsApp first; if it is off or refuses, the same code goes by email (lib/email.js) and counts as delivered. */
-  const byEmail = async () => { const E = await import('./email.js'); await E.emailOtp(env, email, code); viaEmail = true; return 'email'; };
+  let wamid = '', via = 'whatsapp';
+  /* WhatsApp first, then SMS (verifies the same phone, which matters for COD), then email. SMS/email count as delivered. */
   const canEmail = !!env.RESEND_API_KEY && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
-  try { wamid = waOn(env) ? await send(env, phone, code).catch((e) => { if (canEmail) return byEmail(); throw e; }) : canEmail ? await byEmail() : await send(env, phone, code); }
+  const chain = [];
+  if (waOn(env)) chain.push(['whatsapp', () => send(env, phone, code)]);
+  if (smsOn(env)) chain.push(['sms', () => smsSendOtp(env, phone, code)]);
+  if (canEmail) chain.push(['email', async () => { const E = await import('./email.js'); await E.emailOtp(env, email, code); return 'email'; }]);
+  if (!chain.length) chain.push(['whatsapp', () => send(env, phone, code)]);
+  const run = async () => { let err; for (const [name, fn] of chain) { try { const id = await fn(); via = name; return id; } catch (e) { err = e; } } throw err; };
+  try { wamid = await run(); }
   catch (e) {
     if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'failed', error: String(e.message || e).slice(0, 300), preview: 'COD verification code' }).catch(() => {});
     try { const G = await import('./wa-gate.js'); if (G.RATE_LIMIT.test(String(e.message || e))) await G.pushback(env); } catch { /* best effort */ }
@@ -79,9 +95,9 @@ export async function sendOtp(env, phone, { send = metaSendOtp, log = null, emai
       ON CONFLICT (phone) DO UPDATE SET code_hash=EXCLUDED.code_hash, sent_at=EXCLUDED.sent_at, expires_at=EXCLUDED.expires_at, tries=0, verified_at=NULL, wamid=EXCLUDED.wamid, dstatus=NULL, drank=0,
       sends=CASE WHEN cod_otps.window_start < ? THEN 1 ELSE cod_otps.sends + 1 END, window_start=CASE WHEN cod_otps.window_start < ? THEN EXCLUDED.window_start ELSE cod_otps.window_start END`)
     .bind(phone, await hashOf(env, phone, code), t, t + OTP_TTL, t, String(wamid || ''), t - 3600, t - 3600).run();
-  if (viaEmail) await env.DB.prepare("UPDATE cod_otps SET dstatus='delivered', drank=2 WHERE phone=?").bind(phone).run();
-  if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'sent', wamid, preview: 'COD verification code (4 digits, not stored)' }).catch(() => {});
-  return { ok: true, resend_in: RESEND_GAP, ttl: OTP_TTL, ...(viaEmail ? { channel: 'email' } : {}) };
+  if (via !== 'whatsapp') await env.DB.prepare("UPDATE cod_otps SET dstatus='delivered', drank=2 WHERE phone=?").bind(phone).run();
+  if (log) await log({ phone, trigger: 'cod_otp', template: via === 'whatsapp' ? OTP_TEMPLATE : via, status: 'sent', wamid, preview: 'COD verification code (4 digits, not stored)' }).catch(() => {});
+  return { ok: true, resend_in: RESEND_GAP, ttl: OTP_TTL, ...(via !== 'whatsapp' ? { channel: via } : {}) };
 }
 
 /* WhatsApp delivery statuses can arrive out of order: keep the furthest one (failed is final). */
