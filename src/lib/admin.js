@@ -2127,6 +2127,14 @@ const ACTIONS = {
     return { ok: true, results };
   },
   async wa_template_details(env, b) { const { templateDetails } = await import('./wa-migrate.js'); return { ok: true, rows: (await templateDetails(env, env.WA_WABA_ID, b.names || [])).map((t) => ({ name: t.name, status: t.status, category: t.category, components: t.components })) }; },
+  /** WhatsApp down mode: no COD OTP, COD orders count as confirmed at checkout (lib/cod-otp.js waDown). b.on true/false */
+  async wa_down(env, b) {
+    const { putSetting } = await import('./settings.js');
+    const cur = JSON.parse((await env.DB.prepare("SELECT v FROM settings WHERE k='cod_otp'").first().catch(() => null))?.v || 'null') || {};
+    cur.wa_down = !!b.on;
+    await putSetting(env, 'cod_otp', cur);
+    return { ok: true, cod_otp: cur };
+  },
   /* Meta ad account money left + low-balance WhatsApp alert, lib/ads-balance.js */
   async ads_balance(env, b = {}) { const B = await import('./ads-balance.js'); return { ok: true, ...(await B.check(env, { below: b.below })) }; },
   /* Delhivery tracking-link WhatsApp, lib/dlv-links.js */

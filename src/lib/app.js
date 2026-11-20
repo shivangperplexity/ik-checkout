@@ -4,7 +4,7 @@ import { cameFromAd } from './attribution.js';
 import { loadLines, splitSoldOut, createDraft, completeDraft, addTags, removeTags, cancelOrder, createPartialOrder } from './shopify.js';
 import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
-import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery, recentlyVerified } from './cod-otp.js';
+import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery, recentlyVerified, waDown } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, upiCollect, validateVpa, verifyPayment } from './payu.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
@@ -100,7 +100,7 @@ async function handlePincode(pin) {
 }
 
 import { addressProblem } from './address-check.js';
-function validateBuyer(b) {
+function validateBuyer(b, env = {}) {
   const phone = cleanPhone(b.phone);
   const name = String(b.name || '').trim().replace(/\s+/g, ' ');
   const pincode = String(b.pincode || '').trim();
@@ -111,7 +111,7 @@ function validateBuyer(b) {
   const err = !phone ? 'Enter a valid 10-digit mobile number'
     : name.length < 2 ? 'Enter your name'
     : !/^\d{6}$/.test(pincode) ? 'Enter a valid 6-digit PIN code'
-    : !address1 || (address1 + ' ' + String(b.address2 || '')).trim().length < 5 ? 'Enter your full address'   /* Build 071: flat no. can be short; area is in address2 */
+    : !address1 || (address1 + ' ' + String(b.address2 || '')).replace(/\s+/g, ' ').trim().length < (Number(env.SETTINGS?.checkout?.addr_min) || 20) ? 'Please enter your full address: house / flat no., building, street and area'   /* Nov 2026: at least 20 characters (Settings checkout.addr_min) so a stray tap can't place a COD order with half an address */
     : addressProblem(address1, b.address2) ? addressProblem(address1, b.address2)
     : !city ? 'Enter your city'
     : !stateCode(state) ? 'Select your state'
@@ -140,7 +140,7 @@ async function handleOrder(req, env, ctx) {
   if ((method === 'cod' || wantPartial) && !codOn(env, b.attribution || {})) return json({ ok: false, cod_off: true, error: codMode(env) === 'off' ? 'Cash on delivery is not available right now. Please pay by UPI or card.' : 'Cash on delivery is not available for this order. Please pay by UPI or card.' });
 
   let buyer;
-  try { buyer = validateBuyer(b.buyer || {}); } catch (e) { return json({ ok: false, error: e.message }, 400); }
+  try { buyer = validateBuyer(b.buyer || {}, env); } catch (e) { return json({ ok: false, error: e.message }, 400); }
   /* neither ShipPrime nor Shiprocket delivers to this PIN: don't take the order (a failed courier lookup never blocks) */
   let eddText = '';
   try {
@@ -280,6 +280,7 @@ async function handleOrder(req, env, ctx) {
   const order = await completeDraft(env, draft.id, true);
   await saveOrder(env, row, order, 'placed');
   if (otpOk) await env.DB.prepare('UPDATE orders SET confirmed_at=?, otp_at=? WHERE idem=?').bind(now(), now(), idem).run();
+  else if (method === 'cod' && !partial && waDown(env)) await env.DB.prepare('UPDATE orders SET confirmed_at=? WHERE idem=? AND confirmed_at IS NULL').bind(now(), idem).run();
   if (method === 'cod' && refBits?.credit) await onCodPlaced(env, { idem, order_id: order.legacyResourceId }).catch((e) => console.error('credit cod', e.message));
   ctx.waitUntil(afterCod(env, req, row, order));
   return json({ ok: true, method, orderName: order.name, statusUrl: order.statusPageUrl, eventId, value: Number(rupees(draft.total)), otp_verified: otpOk });

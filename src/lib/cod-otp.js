@@ -27,7 +27,10 @@ export function otpTemplate() {
 }
 
 /** On unless switched off in settings (cod_otp.on = false), and only with the WhatsApp Cloud API connected. */
-export const otpOn = (env) => env.SETTINGS?.cod_otp?.on !== false && !!(env.WA_PHONE_ID && env.WA_TOKEN);
+export const otpOn = (env) => env.SETTINGS?.cod_otp?.on !== false && !env.SETTINGS?.cod_otp?.wa_down && !!(env.WA_PHONE_ID && env.WA_TOKEN);
+/* WhatsApp can't send (e.g. Meta billing block, Nov 2026): no OTP, and a COD order placed through the checkout counts as
+   confirmed at once (no WhatsApp YES possible), so it is booked and never auto-cancelled for being unconfirmed. */
+export const waDown = (env) => !!env.SETTINGS?.cod_otp?.wa_down;
 
 const secretOf = (env) => env.ADMIN_SECRET || env.CRON_SECRET || 'ik-otp|' + (env.DATABASE_URL || env.POSTGRES_URL || 'x');
 const hashOf = (env, phone, code) => hmacSha256hex(secretOf(env), `otp:${phone}:${code}`);
