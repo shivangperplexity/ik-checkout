@@ -564,7 +564,7 @@ export async function handle(req, env0, ctx) {
         if (!(await rateLimit(env, 'otp:' + ip, 30))) res = json({ ok: false, error: 'Too many attempts, please try again later' }, 429);
         else {
           const b = await req.json().catch(() => ({}));
-          res = !codOn(env, attrsIn(b)) ? json({ ok: false, cod_off: true, error: 'Cash on delivery is not available for this order. Please pay by UPI or card.' }) : json(await sendOtp(env, cleanPhone(b.phone), { log: (m) => logMsg(env, m) })); }
+          res = !codOn(env, attrsIn(b)) ? json({ ok: false, cod_off: true, error: 'Cash on delivery is not available for this order. Please pay by UPI or card.' }) : json(await sendOtp(env, cleanPhone(b.phone), { log: (m) => logMsg(env, m), email: String(b.email || '').trim().slice(0, 200) })); }
       }
       else if (path === '/api/otp/status' && req.method === 'POST') {
         const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';

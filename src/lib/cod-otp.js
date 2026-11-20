@@ -27,7 +27,8 @@ export function otpTemplate() {
 }
 
 /** On unless switched off in settings (cod_otp.on = false), and only with the WhatsApp Cloud API connected. */
-export const otpOn = (env) => env.SETTINGS?.cod_otp?.on !== false && !!(env.WA_PHONE_ID && env.WA_TOKEN);
+const waOn = (env) => !!(env.WA_PHONE_ID && env.WA_TOKEN) && env.SETTINGS?.cod_otp?.wa !== false;
+export const otpOn = (env) => env.SETTINGS?.cod_otp?.on !== false && (waOn(env) || !!env.RESEND_API_KEY);
 
 const secretOf = (env) => env.ADMIN_SECRET || env.CRON_SECRET || 'ik-otp|' + (env.DATABASE_URL || env.POSTGRES_URL || 'x');
 const hashOf = (env, phone, code) => hmacSha256hex(secretOf(env), `otp:${phone}:${code}`);
@@ -55,7 +56,7 @@ export async function metaSendOtp(env, phone, code) {
  * Send (or re-send) a code. Returns { ok, resend_in } or { ok:false, error, wait? , fallback? }.
  * fallback: WhatsApp could not deliver it, so the checkout should place the order the old way.
  */
-export async function sendOtp(env, phone, { send = metaSendOtp, log = null } = {}) {
+export async function sendOtp(env, phone, { send = metaSendOtp, log = null, email = '' } = {}) {
   if (!/^[6-9]\d{9}$/.test(String(phone || ''))) return { ok: false, error: 'Enter a valid 10-digit mobile number' };
   if (!otpOn(env)) return { ok: false, fallback: true, error: 'otp off' };
   const t = now();
@@ -64,8 +65,11 @@ export async function sendOtp(env, phone, { send = metaSendOtp, log = null } = {
   const fresh = !row || Number(row.window_start) < t - 3600;
   if (!fresh && Number(row.sends) >= MAX_SENDS_HOUR) return { ok: false, error: 'Too many codes asked for this number. Please try again in an hour.' };
   const code = newCode();
-  let wamid = '';
-  try { wamid = await send(env, phone, code); }
+  let wamid = '', viaEmail = false;
+  /* WhatsApp first; if it is off or refuses, the same code goes by email (lib/email.js) and counts as delivered. */
+  const byEmail = async () => { const E = await import('./email.js'); await E.emailOtp(env, email, code); viaEmail = true; return 'email'; };
+  const canEmail = !!env.RESEND_API_KEY && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
+  try { wamid = waOn(env) ? await send(env, phone, code).catch((e) => { if (canEmail) return byEmail(); throw e; }) : canEmail ? await byEmail() : await send(env, phone, code); }
   catch (e) {
     if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'failed', error: String(e.message || e).slice(0, 300), preview: 'COD verification code' }).catch(() => {});
     try { const G = await import('./wa-gate.js'); if (G.RATE_LIMIT.test(String(e.message || e))) await G.pushback(env); } catch { /* best effort */ }
@@ -75,8 +79,9 @@ export async function sendOtp(env, phone, { send = metaSendOtp, log = null } = {
       ON CONFLICT (phone) DO UPDATE SET code_hash=EXCLUDED.code_hash, sent_at=EXCLUDED.sent_at, expires_at=EXCLUDED.expires_at, tries=0, verified_at=NULL, wamid=EXCLUDED.wamid, dstatus=NULL, drank=0,
       sends=CASE WHEN cod_otps.window_start < ? THEN 1 ELSE cod_otps.sends + 1 END, window_start=CASE WHEN cod_otps.window_start < ? THEN EXCLUDED.window_start ELSE cod_otps.window_start END`)
     .bind(phone, await hashOf(env, phone, code), t, t + OTP_TTL, t, String(wamid || ''), t - 3600, t - 3600).run();
+  if (viaEmail) await env.DB.prepare("UPDATE cod_otps SET dstatus='delivered', drank=2 WHERE phone=?").bind(phone).run();
   if (log) await log({ phone, trigger: 'cod_otp', template: OTP_TEMPLATE, status: 'sent', wamid, preview: 'COD verification code (4 digits, not stored)' }).catch(() => {});
-  return { ok: true, resend_in: RESEND_GAP, ttl: OTP_TTL };
+  return { ok: true, resend_in: RESEND_GAP, ttl: OTP_TTL, ...(viaEmail ? { channel: 'email' } : {}) };
 }
 
 /* WhatsApp delivery statuses can arrive out of order: keep the furthest one (failed is final). */
@@ -122,5 +127,5 @@ export async function checkOtp(env, phone, code) {
   }
   await env.DB.prepare('UPDATE cod_otps SET tries=tries+1 WHERE phone=?').bind(String(phone)).run();
   const left = MAX_TRIES - Number(row.tries) - 1;
-  return { ok: false, error: left > 0 ? 'Wrong code. Please check the WhatsApp message and try again.' : 'Too many wrong tries. Tap Resend for a new code.', expired: left <= 0 };
+  return { ok: false, error: left > 0 ? 'Wrong code. Please check the code and try again.' : 'Too many wrong tries. Tap Resend for a new code.', expired: left <= 0 };
 }

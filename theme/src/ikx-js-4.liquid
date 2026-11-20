@@ -414,7 +414,8 @@
   function otpSend(again) {
     if (!OTP) return; var d = OTP.d, re = $('[data-otp-re]', root);
     if (re) { re.disabled = true; re.textContent = 'Sending…'; }
-    api('/api/otp/send', { phone: d.phone, attribution: attrNow() }).then(function (r) {
+    api('/api/otp/send', { phone: d.phone, email: d.email || '', attribution: attrNow() }).then(function (r) {
+      if (r.ok && r.channel === 'email') { var hh = $('[data-otp-h]', root); if (hh) hh.textContent = 'Code sent to ' + d.email; }
       if (!OTP) return;
       var st = $('[data-otp-st]', root);
       /* WhatsApp took it: ask for the code only once it says the message reached the phone */

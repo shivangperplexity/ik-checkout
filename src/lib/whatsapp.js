@@ -310,9 +310,11 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
   let onceKey = '';
   const base = () => ({ phone, trigger: key, template: templateName, orderName: orderName || v.order || '', preview: shown || cfg.vars.map((k) => `${k}=${v[k] ?? ''}`).join(' | ') });
 
+  /* Email copy of customer updates (lib/email.js): when WhatsApp is off or fails, or always if email.always is set. */
+  const mail = async () => { const E = await import('./email.js'); return E.emailTrigger(env, key, { vars: v, orderId, orderName }); };
   try {
     if (!phone) { await logMsg(env, { ...base(), status: 'skipped', error: 'no phone number' }); return { skipped: 'nophone' }; }
-    if (!waConnected(env)) { await logMsg(env, { ...base(), status: 'skipped', error: 'WhatsApp not connected' }); return { skipped: 'nowa' }; }
+    if (!waConnected(env)) { await logMsg(env, { ...base(), status: 'skipped', error: 'WhatsApp not connected' }); const em = await mail(); return { skipped: 'nowa', email: em }; }
     /* Never the same template to the same person for the same order twice within 10 minutes, whoever asks
        (a double-tapped button, parallel requests, a retry loop). OTP codes are exempt: "resend code" is real. */
     if (!ONCE_EXEMPT.has(key)) {
@@ -387,12 +389,15 @@ export async function fireTrigger(env, key, { to, vars = {}, orderId, orderName,
     }
     if (t.buttons === true && orderId && orderId !== '0') await rememberPending(env, phone, orderId, orderName || v.order);
     await logMsg(env, { ...base(), status: 'sent', wamid });
-    return { ok: true, template: templateName };
+    const E = await import('./email.js');
+    const em = E.emailAlways(env) ? await mail() : undefined;
+    return { ok: true, template: templateName, email: em };
   } catch (e) {
     await logMsg(env, { ...base(), status: 'failed', error: String(e.message || e) }).catch(() => {});
     if (onceKey) { const { release } = await import('./once.js'); await release(env, onceKey); }
     try { const G = await import('./wa-gate.js'); if (env.DB && G.RATE_LIMIT.test(String(e.message || e))) await G.pushback(env); } catch { /* best effort */ }
-    return { ok: false, error: String(e.message || e) };
+    const em = await mail().catch(() => null);
+    return { ok: !!em?.ok, error: String(e.message || e), email: em };
   }
 }
 let lastTemplateAt = 0;
