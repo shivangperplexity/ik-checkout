@@ -1183,6 +1183,20 @@ const ACTIONS = {
     return { ok: true, note: r.note };
   },
   /** ShipPrime connection check: the wallet (also proves the token works). Books nothing. */
+  /** ShipPrime raw rate rows for a PIN (which couriers it says are serviceable), COD and prepaid. */
+  async sp_rates_raw(env, b) {
+    const { sp: spRaw } = await import('./shipprime.js');
+    const out = {};
+    for (const cod of [true, false]) {
+      const q = new URLSearchParams({ pickupPincode: '410206', deliveryPincode: String(b.pin || '411038'), weightGrams: String(b.g || 230), paymentMethod: cod ? 'COD' : 'PREPAID' });
+      if (cod) q.set('collectibleAmount', '450');
+      const j = await spRaw(env, 'GET', '/v1/forward/rates?' + q);
+      const arr = Array.isArray(j) ? j : j?.data?.rates || j?.data || j?.rates || [];
+      out[cod ? 'cod' : 'prepaid'] = (Array.isArray(arr) ? arr : []).map((x) => { const o = {}; for (const k of Object.keys(x)) if (typeof x[k] !== 'object') o[k] = x[k]; return o; }).filter((x) => /SHADOW|EKART/i.test(JSON.stringify(x)));
+      if (!Array.isArray(arr)) out.shape = JSON.stringify(j).slice(0, 400);
+    }
+    return { ok: true, ...out };
+  },
   async sp_test(env) {
     const fresh = await withSettingsFresh(env);
     if (!spConnected(fresh)) throw new Error('Paste the ShipPrime API token first');
