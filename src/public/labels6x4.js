@@ -97,7 +97,9 @@
       var p = (await out.embedPdf(src, [0]))[0];
       var land = p.width >= p.height, pw = land ? LONG : SHORT, ph = land ? SHORT : LONG;
       /* centred, full size (4 x 6 inch page) */
-      var k = Math.min(pw / p.width, ph / p.height), w = p.width * k, h = p.height * k, ox = (pw - w) / 2, oy = (ph - h) / 2;
+      /* 3 mm safe margin on each side (printers do not print to the very edge; Shiprocket labels run edge to edge) */
+      var MG = 3 * PT / 25.4;
+      var k = Math.min((pw - 2 * MG) / p.width, (ph - 2 * MG) / p.height), w = p.width * k, h = p.height * k, ox = (pw - w) / 2, oy = (ph - h) / 2;
       var page = out.addPage([pw, ph]);
       page.drawPage(p, { x: ox, y: oy, width: w, height: h });
       if (box) {

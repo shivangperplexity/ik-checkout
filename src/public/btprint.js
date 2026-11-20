@@ -16,7 +16,7 @@
   var KEY = 'ik_bt';
   var S = { dev: null, ch: null, wwr: false, name: '', busy: false };
   function cfg() {
-    var d = { mode: 'tspl', w: 101.6, h: 152.4, gap: 2.5, invert: false, dark: 10, auto: true, chunk: 180 };
+    var d = { mode: 'tspl', w: 101.6, h: 152.4, gap: 2.5, invert: false, dark: 10, auto: true, chunk: 180, margin: 3 };
     try { var j = JSON.parse(localStorage.getItem(KEY) || '{}'); for (var k in j) d[k] = j[k]; } catch (e) { /* defaults */ }
     return d;
   }
@@ -158,7 +158,10 @@
       var vp0 = page.getViewport({ scale: 1 });
       var turn = (vp0.width > vp0.height) !== (cv.width > cv.height);
       var vpr = page.getViewport({ scale: 1, rotation: turn ? 90 : 0 });
-      var k = Math.min(cv.width / vpr.width, cv.height / vpr.height);
+      /* a safe margin (mm, setting 'margin', default 3) on every side: Shiprocket draws its 4 x 6 label right to the page
+         edge, and thermal heads / sticker offsets lost a few mm, so the edges (barcode ends, address) were cut off */
+      var mg = Math.max(0, Number(cfg().margin)) * 8;
+      var k = Math.min((cv.width - 2 * mg) / vpr.width, (cv.height - 2 * mg) / vpr.height);
       var vp = page.getViewport({ scale: k, rotation: turn ? 90 : 0 });
       var tmp = document.createElement('canvas'); tmp.width = Math.ceil(vp.width); tmp.height = Math.ceil(vp.height);
       var tg = tmp.getContext('2d'); tg.fillStyle = '#fff'; tg.fillRect(0, 0, tmp.width, tmp.height);
