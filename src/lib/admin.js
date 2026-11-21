@@ -1084,6 +1084,10 @@ const ACTIONS = {
     const e = await withSettingsFresh(env);
     const to = String(b.to || e.SETTINGS.wa?.admin_phone || '').replace(/\D/g, '').slice(-10);
     if (!to) throw new Error('No phone to test with');
+    if (b.raw) {
+      const r = await fetch('https://api.interakt.ai/v1/public/message/', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + e.SETTINGS.wa.interakt_key }, body: JSON.stringify({ countryCode: '+91', phoneNumber: to, type: 'Template', template: b.raw }) });
+      return { ok: true, status: r.status, body: await r.text() };
+    }
     if (b.template) {
       const r = await fetch(`https://graph.facebook.com/v21.0/${e.WA_PHONE_ID}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${e.WA_TOKEN}` },
         body: JSON.stringify({ messaging_product: 'whatsapp', to: '91' + to, type: 'template', template: { name: String(b.template), language: { code: 'en' }, components: (b.body || []).length ? [{ type: 'body', parameters: b.body.map((x) => ({ type: 'text', text: String(x) })) }] : [] } }) });
