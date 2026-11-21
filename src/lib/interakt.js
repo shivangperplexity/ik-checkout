@@ -16,7 +16,7 @@ let CFG = { key: '' };
 /** Called by settings.js whenever settings load. */
 export function configureInterakt(s) {
   const w = s?.wa || {};
-  CFG = { key: w.transport === 'interakt' ? String(w.interakt_key || '').trim() : '', all: !!w.interakt_all };
+  CFG = { key: w.transport === 'interakt' ? String(w.interakt_key || '').trim() : '', all: !!w.interakt_all, alias: w.interakt_alias || {} };
 }
 export const interaktOn = () => !!CFG.key;
 
@@ -29,14 +29,17 @@ export function toInterakt(b) {
   if (b.type === 'text') return { ...base, type: 'Text', data: { message: String(b.text?.body || '') } };
   if (b.type === 'template') {
     const t = b.template || {}, comps = t.components || [];
-    const out = { name: t.name, languageCode: t.language?.code || 'en' };
+    const al = CFG.alias?.[t.name]?.ready ? CFG.alias[t.name] : null;
+    const out = { name: al?.name || t.name, languageCode: t.language?.code || 'en' };
+    /* named template -> its {{1}} copy: values in the copy's order */
+    const byName = (ps, order) => order.map((n) => txt(ps.find((p) => p.parameter_name === n) || {}));
     for (const c of comps) {
       const ps = c.parameters || [];
       if (c.type === 'header') {
         const m = ps.find((p) => p.image || p.video || p.document);
         if (m) { const md = m.image || m.video || m.document; out.headerValues = [md.link]; if (m.document) out.fileName = md.filename || 'document.pdf'; }
-        else out.headerValues = ps.map(txt);
-      } else if (c.type === 'body') out.bodyValues = ps.map(txt);
+        else out.headerValues = al && ps.some((p) => p.parameter_name) ? byName(ps, al.header || []) : ps.map(txt);
+      } else if (c.type === 'body') out.bodyValues = al && ps.some((p) => p.parameter_name) ? byName(ps, al.body || []) : ps.map(txt);
       else if (c.type === 'button') {
         const i = String(c.index ?? 0);
         if (c.sub_type === 'quick_reply') (out.buttonPayload = out.buttonPayload || {})[i] = ps.map(txt);

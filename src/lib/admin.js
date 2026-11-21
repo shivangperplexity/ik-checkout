@@ -1054,6 +1054,42 @@ const ACTIONS = {
     }
     return { ok: true, out };
   },
+  /** Interakt can't fill named ({{name}}) templates: make a {{1}}-style copy "<name>_p" of each named template and
+      remember the variable order, so lib/interakt.js sends the copy with the values in that order. */
+  async wa_clone_positional(env, b) {
+    const e = await withSettingsFresh(env); const { waGet } = await import('./whatsapp.js');
+    const W = e.WA_WABA_ID;
+    const j = await waGet(e, `${W}/message_templates?fields=name,language,category,status,parameter_format,components&limit=200`);
+    const all = j.data || [], have = new Set(all.map((x) => x.name));
+    const alias = { ...(e.SETTINGS.wa?.interakt_alias || {}) }, out = [];
+    for (const tp of all.filter((x) => x.parameter_format === 'NAMED' && x.status === 'APPROVED' && (!b.only || b.only.includes(x.name)))) {
+      const nn = tp.name + '_p';
+      const order = [], ex = [];
+      const comps = [];
+      for (const c of tp.components || []) {
+        if (c.type === 'BODY' || (c.type === 'HEADER' && c.format === 'TEXT')) {
+          const samples = Object.fromEntries((c.example?.body_text_named_params || c.example?.header_text_named_params || []).map((p) => [p.param_name, p.example]));
+          const local = [];
+          const text = String(c.text || '').replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (m, n) => { local.push(n); return `{{${local.length}}}`; });
+          const cc = { type: c.type, ...(c.format ? { format: c.format } : {}), text };
+          if (local.length) cc.example = c.type === 'BODY' ? { body_text: [local.map((n) => String(samples[n] || 'x'))] } : { header_text: local.map((n) => String(samples[n] || 'x')) };
+          if (c.type === 'BODY') order.push(...local); else cc._h = local;
+          comps.push(cc);
+        } else if (c.type === 'HEADER') { comps.push({ type: 'HEADER', format: c.format, example: c.example }); }
+        else comps.push(c);
+      }
+      const hdr = comps.find((c) => c._h); const horder = hdr ? hdr._h : []; if (hdr) delete hdr._h;
+      const cp = all.find((x) => x.name === nn);
+      alias[tp.name] = { name: nn, body: order, header: horder, ready: cp?.status === 'APPROVED' };
+      if (cp) { out.push({ name: nn, created: false, status: cp.status }); continue; }
+      const r = await fetch(`https://graph.facebook.com/v21.0/${W}/message_templates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${e.WA_TOKEN}` },
+        body: JSON.stringify({ name: nn, language: tp.language, category: tp.category, components: comps }) });
+      const rj = await r.json().catch(() => ({}));
+      out.push({ name: nn, created: r.ok, status: rj.status || '', error: rj.error?.error_user_msg || rj.error?.message || '' });
+    }
+    await putSetting(env, 'wa', { ...(e.SETTINGS.wa || {}), interakt_alias: alias });
+    return { ok: true, out };
+  },
   async wa_debug(env, b) {
     const e = await withSettingsFresh(env); const { waGet } = await import('./whatsapp.js');
     const g = (p) => waGet(e, p).catch((x) => ({ error: String(x.message || x).slice(0, 200) }));
