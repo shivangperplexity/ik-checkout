@@ -1066,6 +1066,12 @@ const ACTIONS = {
     const e = await withSettingsFresh(env);
     const to = String(b.to || e.SETTINGS.wa?.admin_phone || '').replace(/\D/g, '').slice(-10);
     if (!to) throw new Error('No phone to test with');
+    if (b.template) {
+      const r = await fetch(`https://graph.facebook.com/v21.0/${e.WA_PHONE_ID}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${e.WA_TOKEN}` },
+        body: JSON.stringify({ messaging_product: 'whatsapp', to: '91' + to, type: 'template', template: { name: String(b.template), language: { code: 'en' }, components: (b.body || []).length ? [{ type: 'body', parameters: b.body.map((x) => ({ type: 'text', text: String(x) })) }] : [] } }) });
+      const j = await r.json().catch(() => ({}));
+      return { ok: true, result: r.ok ? { ok: true, id: j.messages?.[0]?.id } : { ok: false, error: j.error?.message || JSON.stringify(j).slice(0, 200) } };
+    }
     const { sendText } = await import('./whatsapp.js');
     return { ok: true, result: await sendText(e, '91' + to, 'Ink Kulture test via Interakt ' + new Date().toISOString().slice(11, 19)) };
   },
