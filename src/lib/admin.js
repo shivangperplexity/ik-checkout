@@ -1039,11 +1039,12 @@ const ACTIONS = {
   },
   /** Payments: Razorpay keys + which gateway takes new online payments. */
   /** WhatsApp through Interakt (number moved there). Test = a real template to admin_phone when `test` is set. */
-  async wa_debug(env) {
+  async wa_debug(env, b) {
     const e = await withSettingsFresh(env); const { waGet } = await import('./whatsapp.js');
     const g = (p) => waGet(e, p).catch((x) => ({ error: String(x.message || x).slice(0, 200) }));
-    const [apps, ph, wabas] = await Promise.all([g(`${e.WA_WABA_ID}/subscribed_apps`), g(`${e.WA_PHONE_ID}?fields=display_phone_number,platform_type,status,webhook_configuration,code_verification_status,name_status`), g(`${e.WA_WABA_ID}?fields=name,owner_business_info,on_behalf_of_business_info`)]);
-    return { ok: true, waba: e.WA_WABA_ID, phone: e.WA_PHONE_ID, apps, ph, wabas };
+    const W = String(b?.waba || e.WA_WABA_ID);
+    const [apps, ph, wabas, nums] = await Promise.all([g(`${W}/subscribed_apps`), g(`${e.WA_PHONE_ID}?fields=display_phone_number,platform_type,status,webhook_configuration,code_verification_status,name_status`), g(`${W}?fields=name,owner_business_info,on_behalf_of_business_info`), g(`${W}/phone_numbers?fields=id,display_phone_number,status`)]);
+    return { ok: true, waba: W, phone: e.WA_PHONE_ID, apps, ph, wabas, nums };
   },
   async interakt_settings(env) {
     const s = await getSettings(env, true), w = s.wa || {};
@@ -1055,6 +1056,7 @@ const ACTIONS = {
     if (b.key !== undefined && !String(b.key).startsWith('••')) w.interakt_key = String(b.key).replace(/^Basic\s+/i, '').trim().slice(0, 300);
     if (b.secret !== undefined && !String(b.secret).startsWith('••')) w.interakt_secret = String(b.secret).trim().slice(0, 200);
     if (b.waba_id !== undefined && /^\d{6,25}$/.test(String(b.waba_id).trim())) w.waba_id = String(b.waba_id).trim();
+    if (b.inbound !== undefined) w.interakt_inbound = !!b.inbound;
     if (b.on !== undefined) {
       if (b.on && !w.interakt_key) throw new Error('Paste the Interakt API key first');
       w.transport = b.on ? 'interakt' : (w.transport === 'interakt' ? 'meta' : w.transport);
