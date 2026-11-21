@@ -1039,6 +1039,21 @@ const ACTIONS = {
   },
   /** Payments: Razorpay keys + which gateway takes new online payments. */
   /** WhatsApp through Interakt (number moved there). Test = a real template to admin_phone when `test` is set. */
+  /** Copy every approved template from the old WhatsApp account to the new one (Meta template migration, same business). */
+  async wa_migrate_templates(env, b) {
+    const e = await withSettingsFresh(env);
+    const src = String(b.from || '2954439494913942'), dst = String(b.to || '1055106754265763');
+    const out = [];
+    let page = 0;
+    for (;;) {
+      const r = await fetch(`https://graph.facebook.com/v21.0/${dst}/migrate_message_templates`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${e.WA_TOKEN}` }, body: JSON.stringify({ source_waba_id: src, page_number: page }) });
+      const j = await r.json().catch(() => ({}));
+      out.push({ page, status: r.status, migrated: (j.migrated_templates || []).length, failed: j.failed_templates || {}, error: j.error?.message || '' });
+      if (!r.ok || !(j.migrated_templates || []).length || page >= 10) break;
+      page++;
+    }
+    return { ok: true, out };
+  },
   async wa_debug(env, b) {
     const e = await withSettingsFresh(env); const { waGet } = await import('./whatsapp.js');
     const g = (p) => waGet(e, p).catch((x) => ({ error: String(x.message || x).slice(0, 200) }));
