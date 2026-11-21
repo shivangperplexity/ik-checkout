@@ -2636,6 +2636,14 @@ const ACTIONS = {
     await putSetting(env, 'templates', { ...prev, [b.key]: { ...(prev[b.key] || {}), enabled: !!b.on } });
     return { ok: true, key: b.key, on: !!b.on };
   },
+  /** Point one trigger at another template name (keeps everything else). */
+  async set_trigger_tpl(env, b) {
+    const s = await getSettings(env, true), t = { ...(s.templates || {}) };
+    if (!TRIGGERS[b.key]) throw new Error('unknown trigger');
+    t[b.key] = { ...(t[b.key] || { enabled: true, lang: 'en', vars: TRIGGERS[b.key].vars }), name: String(b.name).trim().slice(0, 100) };
+    await putSetting(env, 'templates', t);
+    return { ok: true, trigger: t[b.key] };
+  },
   async save_triggers(env, b) {
     const t = {};
     const prev = (await getSettings(env, true)).templates || {};
