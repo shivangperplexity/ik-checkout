@@ -1039,6 +1039,12 @@ const ACTIONS = {
   },
   /** Payments: Razorpay keys + which gateway takes new online payments. */
   /** WhatsApp through Interakt (number moved there). Test = a real template to admin_phone when `test` is set. */
+  async wa_debug(env) {
+    const e = await withSettingsFresh(env); const { waGet } = await import('./whatsapp.js');
+    const g = (p) => waGet(e, p).catch((x) => ({ error: String(x.message || x).slice(0, 200) }));
+    const [apps, ph, wabas] = await Promise.all([g(`${e.WA_WABA_ID}/subscribed_apps`), g(`${e.WA_PHONE_ID}?fields=display_phone_number,platform_type,status,webhook_configuration,code_verification_status,name_status`), g(`${e.WA_WABA_ID}?fields=name,owner_business_info,on_behalf_of_business_info`)]);
+    return { ok: true, waba: e.WA_WABA_ID, phone: e.WA_PHONE_ID, apps, ph, wabas };
+  },
   async interakt_settings(env) {
     const s = await getSettings(env, true), w = s.wa || {};
     return { ok: true, on: w.transport === 'interakt', key: w.interakt_key ? '••••••' + String(w.interakt_key).slice(-4) : '', secret: w.interakt_secret ? '••••••' + String(w.interakt_secret).slice(-4) : '',
