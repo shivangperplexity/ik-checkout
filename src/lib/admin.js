@@ -1031,7 +1031,7 @@ const ACTIONS = {
         policy: s.shipping.policy, tolerance_days: s.shipping.tolerance_days, shiprocket_block: s.shipping.shiprocket_block ?? null,
         cod_prefer: codPrefer(s.shipping), cod_prefer_extra: s.shipping.cod_prefer_extra ?? 25,
         sr_pickup: s.shipping.sr_pickup || '', sr_fallback_email: s.shipping.sr_fallback_email || '', pack: packUi(s.shipping.pack),
-        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token,
+        shipprime_token: mask(s.shipping.shipprime_token), shipprime_ok: !!s.shipping.shipprime_token, shadowfax_token: mask(s.shipping.shadowfax_token), shadowfax_ok: !!s.shipping.shadowfax_token, shadowfax_env: s.shipping.shadowfax_env || 'live',
         sp_dash_token: mask(s.shipping.sp_dash_token), sp_dash_ok: !!s.shipping.sp_dash_token, sp_ndr_auto: s.shipping.sp_ndr_auto !== false, shipprime_prefer: spPrefer(s.shipping),
         ship_default: s.shipping.ship_default === 'shipprime' ? 'shipprime' : 'shiprocket', sp_pickup: s.shipping.sp_pickup || null,
         sp_webhook_url: spWebhookUrl(env), sp_webhook_secret: await spWebhookSecret(env), sp_couriers: SP_COURIERS },
@@ -1059,6 +1059,8 @@ const ACTIONS = {
     if (b.policy !== undefined) sh.policy = b.policy === 'fastest' ? 'fastest' : 'cheapest';
     if (b.tolerance_days !== undefined) sh.tolerance_days = Math.max(0, Math.min(10, Math.round(+b.tolerance_days || 0)));
     /* ShipPrime: API token (Profile > API Setup), courier order, default carrier for bulk booking, pickup address */
+    if (b.shadowfax_token !== undefined && !String(b.shadowfax_token).startsWith('••')) sh.shadowfax_token = String(b.shadowfax_token).replace(/^Token\s+/i, '').trim().slice(0, 500);
+    if (b.shadowfax_env !== undefined) sh.shadowfax_env = b.shadowfax_env === 'staging' ? 'staging' : 'live';
     if (b.shipprime_token !== undefined && !String(b.shipprime_token).startsWith('••')) sh.shipprime_token = String(b.shipprime_token).replace(/^Bearer\s+/i, '').trim().slice(0, 2000);
     if (b.sp_dash_token !== undefined && !String(b.sp_dash_token).startsWith('••')) {
       const { parseDashToken } = await import('./sp-ndr.js');
@@ -1131,7 +1133,7 @@ const ACTIONS = {
             arrives: r.date ? day(r.date) : p.range ? (p.range.from === p.range.to ? day(p.range.from) : day(p.range.from) + ' – ' + day(p.range.to)) : '' })) };
       } catch (e) { spOut = { connected: true, options: [], error: String(e.message || e) }; }
     }
-    return { ok: true, allow_never: !!b.allow_never, only_never: !!plan.onlyNever, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
+    return { ok: true, sfx: !!String(fresh.SETTINGS.shipping.shadowfax_token || '').trim(), allow_never: !!b.allow_never, only_never: !!plan.onlyNever, pack: plan.pack, pin: plan.pin, cod: plan.cod, pick: plan.pick ? plan.pick.id : '', ready: !!fresh.SETTINGS.shipping.sr_pickup,
       sp: spOut, ship_default: fresh.SETTINGS.shipping.ship_default === 'shipprime' && spOn ? 'shipprime' : 'shiprocket',
       shipment: publicRec(existing && existing.awb && existing.status !== 'cancelled' ? existing : null),
       options: plan.options.map((o) => ({ key: o.id, provider: 'Shiprocket', courier: o.courier, charge: o.charge, cod_fee: o.cod, edd: dayOut(o.eddDate), days: o.eddDate ? Math.max(1, Math.round((o.eddDate - Date.now()) / 86400000)) : null, excluded: o.excluded || '' })),
@@ -1149,7 +1151,7 @@ const ACTIONS = {
     const { fresh, row, order } = await shipCtx(env, b.id);
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
     /* carrier: what the button said; bulk booking (no provider) uses Settings > Shipping carriers > default carrier */
-    const chosen = !b.auto && (b.provider === 'shipprime' || b.provider === 'shiprocket');
+    const chosen = !b.auto && (b.provider === 'shipprime' || b.provider === 'shiprocket' || b.provider === 'shadowfax');
     const provider = chosen ? b.provider : (b.auto || (fresh.SETTINGS.shipping.ship_default === 'shipprime' && spConnected(fresh)) ? 'shipprime' : 'shiprocket');
     let r, routeNote = '';
     /* bulk / automatic booking to nearby areas: Shiprocket Xpressbees DS, else ShipPrime Delhivery Air (lib/near-route.js) */
@@ -1168,6 +1170,7 @@ const ACTIONS = {
         const x = await spBook(fresh, order, row, { tpl: nc.fallback }); r = { ...x, shipment: publicRec(x.rec), note: [routeNote, x.note].filter(Boolean).join('; ') };
       }
     }
+    else if (provider === 'shadowfax') { const { sfxBook } = await import('./shadowfax.js'); const x = await sfxBook(fresh, order, row); r = { ...x, shipment: publicRec(x.rec) }; }
     else if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec) }; }
     else r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never, courierId: String(b.courier_id || '') });
     /* the AWB exists with the carrier either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
@@ -1187,7 +1190,7 @@ const ACTIONS = {
   },
   async sr_docs(env, b) {
     const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(b.id)).first();
-    if (!rec?.sr_shipment_id && rec?.provider !== 'shipprime') throw new Error('This order was not booked from the dashboard');
+    if (!rec?.sr_shipment_id && rec?.provider !== 'shipprime' && rec?.provider !== 'shadowfax') throw new Error('This order was not booked from the dashboard');
     const d = await refreshDocs(await withSettingsFresh(env), rec);
     await env.DB.prepare('UPDATE shipments SET label_url=?, pickup=?, updated_at=? WHERE order_id=?').bind(d.label_url, d.pickup, now(), String(b.id)).run();
     return { ok: true, ...d };
@@ -1214,6 +1217,8 @@ const ACTIONS = {
     }
     return { ok: true, ...out };
   },
+  /** Shadowfax: is a PIN serviceable (also proves the token). Books nothing. */
+  async sfx_test(env, b) { const { sfxServiceable } = await import('./shadowfax.js'); const r = await sfxServiceable(await withSettingsFresh(env), String(b.pin || '400051')); return { ok: true, serviceable: r.ok, raw: JSON.stringify(r.raw).slice(0, 1500) }; },
   async sp_test(env) {
     const fresh = await withSettingsFresh(env);
     if (!spConnected(fresh)) throw new Error('Paste the ShipPrime API token first');

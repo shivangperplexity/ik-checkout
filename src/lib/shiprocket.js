@@ -179,12 +179,13 @@ export function adaptTrack(j) {
 }
 /** Which carrier booked this AWB: 'shipprime' or 'shiprocket' (the default, also for AWBs we did not book). */
 export async function providerOf(env, awb) {
-  try { const r = await env.DB?.prepare("SELECT provider, courier FROM shipments WHERE awb=? ORDER BY created_at DESC LIMIT 1").bind(String(awb)).first(); return r?.provider === 'shipprime' ? { provider: 'shipprime', courier: r.courier || '' } : { provider: 'shiprocket' }; }
+  try { const r = await env.DB?.prepare("SELECT provider, courier FROM shipments WHERE awb=? ORDER BY created_at DESC LIMIT 1").bind(String(awb)).first(); return r?.provider === 'shipprime' || r?.provider === 'shadowfax' ? { provider: r.provider, courier: r.courier || '' } : { provider: 'shiprocket' }; }
   catch { return { provider: 'shiprocket' }; }
 }
 /** Tracking in Shiprocket's raw shape for either carrier (lib/sr-scan.js reads it). */
 export async function trackRaw(env, awb, rec = null) {
-  const p = rec ? { provider: rec.provider === 'shipprime' ? 'shipprime' : 'shiprocket', courier: rec.courier || '' } : await providerOf(env, awb);
+  const p = rec ? { provider: rec.provider === 'shipprime' || rec.provider === 'shadowfax' ? rec.provider : 'shiprocket', courier: rec.courier || '' } : await providerOf(env, awb);
+  if (p.provider === 'shadowfax') { const { sfxTrackRaw } = await import('./shadowfax.js'); return sfxTrackRaw(env, awb); }
   return p.provider === 'shipprime' ? spTrackRaw(env, awb, p.courier) : sr(env, 'GET', `courier/track/awb/${encodeURIComponent(awb)}`);
 }
 export async function srTrack(env, awb) { return adaptTrack(await trackRaw(env, awb)); }
@@ -502,11 +503,12 @@ export async function srOrderAmount(env, srOrderId) {
 export function publicRec(r) {
   if (!r) return null;
   let pack = null; try { pack = JSON.parse(r.pack || 'null'); } catch { /* ignore */ }
-  return { order_id: r.order_id, order_name: r.order_name, provider: r.provider === 'shipprime' ? 'shipprime' : 'shiprocket', awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: trackUrlOf(r), sr_order_id: r.sr_order_id || '', book_note: r.book_note || '' };
+  return { order_id: r.order_id, order_name: r.order_name, provider: r.provider === 'shipprime' || r.provider === 'shadowfax' ? r.provider : 'shiprocket', awb: r.awb || '', courier: r.courier || '', charge: (Number(r.charge_paise) || 0) / 100, label_url: r.label_url || '', pickup: r.pickup || '', fulfil_error: r.fulfil_error || '', status: r.status || '', rto: !!r.rto, pack, track_url: trackUrlOf(r), sr_order_id: r.sr_order_id || '', book_note: r.book_note || '' };
 }
 
 export async function cancelShipment(env, rec) {
   if (rec?.provider === 'shipprime') return spCancel(env, rec);
+  if (rec?.provider === 'shadowfax') { const { sfxCancel } = await import('./shadowfax.js'); return sfxCancel(env, rec); }
   if (!rec?.sr_order_id && !rec?.awb) throw new Error('No Shiprocket order to cancel');
   /* Oct 2026: Shiprocket's orders/cancel answers 503 for every call (its wallet / tracking / AWB-cancel endpoints are
      fine), so the AWB is cancelled first: that is what takes the parcel off the pickup. The order cancel follows,
@@ -522,6 +524,7 @@ export async function cancelShipment(env, rec) {
 
 /** Label only (no pickup request). Returns the stored label URL, or asks Shiprocket for a fresh one when there is none or `force` is set. */
 export async function ensureLabel(env, rec, force = false) {
+  if (rec.provider === 'shadowfax') { if (rec.label_url && !force) return rec.label_url; const { sfxLabel } = await import('./shadowfax.js'); const u = await sfxLabel(env, rec.awb); if (u) await env.DB.prepare('UPDATE shipments SET label_url=? WHERE order_id=?').bind(u, rec.order_id).run().catch(() => {}); return u; }
   if (rec.provider === 'shipprime') { if (rec.label_url) return rec.label_url; throw new Error('ShipPrime gave no label for this AWB: download it from ShipPrime, Manage Orders.'); }
   if (rec.label_url && !force) return rec.label_url;
   const l = await sr(env, 'POST', 'courier/generate/label', { shipment_id: [Number(rec.sr_shipment_id)] });
@@ -531,6 +534,7 @@ export async function ensureLabel(env, rec, force = false) {
 /** Re-request pickup / label for a booked shipment. */
 export async function refreshDocs(env, rec) {
   if (rec.provider === 'shipprime') return { label_url: rec.label_url || '', pickup: rec.pickup || 'ShipPrime asks the courier for the pickup' };
+  if (rec.provider === 'shadowfax') return { label_url: await ensureLabel(env, rec, true).catch(() => rec.label_url || ''), pickup: rec.pickup || 'Shadowfax picks up from the registered pickup address' };
   const sid = [Number(rec.sr_shipment_id)];
   let label = rec.label_url || '', pickup = rec.pickup || '';
   try { const l = await sr(env, 'POST', 'courier/generate/label', { shipment_id: sid }); label = l.label_url || label; } catch (e) { label = label || ''; }

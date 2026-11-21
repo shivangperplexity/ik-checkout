@@ -46,7 +46,7 @@ export const spTrackUrl = (awb) => `https://www.shipprime.live/track-order?awb=$
 /* Nov 2026: Delhivery parcels link to Delhivery's own page (more scan detail; the customer can log in with mobile + OTP
    there and call the delivery executive when the parcel is out for delivery). */
 export const delhiveryTrackUrl = (awb) => `https://www.delhivery.com/track-v2/package/${encodeURIComponent(String(awb || ''))}`;
-export const trackUrlOf = (rec) => (!rec?.awb ? '' : /delhivery/i.test(String(rec.courier || '')) ? delhiveryTrackUrl(rec.awb) : rec.provider === 'shipprime' ? spTrackUrl(rec.awb) : `https://shiprocket.co/tracking/${rec.awb}`);
+export const trackUrlOf = (rec) => (!rec?.awb ? '' : rec.provider === 'shadowfax' ? `https://tracker.shadowfax.in/#/track/${encodeURIComponent(String(rec.awb))}` : /delhivery/i.test(String(rec.courier || '')) ? delhiveryTrackUrl(rec.awb) : rec.provider === 'shipprime' ? spTrackUrl(rec.awb) : `https://shiprocket.co/tracking/${rec.awb}`);
 
 /** "XPRESSBEES_PREMIUM" -> "Xpressbees Premium", "BLUEDART_AIR" -> "Blue Dart Air" */
 export function courierLabel(code) {

@@ -124,6 +124,7 @@ export async function refreshDue(env, { max = 25 } = {}) {
 export async function requestPickup(env, recs, date) {
   const out = [];
   for (const rec of recs) {
+    if (rec.provider === 'shadowfax') { out.push({ id: rec.order_id, name: rec.order_name, ok: false, note: 'Shadowfax parcel: Shadowfax schedules the pickup itself' }); continue; }
     if (rec.provider === 'shipprime') { out.push({ id: rec.order_id, name: rec.order_name, ok: false, note: 'ShipPrime parcel: ShipPrime books the pickup itself (ask them if it is late)' }); continue; }
     try {
       const body = { shipment_id: [Number(rec.sr_shipment_id)] };
@@ -142,7 +143,7 @@ export async function requestPickup(env, recs, date) {
 
 /** Manifest PDF link for these shipments (generated once; printed again if it already exists). */
 export async function manifestUrl(env, recs) {
-  recs = recs.filter((r) => r.provider !== 'shipprime');
+  recs = recs.filter((r) => r.provider !== 'shipprime' && r.provider !== 'shadowfax');
   const sids = recs.map((r) => Number(r.sr_shipment_id)).filter(Boolean), oids = recs.map((r) => Number(r.sr_order_id)).filter(Boolean);
   if (!sids.length) throw new Error('No Shiprocket shipments selected');
   try {
