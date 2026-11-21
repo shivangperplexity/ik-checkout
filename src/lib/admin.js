@@ -1888,6 +1888,7 @@ const ACTIONS = {
     const { rtoBreakdown } = await import('./revenue.js');
     return { ok: true, ...(await rtoBreakdown(env, { range: String(b.range || 'all') })) };
   },
+  async rto_pins(env, b) { const { rtoPins } = await import('./revenue.js'); return { ok: true, ...(await rtoPins(env, { min: b.min })) }; },
   async revenue_cohorts(env, b) {
     const { shipCohorts } = await import('./revenue.js');
     return { ok: true, ...(await shipCohorts(await withSettingsFresh(env), { group: b.group === 'week' ? 'week' : 'day', days: Math.min(400, Math.max(14, Number(b.days) || 120)) })) };

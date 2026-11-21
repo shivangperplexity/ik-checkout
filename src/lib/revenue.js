@@ -300,3 +300,22 @@ export function normState(region, code) {
   const c = String(code || '').toUpperCase().replace(/^IN-/, '');
   return STATE_CODES[c] || (c ? c : '');
 }
+
+/** RTO hotspots by pincode and by 3-digit sorting zone. */
+export async function rtoPins(env, { min = 3 } = {}) {
+  const rows = (await env.DB.prepare(`SELECT r.state, o.pincode, o.city, s.stage AS sr_stage, s.rto AS sr_rto
+      FROM rev_orders r JOIN orders o ON o.order_id = r.order_id LEFT JOIN shipments s ON s.order_id = r.order_id AND COALESCE(s.status,'')<>'cancelled'`).all()).results;
+  const pins = {}, zones = {};
+  for (const r of rows) {
+    const pin = String(r.pincode || '').trim(); if (!/^\d{6}$/.test(pin)) continue;
+    const o = r.sr_stage === 'delivered' ? 'd' : r.sr_stage === 'rto' || r.sr_rto === true || r.sr_rto === 1 ? 'r' : r.state === 'delivered' ? 'd' : r.state === 'returned' ? 'r' : null;
+    if (!o) continue;
+    for (const [g, k] of [[pins, pin], [zones, pin.slice(0, 3)]]) { const x = g[k] = g[k] || { k, city: r.city || '', d: 0, r: 0 }; x[o]++; }
+  }
+  const fin = (g, m) => Object.values(g).map((x) => ({ ...x, n: x.d + x.r, rto: Math.round((x.r * 100) / (x.d + x.r)) })).filter((x) => x.n >= m);
+  return {
+    pins: fin(pins, Number(min) || 3).filter((x) => x.rto >= 60).sort((a, b) => b.r - a.r).slice(0, 40),
+    zones: fin(zones, 8).sort((a, b) => b.rto - a.rto || b.n - a.n).slice(0, 25),
+    total: rows.length,
+  };
+}
