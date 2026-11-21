@@ -961,6 +961,35 @@ const ACTIONS = {
     return { leads: rows.map((l) => ({ ...l, cart: JSON.parse(l.cart_json || '[]').length, updated_at: num(l.updated_at), nudged_at: num(l.nudged_at) || null })) };
   },
   /* Manual nudge from the Abandoned or Live tab. Works even when automatic nudges are switched off. */
+  /** Abandoned checkouts whose reminder never reached them (failed / not sent), no order since: send one template.
+      { dry, steps: [...], limit, template, days }. Newest first. Marketing STOP opt-outs are skipped by fireTrigger. */
+  async abandon_blast(env, b) {
+    const e = await withSettingsFresh(env);
+    const since = now() - (Number(b.days) || 30) * 86400;
+    const rows = (await env.DB.prepare(`SELECT l.phone, l.name, l.pincode, l.cart_json, l.step, l.updated_at FROM leads l
+      WHERE l.status='open' AND l.updated_at>? AND l.pincode ~ '^[0-9]{6}$'
+        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.phone=l.phone AND o.status NOT IN ('pending_payment','failed'))
+        AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.phone=l.phone AND m.trigger='abandoned_cart' AND m.status IN ('sent','delivered','read'))
+        AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.phone=l.phone AND m.trigger='abandoned_blast')
+      ORDER BY l.updated_at DESC LIMIT 1000`).bind(since).all()).results;
+    const steps = {}; for (const r of rows) steps[r.step || '-'] = (steps[r.step || '-'] || 0) + 1;
+    const want = Array.isArray(b.steps) && b.steps.length ? new Set(b.steps) : null;
+    const pick = rows.filter((r) => !want || want.has(r.step || '-')).slice(0, Math.min(60, Number(b.limit) || 40));
+    if (b.dry) return { ok: true, candidates: rows.length, steps, would_send: pick.length };
+    const { fireTrigger, cartLink } = await import('./whatsapp.js');
+    const out = { sent: 0, failed: 0, skipped: 0, errors: {} };
+    const t0 = Date.now();
+    for (const r of pick) {
+      if (Date.now() - t0 > 45000) break;
+      let items = 'your cart';
+      try { const L = JSON.parse(r.cart_json || '[]'); const n = L.map((x) => x.title || x.name).filter(Boolean); if (n.length) items = n.slice(0, 3).join(', '); } catch { /* keep */ }
+      const name = String(r.name || '').split(' ')[0] || 'there';
+      const x = await fireTrigger(e, 'abandoned_cart', { to: r.phone, vars: { name, items, link: await cartLink(e, r.phone) }, force: true, template: String(b.template || 'checkout_reminder_ex_offer') }).catch((er) => ({ ok: false, error: er.message }));
+      await env.DB.prepare("INSERT INTO messages (ts, direction, phone, trigger, template, status, preview) VALUES (?, 'out', ?, 'abandoned_blast', ?, ?, ?)").bind(now(), r.phone, String(b.template || 'checkout_reminder_ex_offer'), x.ok ? 'queued' : 'failed', String(x.error || x.skipped || '').slice(0, 200)).run().catch(() => {});
+      if (x.skipped) out.skipped++; else if (x.ok) out.sent++; else { out.failed++; const k = String(x.error || '').slice(0, 90); out.errors[k] = (out.errors[k] || 0) + 1; }
+    }
+    return { ok: true, picked: pick.length, ...out };
+  },
   async nudge(env, b) {
     const phone = cleanPhone(b.phone);
     if (!phone) throw new Error('No valid phone number');
