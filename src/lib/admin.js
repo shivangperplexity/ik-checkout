@@ -1218,7 +1218,7 @@ const ACTIONS = {
     return { ok: true, ...out };
   },
   /** Shadowfax: is a PIN serviceable (also proves the token). Books nothing. */
-  async sfx_test(env, b) { const { sfxServiceable } = await import('./shadowfax.js'); const r = await sfxServiceable(await withSettingsFresh(env), String(b.pin || '400051')); return { ok: true, serviceable: r.ok, raw: JSON.stringify(r.raw).slice(0, 1500) }; },
+  async sfx_test(env, b) { const { sfxServiceable } = await import('./shadowfax.js'); const e = await withSettingsFresh(env); const r = await sfxServiceable(e, String(b.pin || '400051')); const p = await sfxServiceable(e, String(b.from || '410206'), 'seller_pickup').catch((x) => ({ ok: false, services: [], raw: String(x.message) })); return { ok: true, serviceable: r.ok, services: r.services, pickup_ok: p.ok, pickup_services: p.services, raw: JSON.stringify(r.raw).slice(0, 600) }; },
   async sp_test(env) {
     const fresh = await withSettingsFresh(env);
     if (!spConnected(fresh)) throw new Error('Paste the ShipPrime API token first');

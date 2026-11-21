@@ -39,12 +39,13 @@ export async function sfx(env, method, path, body) {
   }
 }
 
-/** { ok, raw } for one PIN. */
-export async function sfxServiceable(env, pin) {
-  const j = await sfx(env, 'GET', `/api/v1/clients/serviceability/?service=marketplace&pincodes=${encodeURIComponent(String(pin))}`);
-  const s = JSON.stringify(j);
-  const ok = new RegExp(`"?${pin}"?`).test(s) && !/not\s*serviceable|"serviceable"\s*:\s*false/i.test(s);
-  return { ok, raw: j };
+/** { ok, services, raw } for one PIN. service: customer_delivery (where the parcel goes) or seller_pickup. */
+export async function sfxServiceable(env, pin, service = 'customer_delivery') {
+  const j = await sfx(env, 'GET', `/api/v1/clients/serviceability/?service=${service}&pincodes=${encodeURIComponent(String(pin))}`);
+  const arr = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : [];
+  const hit = arr.find((x) => String(x.code ?? x.pincode) === String(pin));
+  const services = hit?.services || [];
+  return { ok: !!hit && services.length > 0, services, raw: j };
 }
 
 /** Pickup / return address: settings.shipping.sfx_pickup, else ShipPrime's pickup address. */
