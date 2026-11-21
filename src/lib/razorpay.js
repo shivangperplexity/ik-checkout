@@ -44,7 +44,7 @@ export async function rzpCheckout(env, { txnid, paise, desc, buyer, draftId, met
   }
   const pm = { upi: 'upi', upiid: 'upi', card: 'card', nb: 'netbanking' }[method] || '';
   return { rzp: { key: rzpKeyId(env), order_id: o.id, amount: o.amount, currency: 'INR', name: 'Ink Kulture', description: String(desc || '').slice(0, 250),
-    prefill: { name: String(buyer.firstName || '').slice(0, 60), contact: '+91' + String(buyer.phone || '').slice(-10), email: buyer.email || '', ...(pm ? { method: pm } : {}) },
+    prefill: { name: String(buyer.firstName || '').slice(0, 60), contact: '+91' + String(buyer.phone || '').slice(-10), email: buyer.email || '' },
     notes: { txnid: String(txnid) } }, upi: intent };
 }
 
