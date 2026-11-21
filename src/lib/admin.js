@@ -963,6 +963,11 @@ const ACTIONS = {
   /* Manual nudge from the Abandoned or Live tab. Works even when automatic nudges are switched off. */
   /** Abandoned checkouts whose reminder never reached them (failed / not sent), no order since: send one template.
       { dry, steps: [...], limit, template, days }. Newest first. Marketing STOP opt-outs are skipped by fireTrigger. */
+  async msg_stats(env, b) {
+    const since = now() - (Number(b.mins) || 30) * 60;
+    const r = (await env.DB.prepare(`SELECT trigger, status, substring(coalesce(error,''),1,60) AS err, count(*)::int AS n FROM messages WHERE ts>? AND direction<>'in' GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 40`).bind(since).all()).results;
+    return { ok: true, rows: r };
+  },
   async abandon_blast(env, b) {
     const e = await withSettingsFresh(env);
     const since = now() - (Number(b.days) || 30) * 86400;
