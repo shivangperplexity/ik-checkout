@@ -6,8 +6,8 @@
  * name), fallback (ShipPrime courier code, 'DELHIVERY_AIR') }.
  */
 /* 400 Mumbai / Navi Mumbai, 401 Thane-Palghar-Vasai, 402 Raigad, 410 Panvel / Raigad / Lonavala, 411-412 Pune,
-   421 Kalyan-Dombivli-Bhiwandi-Ulhasnagar */
-export const NEAR_PREFIX = ['400', '401', '402', '410', '411', '412', '421'];
+   421 Kalyan-Dombivli-Bhiwandi-Ulhasnagar, 413 Baramati / Solapur side, 415 Satara-Ratnagiri (owner, 21 Nov) */
+export const NEAR_PREFIX = ['400', '401', '402', '410', '411', '412', '413', '415', '421'];
 
 export function nearCfg(env) {
   const c = env.SETTINGS?.shipping?.near_route || {};
