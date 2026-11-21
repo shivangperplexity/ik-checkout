@@ -7,6 +7,7 @@
 import { rupees } from './pricing.js';
 
 const API = 'https://api.razorpay.com/v1';
+let noS2sUntil = 0; /* S2S UPI intent not enabled on the account: stop asking for an hour (saves ~300 ms per order) */
 const pay = (env) => env.SETTINGS?.pay || {};
 export const rzpKeyId = (env) => String(pay(env).rzp_key_id || env.RAZORPAY_KEY_ID || '').trim();
 const rzpSecret = (env) => String(pay(env).rzp_key_secret || env.RAZORPAY_KEY_SECRET || '').trim();
@@ -30,7 +31,7 @@ export async function rzpCheckout(env, { txnid, paise, desc, buyer, draftId, met
   /* UPI intent (S2S): a upi://pay link for the app button the shopper tapped; the theme's goUpi opens it and polls
      /api/payu/status. Needs S2S UPI enabled on the Razorpay account; if Razorpay refuses, the Razorpay window is used. */
   let intent = null;
-  if (upi) {
+  if (upi && Date.now() > noS2sUntil) {
     try {
       const p = await rzp(env, 'POST', '/payments/create/upi', { amount: o.amount, currency: 'INR', order_id: o.id, method: 'upi',
         email: buyer.email || `orders+${String(buyer.phone || '').slice(-10)}@inkkulture.in`, contact: '+91' + String(buyer.phone || '').slice(-10),
@@ -39,7 +40,7 @@ export async function rzpCheckout(env, { txnid, paise, desc, buyer, draftId, met
       const link = String(p.link || p.intent_url || p?.next?.find?.((x) => /intent|upi/.test(x.action))?.url || '');
       if (/^upi:\/\/pay\?/i.test(link)) intent = { uri: link, payment_id: p.razorpay_payment_id || p.id || '' };
       else console.error('rzp intent: no link', JSON.stringify(p).slice(0, 300));
-    } catch (e) { console.error('rzp intent', e.message); }
+    } catch (e) { if (e.status === 404 || e.status === 400 && /not (found|enabled|permitted)/i.test(e.message)) noS2sUntil = Date.now() + 3600e3; console.error('rzp intent', e.message); }
   }
   const pm = { upi: 'upi', upiid: 'upi', card: 'card', nb: 'netbanking' }[method] || '';
   return { rzp: { key: rzpKeyId(env), order_id: o.id, amount: o.amount, currency: 'INR', name: 'Ink Kulture', description: String(desc || '').slice(0, 250),
