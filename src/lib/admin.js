@@ -1058,6 +1058,7 @@ const ACTIONS = {
     const e = await withSettingsFresh(env); const { waGet } = await import('./whatsapp.js');
     const g = (p) => waGet(e, p).catch((x) => ({ error: String(x.message || x).slice(0, 200) }));
     const W = String(b?.waba || e.WA_WABA_ID);
+    if (b?.named) { const j = await g(`${W}/message_templates?fields=name,parameter_format,status&limit=200`); return { ok: true, named: (j.data || []).filter((x) => x.parameter_format === 'NAMED').map((x) => x.name + ':' + x.status), notApproved: (j.data || []).filter((x) => x.status !== 'APPROVED').map((x) => x.name + ':' + x.status), total: (j.data || []).length }; }
     const [apps, ph, wabas, nums] = await Promise.all([g(`${W}/subscribed_apps`), g(`${e.WA_PHONE_ID}?fields=display_phone_number,platform_type,status,webhook_configuration,code_verification_status,name_status`), g(`${W}?fields=name,owner_business_info,on_behalf_of_business_info`), g(`${W}/phone_numbers?fields=id,display_phone_number,status`)]);
     return { ok: true, waba: W, phone: e.WA_PHONE_ID, apps, ph, wabas, nums };
   },
