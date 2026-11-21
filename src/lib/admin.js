@@ -1043,6 +1043,12 @@ const ACTIONS = {
     const m = (x) => (x ? '••••••' + String(x).slice(-4) : '');
     return { ok: true, gateway: p.gateway === 'razorpay' ? 'razorpay' : 'payu', rzp_key_id: p.rzp_key_id || '', rzp_key_secret: m(p.rzp_key_secret), rzp_ok: !!(p.rzp_key_id && p.rzp_key_secret), payu_ok: !!env.PAYU_KEY };
   },
+  async rzp_debug(env) {
+    const { rzp } = await import('./razorpay.js'); const e = await withSettingsFresh(env);
+    const o = await rzp(e, 'GET', '/orders?count=5'), p = await rzp(e, 'GET', '/payments?count=5');
+    return { ok: true, live: String(e.SETTINGS.pay?.rzp_key_id || '').slice(0, 9), orders: (o.items || []).map((x) => ({ id: x.id, amount: x.amount, status: x.status, attempts: x.attempts, receipt: x.receipt, at: x.created_at })),
+      payments: (p.items || []).map((x) => ({ id: x.id, order: x.order_id, amount: x.amount, status: x.status, method: x.method, err: [x.error_code, x.error_description, x.error_reason, x.error_step].filter(Boolean).join(' | '), at: x.created_at })) };
+  },
   async save_payment(env, b) {
     const s = await getSettings(env, true), p = { ...(s.pay || {}) };
     if (b.rzp_key_id !== undefined) p.rzp_key_id = String(b.rzp_key_id).trim().slice(0, 60);
