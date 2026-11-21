@@ -478,6 +478,8 @@ async function handleInterakt(req, env, ctx) {
   const I = await import('./interakt.js');
   if (!(await I.interaktSignatureOk(env, req, raw))) return new Response('bad signature', { status: 401 });
   let j; try { j = JSON.parse(raw); } catch { return new Response('ok'); }
+  /* customer messages still reach us straight from Meta (/api/wa/webhook); taking Interakt's copy too would answer twice */
+  if (j?.type === 'message_received' && !env.SETTINGS?.wa?.interakt_inbound) return new Response('ok');
   const p = I.fromInterakt(j, env.WA_PHONE_ID);
   if (!p) return new Response('ok');
   await handleWa(new Request(req.url, { method: 'POST' }), env, ctx, p);
