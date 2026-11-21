@@ -16,7 +16,7 @@ let CFG = { key: '' };
 /** Called by settings.js whenever settings load. */
 export function configureInterakt(s) {
   const w = s?.wa || {};
-  CFG = { key: w.transport === 'interakt' ? String(w.interakt_key || '').trim() : '' };
+  CFG = { key: w.transport === 'interakt' ? String(w.interakt_key || '').trim() : '', all: !!w.interakt_all };
 }
 export const interaktOn = () => !!CFG.key;
 
@@ -88,8 +88,11 @@ if (!globalThis.__ikInteraktPatched) {
         const method = String(init?.method || input?.method || 'GET').toUpperCase();
         if (method === 'POST' && /^https:\/\/graph\.facebook\.com\/v[\d.]+\/\d+\/messages\b/.test(url)) {
           const body = JSON.parse(typeof init?.body === 'string' ? init.body : await new Response(init?.body).text());
-          if (body?.messaging_product === 'whatsapp' && body.status !== 'read') return sendInterakt(body);
-          if (body?.status === 'read') return new Response('{"success":true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+          /* Only templates go through Interakt (they need Interakt's credit line). Replies inside the customer's 24h window
+             (text, buttons, media) go straight to Meta: customers' messages reach us from Meta, not Interakt, so Interakt
+             refuses them ("Customer has not messaged within last 24 hours"); service replies are free at Meta. */
+          if (body?.messaging_product === 'whatsapp' && body.type === 'template' && !CFG.all) return sendInterakt(body);
+          if (body?.messaging_product === 'whatsapp' && CFG.all && body.status !== 'read') return sendInterakt(body);
         }
       }
     } catch (e) { console.error('interakt route', e.message); }
