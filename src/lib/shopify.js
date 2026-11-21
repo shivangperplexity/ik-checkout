@@ -133,7 +133,7 @@ export async function createPartialOrder(env, { draftId, advancePaise, txnid }) 
     note: dr.note2 || undefined,
     shippingLines: dr.shippingLine ? [{ title: dr.shippingLine.title || 'Shipping', priceSet: money(dr.shippingLine.originalPriceSet?.shopMoney?.amount || '0') }] : [],
     financialStatus: 'PARTIALLY_PAID',
-    transactions: [{ kind: 'SALE', status: 'SUCCESS', gateway: 'PayU (partial COD advance)', authorizationCode: txnid || undefined, amountSet: money(advance) }],
+    transactions: [{ kind: 'SALE', status: 'SUCCESS', gateway: 'Online (partial COD advance)', authorizationCode: txnid || undefined, amountSet: money(advance) }],
     currency: 'INR',
   };
   if (disc > 0) order.discountCode = { itemFixedDiscountCode: { code: (dr.appliedDiscount.title || 'Offer').slice(0, 60), amountSet: money(disc) } };

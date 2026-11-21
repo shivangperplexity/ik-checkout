@@ -6,6 +6,7 @@ import { decide, quoteFlag, reasonText } from './partial-cod.js';
 import { priceCart, quoteBoth, rupees, pricingCfg } from './pricing.js';
 import { sendOtp, checkOtp, otpOn, otpStatus, otpDelivery, recentlyVerified, waDown } from './cod-otp.js';
 import { buildPayuForm, verifyResponse, upiIntent, upiCollect, validateVpa, verifyPayment } from './payu.js';
+import { rzpOn, rzpCheckout, rzpSignatureOk, verifyRzpOrder } from './razorpay.js';
 import { sendPurchase, metaCfg, recordCapi, purchasePayload } from './meta.js';
 import { sendText, verifySignature, parseReplies, parseStatuses, fireTrigger, logMsg, dedupeInbound } from './whatsapp.js';
 import { withSettings, codOn, codMode } from './settings.js';
@@ -216,7 +217,7 @@ async function handleOrder(req, env, ctx) {
   const attributes = [
     { key: 'Checkout', value: 'Ink Kulture custom' },
     { key: 'Payment choice', value: partial ? `Partial COD (₹${partial.advance / 100} online + rest on delivery)` : method === 'cod' ? 'COD' : 'Prepaid' },
-    ...(method === 'prepaid' || partial ? [{ key: 'PayU txn id', value: txnid }] : []),
+    ...(method === 'prepaid' || partial ? [{ key: rzpOn(env) ? 'Payment ref' : 'PayU txn id', value: txnid }] : []),
     ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
     ...(otpOk ? [{ key: 'COD verified', value: 'WhatsApp OTP at checkout' }] : []),
     ...(price.ref ? [{ key: refBits.offer.kind === 'promo' ? 'Promo code' : refBits.offer.kind === 'creator' ? 'Creator code' : refBits.offer.kind === 'voucher' ? 'Creator voucher' : 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
@@ -241,6 +242,14 @@ async function handleOrder(req, env, ctx) {
     ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim().slice(0, 64) || null, ua: String(req.headers.get('User-Agent') || '').slice(0, 400) || null,
     otp: otpOk, edd: eddText || '4-7 days', sourceUrl: String(a.landing || env.STORE_URL), advance: partial ? partial.advance : null, partialReason: partial ? partial.reasons.join(',').slice(0, 200) : null,
   };
+
+  /* Nov 2026: Razorpay replaces PayU when switched on (Settings > Payments). The theme opens Razorpay Checkout from payu.rzp. */
+  if ((partial || method === 'prepaid') && rzpOn(env)) {
+    const paise = partial ? partial.advance : draft.total;
+    const [, ck] = await Promise.all([saveOrder(env, row, null, 'pending_payment'),
+      rzpCheckout(env, { txnid, paise, desc: `${draft.name}${partial ? ' advance' : ''}`, buyer, draftId: draft.id.split('/').pop(), method: String(b.pay || b.payMethod || (b.vpa ? 'upiid' : b.upi ? 'upi' : '')) })]);
+    return json(partial ? { ok: true, method: 'partial', payu: ck, upi: null, txnid, advance: partial.advance, balance: draft.total - partial.advance } : { ok: true, method, payu: ck, upi: null, txnid });
+  }
 
   if (partial) {
     /* Only the advance goes through PayU now; the Shopify order is created when PayU confirms it (completePaid). */
@@ -426,6 +435,23 @@ async function handlePayuReturn(req, env, ctx) {
   return done.ok ? ok(done) : fail(done.why);
 }
 
+/** Razorpay Checkout success: { razorpay_order_id, razorpay_payment_id, razorpay_signature }. Same answer as the PayU json return. */
+async function handleRzpVerify(req, env, ctx) {
+  const b = await req.json().catch(() => ({}));
+  const oid = String(b.razorpay_order_id || ''), pid = String(b.razorpay_payment_id || '');
+  if (!(await rzpSignatureOk(env, oid, pid, String(b.razorpay_signature || '')))) return json({ ok: false, why: 'failed' });
+  const v = await verifyRzpOrder(env, oid).catch((e) => { console.error('rzp verify order', oid, e.message); return null; });
+  if (!v || !v.receipt) return json({ ok: false, why: 'failed' });
+  const row = env.DB && (await env.DB.prepare('SELECT * FROM orders WHERE txnid=?').bind(v.receipt).first());
+  if (!row) return json({ ok: false, why: 'failed' });
+  const reply = (st) => json({ ok: true, orderName: st.order_name, eventId: row.event_id, value: row.total_paise / 100, statusUrl: st.status_url || '', ...partialBits(row) });
+  if (isDone(row)) return reply(row);
+  if (v.status !== 'success') return json({ ok: false, why: 'pending' });
+  if (v.amount !== rupees(payable(row))) { console.error('rzp amount mismatch', v.receipt, v.amount, payable(row)); return json({ ok: false, why: 'review' }); }
+  const done = await completePaid(env, ctx, req, row);
+  return done.ok ? reply(done) : json({ ok: false, why: done.why });
+}
+
 /** Polled by the popup while the shopper pays in their UPI app. Trusts only PayU's own verify_payment answer. */
 async function handlePayuStatus(req, env, ctx) {
   const b = await req.json().catch(() => ({}));
@@ -573,6 +599,7 @@ export async function handle(req, env0, ctx) {
         else { const b = await req.json().catch(() => ({})); res = json(await otpDelivery(env, cleanPhone(b.phone))); }
       }
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
+      else if (path === '/api/rzp/verify' && req.method === 'POST') res = await handleRzpVerify(req, env, ctx);
       /* Build 066: check a UPI ID (and show its holder's name) before sending a payment request to it */
       else if (path === '/api/upi/verify' && req.method === 'POST') {
         const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';

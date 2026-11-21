@@ -70,6 +70,9 @@ export async function upiCollect(env, f, vpa, ip, ua) {
 
 /** Server-side status lookup (verify_payment). Returns { status, amount } or null. */
 export async function verifyPayment(env, txnid) {
+  /* Nov 2026: Razorpay first (new payments), PayU for older attempts */
+  try { const R = await import('./razorpay.js'); if (R.rzpReady(env)) { const v = await R.verifyRzp(env, txnid); if (v) return v; } } catch (e) { console.error('rzp verify', txnid, e.message); }
+  if (!env.PAYU_KEY) return null;
   const command = 'verify_payment';
   const hash = await sha512hex([env.PAYU_KEY, command, txnid, env.PAYU_SALT].join('|'));
   const url = env.PAYU_ENV === 'test' ? 'https://test.payu.in/merchant/postservice.php?form=2' : 'https://info.payu.in/merchant/postservice.php?form=2';

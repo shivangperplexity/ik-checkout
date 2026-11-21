@@ -1037,6 +1037,25 @@ const ACTIONS = {
         sp_webhook_url: spWebhookUrl(env), sp_webhook_secret: await spWebhookSecret(env), sp_couriers: SP_COURIERS },
     };
   },
+  /** Payments: Razorpay keys + which gateway takes new online payments. */
+  async pay_settings(env) {
+    const s = await getSettings(env, true), p = s.pay || {};
+    const m = (x) => (x ? '••••••' + String(x).slice(-4) : '');
+    return { ok: true, gateway: p.gateway === 'razorpay' ? 'razorpay' : 'payu', rzp_key_id: p.rzp_key_id || '', rzp_key_secret: m(p.rzp_key_secret), rzp_ok: !!(p.rzp_key_id && p.rzp_key_secret), payu_ok: !!env.PAYU_KEY };
+  },
+  async save_payment(env, b) {
+    const s = await getSettings(env, true), p = { ...(s.pay || {}) };
+    if (b.rzp_key_id !== undefined) p.rzp_key_id = String(b.rzp_key_id).trim().slice(0, 60);
+    if (b.rzp_key_secret !== undefined && !String(b.rzp_key_secret).startsWith('••')) p.rzp_key_secret = String(b.rzp_key_secret).trim().slice(0, 100);
+    if (b.gateway !== undefined) p.gateway = b.gateway === 'razorpay' ? 'razorpay' : 'payu';
+    if (p.gateway === 'razorpay') {
+      if (!p.rzp_key_id || !p.rzp_key_secret) throw new Error('Add the Razorpay Key ID and Key Secret first');
+      const { rzp } = await import('./razorpay.js');
+      try { await rzp({ SETTINGS: { pay: p } }, 'GET', '/orders?count=1'); } catch (e) { throw new Error('Razorpay refused these keys: ' + e.message.replace(/^Razorpay: /, '') + '. Nothing was switched.'); }
+    }
+    await putSetting(env, 'pay', p);
+    return { ok: true, gateway: p.gateway || 'payu', live: String(p.rzp_key_id || '').startsWith('rzp_live_') };
+  },
   async save_shipping(env, b) {
     const s = await getSettings(env, true);
     const sh = { ...s.shipping };
