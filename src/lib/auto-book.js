@@ -60,7 +60,8 @@ export async function autoBook(env) {
   const out = { booked: [], failed: [] };
   for (const r of list) {
     try {
-      const b = await action('ship_book')(env, { id: r.order_id, provider: 'shipprime' });
+      /* auto: ShipPrime, except nearby areas (Shiprocket Xpressbees DS, else ShipPrime Delhivery Air; lib/near-route.js) */
+      const b = await action('ship_book')(env, { id: r.order_id, auto: true });
       const sh = b.shipment || {};
       if (!sh.awb) throw new Error(b.note || 'no AWB');
       out.booked.push(`${r.order_name} ${sh.courier || ''}`);

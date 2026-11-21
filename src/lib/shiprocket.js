@@ -294,12 +294,17 @@ export function planBasics(env, order, row) {
   const due = codDue(row), cod = due > 0, amount = paidOnline || Number(row.total_paise) / 100 || 499, codAmount = cod ? due / 100 : 0;
   return { pack, pin, cod, amount, codAmount };
 }
-export async function planShipment(env, order, row, { pickOption, allowNever = false }) {
+export async function planShipment(env, order, row, { pickOption, allowNever = false, want = null }) {
   const s = env.SETTINGS?.shipping || {};
   const { pack, pin, cod, amount, codAmount } = planBasics(env, order, row);
   const c = cfg(env);
   const r = await srRates(env, { pin, cod, amount: cod ? codAmount : amount, pack }, { all: true });
   const ready = (arr) => arr.map((o) => ({ ...o, eddDate: eddOf(o.edd) })).sort((a, b) => (a.charge ?? 9e9) - (b.charge ?? 9e9));
+  /* a fixed courier (nearby-area route, lib/near-route.js): only that one, cheapest of its options; never-use still wins */
+  if (want) {
+    const w = ready(r.list.filter((o) => !o.never && want.test(String(o.courier || ''))));
+    return { pack, pin, cod, amount, codAmount, options: w, pick: w[0] || null, fallback: '', why: w.length ? '' : `Shiprocket does not offer ${want.source} at ${pin}${cod ? ' (COD)' : ''}`, excluded: [], onlyNever: false, risk_note: w.length ? `${w[0].courier}: nearby-area route` : '', risk_table: null };
+  }
   let options = ready(r.list.filter((o) => !o.excluded)), fallback = '', why = '';
   /* none of the couriers your rules allow deliver here: offer the others Shiprocket has (never the never-use list);
      ones you only left out of the "only use" list come before ones blocked inside Shiprocket */
@@ -375,7 +380,7 @@ function eddOf(edd) {
  * Book one order with Shiprocket. Safe to call again: it resumes where it stopped and never creates a second
  * Shiprocket order / AWB for the same Shopify order. Addresses are sent to Shiprocket, never stored here.
  */
-export async function bookShipment(env, order, row, { pickOption, allowNever = false, courierId = '' }) {
+export async function bookShipment(env, order, row, { pickOption, allowNever = false, courierId = '', onlyRe = null }) {
   const db = env.DB, id = String(row.order_id);
   /* the customer is paying online right now (pay-online offer): booking it as COD would race the payment */
   if (!row.converted_at && Number(row.convert_started_at) > Math.floor(Date.now() / 1000) - 15 * 60) throw new Error('The customer is paying online right now (pay-online offer). Book it again in 15 minutes: it will go as prepaid if they paid.');
@@ -391,7 +396,7 @@ export async function bookShipment(env, order, row, { pickOption, allowNever = f
   }
   if (rec?.awb) return { ok: true, already: true, shipment: publicRec(rec) };
 
-  const plan = await planShipment(env, order, row, { pickOption, allowNever });
+  const plan = await planShipment(env, order, row, { pickOption, allowNever, want: courierId ? null : onlyRe });
   /* the courier chosen in the dashboard (Nov 2026: the list showed every courier but booking always took the auto pick) */
   if (courierId) {
     /* any courier Shiprocket offers here may be chosen by hand, also one left out by the 'only use' list or blocked in

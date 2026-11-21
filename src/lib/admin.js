@@ -1149,9 +1149,26 @@ const ACTIONS = {
     const { fresh, row, order } = await shipCtx(env, b.id);
     fresh.SETTINGS.shipping = { ...fresh.SETTINGS.shipping, sr_fallback_email: fresh.SETTINGS.shipping.sr_fallback_email || fresh.SETTINGS.admin?.email || '' };
     /* carrier: what the button said; bulk booking (no provider) uses Settings > Shipping carriers > default carrier */
-    const provider = b.provider === 'shipprime' || b.provider === 'shiprocket' ? b.provider : (fresh.SETTINGS.shipping.ship_default === 'shipprime' && spConnected(fresh) ? 'shipprime' : 'shiprocket');
-    let r;
-    if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec) }; }
+    const chosen = !b.auto && (b.provider === 'shipprime' || b.provider === 'shiprocket');
+    const provider = chosen ? b.provider : (b.auto || (fresh.SETTINGS.shipping.ship_default === 'shipprime' && spConnected(fresh)) ? 'shipprime' : 'shiprocket');
+    let r, routeNote = '';
+    /* bulk / automatic booking to nearby areas: Shiprocket Xpressbees DS, else ShipPrime Delhivery Air (lib/near-route.js) */
+    const N = await import('./near-route.js'), nc = N.nearCfg(fresh);
+    if (!chosen && !b.tpl && !b.courier_id && N.isNear(nc, row.pincode || order.pincode) && srConnected(fresh) && fresh.SETTINGS.shipping.sr_pickup) {
+      try { r = await bookShipment(fresh, order, row, { pickOption, onlyRe: nc.courier }); }
+      catch (e) {
+        const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(row.order_id)).first();
+        if (rec?.awb && rec.status !== 'cancelled') throw e;   // the AWB exists: never book a second one
+        if (rec && rec.provider !== 'shipprime') {
+          if (rec.sr_order_id) await cancelShipment(fresh, rec).catch((x) => console.log('near route sr cancel', row.order_name, String(x.message).slice(0, 100)));
+          await env.DB.prepare("DELETE FROM shipments WHERE order_id=? AND COALESCE(awb,'')=''").bind(String(row.order_id)).run();
+        }
+        if (!spConnected(fresh)) throw e;
+        routeNote = `Shiprocket Xpressbees DS failed (${String(e.message || e).slice(0, 140)}), booked ShipPrime ${nc.fallback}`;
+        const x = await spBook(fresh, order, row, { tpl: nc.fallback }); r = { ...x, shipment: publicRec(x.rec), note: [routeNote, x.note].filter(Boolean).join('; ') };
+      }
+    }
+    else if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec) }; }
     else r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never, courierId: String(b.courier_id || '') });
     /* the AWB exists with the carrier either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);
