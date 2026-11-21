@@ -472,14 +472,29 @@ async function handlePayuStatus(req, env, ctx) {
   return done.ok ? reply(done) : json({ ok: true, state: 'review' });
 }
 
-async function handleWa(req, env, ctx) {
+/** Interakt webhooks (wa.transport = 'interakt'): checked, turned into a Cloud API payload, then handled like Meta's. */
+async function handleInterakt(req, env, ctx) {
+  const raw = await req.text();
+  const I = await import('./interakt.js');
+  if (!(await I.interaktSignatureOk(env, req, raw))) return new Response('bad signature', { status: 401 });
+  let j; try { j = JSON.parse(raw); } catch { return new Response('ok'); }
+  const p = I.fromInterakt(j, env.WA_PHONE_ID);
+  if (!p) return new Response('ok');
+  await handleWa(new Request(req.url, { method: 'POST' }), env, ctx, p);
+  return new Response('ok');
+}
+
+async function handleWa(req, env, ctx, pre) {
   const url = new URL(req.url);
   if (req.method === 'GET') {
     return url.searchParams.get('hub.verify_token') === env.WA_VERIFY_TOKEN ? new Response(url.searchParams.get('hub.challenge')) : new Response('forbidden', { status: 403 });
   }
-  const raw = await req.text();
-  if (!(await verifySignature(env, req, raw))) return new Response('bad signature', { status: 401 });
-  const payload0 = JSON.parse(raw);
+  let payload0 = pre;
+  if (!payload0) {
+    const raw = await req.text();
+    if (!(await verifySignature(env, req, raw))) return new Response('bad signature', { status: 401 });
+    payload0 = JSON.parse(raw);
+  }
   ctx.waitUntil(
     (async () => {
       /* Meta can deliver one message twice: act on each inbound message id once. */
@@ -554,6 +569,7 @@ export async function handle(req, env0, ctx) {
       return pr;
     }
     if (path === '/api/wa/webhook') return await handleWa(req, env, ctx);
+    if (path === '/api/interakt/webhook' && req.method === 'POST') return await handleInterakt(req, env, ctx);
     /* creator program: apply, WhatsApp-code login and the creator's dashboard (lib/creators.js); /c/CODE counts a link open */
     /* Instagram comment -> DM: Meta webhook and the login callback (lib/ig-dm.js) */
     if (path === '/api/ig/webhook' || path === '/api/ig/callback') { const { handleIg } = await import('./ig-dm.js'); return await handleIg(req, env, ctx); }

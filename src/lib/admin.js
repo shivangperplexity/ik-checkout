@@ -1038,6 +1038,31 @@ const ACTIONS = {
     };
   },
   /** Payments: Razorpay keys + which gateway takes new online payments. */
+  /** WhatsApp through Interakt (number moved there). Test = a real template to admin_phone when `test` is set. */
+  async interakt_settings(env) {
+    const s = await getSettings(env, true), w = s.wa || {};
+    return { ok: true, on: w.transport === 'interakt', key: w.interakt_key ? '••••••' + String(w.interakt_key).slice(-4) : '', secret: w.interakt_secret ? '••••••' + String(w.interakt_secret).slice(-4) : '',
+      webhook: `${env.WORKER_URL || 'https://ik-checkout.vercel.app'}/api/interakt/webhook`, waba_id: w.waba_id || env.WA_WABA_ID || '', phone_id: w.phone_id || env.WA_PHONE_ID || '' };
+  },
+  async save_interakt(env, b) {
+    const s = await getSettings(env, true), w = { ...(s.wa || {}) };
+    if (b.key !== undefined && !String(b.key).startsWith('••')) w.interakt_key = String(b.key).replace(/^Basic\s+/i, '').trim().slice(0, 300);
+    if (b.secret !== undefined && !String(b.secret).startsWith('••')) w.interakt_secret = String(b.secret).trim().slice(0, 200);
+    if (b.waba_id !== undefined && /^\d{6,25}$/.test(String(b.waba_id).trim())) w.waba_id = String(b.waba_id).trim();
+    if (b.on !== undefined) {
+      if (b.on && !w.interakt_key) throw new Error('Paste the Interakt API key first');
+      w.transport = b.on ? 'interakt' : (w.transport === 'interakt' ? 'meta' : w.transport);
+    }
+    await putSetting(env, 'wa', w);
+    return { ok: true, on: w.transport === 'interakt' };
+  },
+  async interakt_test(env, b) {
+    const e = await withSettingsFresh(env);
+    const to = String(b.to || e.SETTINGS.wa?.admin_phone || '').replace(/\D/g, '').slice(-10);
+    if (!to) throw new Error('No phone to test with');
+    const { sendText } = await import('./whatsapp.js');
+    return { ok: true, result: await sendText(e, '91' + to, 'Ink Kulture test via Interakt ' + new Date().toISOString().slice(11, 19)) };
+  },
   async pay_settings(env) {
     const s = await getSettings(env, true), p = s.pay || {};
     const m = (x) => (x ? '••••••' + String(x).slice(-4) : '');

@@ -1740,6 +1740,18 @@ function partialBind(){
  $('#pc_pinsbox').addEventListener('toggle',function(){if(!this.open||this.dataset.l)return;this.dataset.l=1;rpc('partial_pins').then(function(r){var L=r.last30||{};
   $('#pc_pinsout').innerHTML='<p style="margin:0 0 6px">Last 30 days: <b>'+L.cod+'</b> COD orders, <b>'+L.partial+'</b> with partial COD, <b>'+L.dropped+'</b> started partial COD but did not pay the advance.</p>'
    +(r.pins.length?'<table><tr><th>PIN</th><th>Returned</th><th>Delivered</th><th>Return rate</th><th></th></tr>'+r.pins.map(function(x){return '<tr><td>'+esc(x.pin)+'</td><td>'+x.rto+'</td><td>'+x.delivered+'</td><td>'+x.rate+'%</td><td>'+(x.flagged?'<span class="pill high">flagged</span>':'')+'</td></tr>'}).join('')+'</table><p style="margin:6px 0 0">Flagged = at least '+r.rto_min+' returns and a '+r.rto_rate+'%+ return rate.</p>':'No returns recorded in the last 180 days.')}).catch(function(e){$('#pc_pinsout').textContent='Failed: '+e.message})})}
+function iaCard(){var el=$('#ia_card');if(!el)return;rpc('interakt_settings').then(function(p){
+  el.innerHTML='<h3>WhatsApp via Interakt</h3><p class="small mut" style="margin:0">When on, every WhatsApp message from IK Checkout (OTP, COD confirm, tracking, NDR, chats) is sent through Interakt. Interakt: Settings &gt; Developer Settings: copy the API key; set the webhook URL below and a secret, and tick all message events.</p>'
+  +'<p style="margin:4px 0">Now: <b>'+(p.on?'Interakt':'Meta (direct)')+'</b></p>'
+  +'<label class="f">Webhook URL (paste in Interakt)<input readonly value="'+esc(p.webhook)+'" onclick="this.select()"></label>'
+  +'<label class="f">Interakt API key<input type="password" id="ia_key" value="'+esc(p.key)+'" autocomplete="new-password"></label>'
+  +'<label class="f">Webhook secret (same as in Interakt)<input type="password" id="ia_sec" value="'+esc(p.secret)+'" autocomplete="new-password"></label>'
+  +'<label class="f">WhatsApp account ID after the move (optional)<input id="ia_waba" value="'+esc(p.waba_id)+'"></label>'
+  +'<label class="f">Send through<select id="ia_on"><option value="1"'+(p.on?' selected':'')+'>Interakt</option><option value="0"'+(!p.on?' selected':'')+'>Meta (direct)</option></select></label>'
+  +'<div style="display:flex;gap:8px"><button class="btn" id="ia_sv">Save</button><button class="btn ghost" id="ia_t" type="button">Send test to admin number</button></div>';
+  $('#ia_sv').onclick=function(){var b=this;b.disabled=true;rpc('save_interakt',{key:$('#ia_key').value,secret:$('#ia_sec').value,waba_id:$('#ia_waba').value,on:$('#ia_on').value==='1'}).then(function(r){toast(r.on?'WhatsApp now goes through Interakt':'WhatsApp goes direct to Meta');iaCard()}).catch(function(e){b.disabled=false;toast(e.message)})};
+  $('#ia_t').onclick=function(){var b=this;b.disabled=true;rpc('interakt_test',{}).then(function(r){b.disabled=false;toast(r.result&&r.result.ok?'Sent ✓ (check WhatsApp)':'Failed: '+((r.result&&r.result.error)||''))}).catch(function(e){b.disabled=false;toast(e.message)})};
+ }).catch(function(e){el.innerHTML='<h3>WhatsApp via Interakt</h3><p class="small">'+esc(e.message)+'</p>'})}
 function payCard(){var el=$('#pay_card');if(!el)return;rpc('pay_settings').then(function(p){
   el.innerHTML='<h3>Online payments</h3><p class="small mut" style="margin:0">Which gateway takes UPI / card / netbanking at checkout (prepaid and the partial COD advance). Razorpay: Dashboard &gt; Account &amp; Settings &gt; API Keys.</p>'
   +'<p style="margin:4px 0">Now: <b>'+(p.gateway==='razorpay'?'Razorpay':'PayU')+'</b></p>'
@@ -1752,6 +1764,7 @@ function payCard(){var el=$('#pay_card');if(!el)return;rpc('pay_settings').then(
 function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},sh=j.shipping||{};
  $('#main').innerHTML='<div class="grid two">'+codCard(j.checkout)+'<div class="card grid" id="cv_card" style="align-content:start"><h3>Pay online before shipping</h3><p class="small mut">Loading…</p></div><div class="card grid" id="pc_card">'+partialCard(j.partial)+'</div><div class="card grid"><h3>UPI app logos in the popup</h3><p class="small mut" style="margin:0">Paste a direct image URL for each app (upload the official logo files in Shopify, Content, Files, then copy the link). Until set, a neutral icon is shown.</p>'
  +[['gpay','Google Pay'],['phonepe','PhonePe'],['paytm','Paytm'],['any','Any UPI app']].map(function(a){return '<label class="f">'+a[1]+'<input type="url" class="lg" data-k="'+a[0]+'" value="'+esc(L[a[0]])+'" placeholder="https://cdn.shopify.com/..."></label>'}).join('')+'<button class="btn" id="lg_sv">Save logos</button></div>'
+ +'<div class="card grid" id="ia_card"><h3>WhatsApp via Interakt</h3><p class="small mut">Loading…</p></div>'
  +'<div class="card grid" id="pay_card"><h3>Online payments</h3><p class="small mut">Loading…</p></div>'
  +'<div class="card grid"><h3>Shipping carriers</h3><p class="small mut" style="margin:0">Shiprocket is the carrier we ship with: booking, labels, tracking and the delivery estimate on the checkout all use this login.</p>'
  +'<h4 style="margin:6px 0 0">Shiprocket '+(sh.shiprocket_ok?'<b style="color:#16a34a;font-weight:600">· connected</b>':'<span class="mut" style="font-weight:400">· not set</span>')+'</h4>'
@@ -1808,7 +1821,7 @@ function loadSettings(){rpc('settings').then(function(j){var L=j.upi_logos||{},s
  codBind();
  partialBind();
  metaLoad();
- convertLoad();payCard();
+ convertLoad();payCard();iaCard();
  $('#rk_go').onclick=function(){var b=$('#rk_go');b.disabled=true;b.textContent='Ranking…';rpc('rank_now').then(function(r){$('#rk_st').innerHTML=rankLine(r.status);toast(r.status.ok?'Product order updated':'Ranking failed')}).catch(function(e){toast(e.message)}).then(function(){b.disabled=false;b.textContent='Re-rank now'})};
  $('#pf_sv').onclick=function(){var b=$('#pf_sv');b.disabled=true;rpc('save_profit',{unit_cost:$('#pf_u').value,cac:$('#pf_c').value,ship_cod:$('#pf_sc').value,ship_prepaid:$('#pf_sp').value,rto_fee:$('#pf_rf').value}).then(function(){toast('Saved')}).catch(function(er){toast(er.message)}).then(function(){b.disabled=false})};
  $('#pw_sv').onclick=function(){rpc('change_password',{current:$('#p0').value,next:$('#p1').value}).then(function(){toast('Password changed');$('#p0').value=$('#p1').value=''}).catch(function(e){toast(e.message)})}}).catch(fail)}

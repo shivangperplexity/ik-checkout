@@ -1,3 +1,4 @@
+import { configureInterakt } from './interakt.js';
 import { DEFAULTS as PARTIAL } from './partial-cod.js';
 import { META_DEFAULTS } from './meta.js';
 import { NDR_DEFAULTS } from './ndr-rules.js';
@@ -122,6 +123,7 @@ async function loadSettings(env) {
   const s = structuredClone(DEFAULTS);
   for (const r of rows) { try { s[r.k] = JSON.parse(r.v); } catch { /* ignore */ } }
   s.wa = { ...DEFAULTS.wa, ...s.wa };
+  try { configureInterakt(s); } catch (e) { console.error('interakt cfg', e.message); }
   s.shipping = { ...DEFAULTS.shipping, ...(s.shipping || {}) };
   s.profit = { ...DEFAULTS.profit, ...(s.profit || {}) };
   s.ai = { ...DEFAULTS.ai, ...(s.ai || {}) };
