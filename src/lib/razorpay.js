@@ -24,13 +24,27 @@ export async function rzp(env, method, path, body) {
 }
 
 /** Razorpay order for `paise`; returns what the browser needs to open Razorpay Checkout. */
-export async function rzpCheckout(env, { txnid, paise, desc, buyer, draftId, method }) {
+export async function rzpCheckout(env, { txnid, paise, desc, buyer, draftId, method, upi, ip, ua, referer }) {
   const o = await rzp(env, 'POST', '/orders', { amount: Math.round(paise), currency: 'INR', receipt: String(txnid).slice(0, 40), payment_capture: 1,
     notes: { txnid: String(txnid), draft: String(draftId || ''), phone: String(buyer.phone || '') } });
+  /* UPI intent (S2S): a upi://pay link for the app button the shopper tapped; the theme's goUpi opens it and polls
+     /api/payu/status. Needs S2S UPI enabled on the Razorpay account; if Razorpay refuses, the Razorpay window is used. */
+  let intent = null;
+  if (upi) {
+    try {
+      const p = await rzp(env, 'POST', '/payments/create/upi', { amount: o.amount, currency: 'INR', order_id: o.id, method: 'upi',
+        email: buyer.email || `orders+${String(buyer.phone || '').slice(-10)}@inkkulture.in`, contact: '+91' + String(buyer.phone || '').slice(-10),
+        ip: ip || '0.0.0.0', referer: referer || 'https://www.inkkulture.in/', user_agent: String(ua || 'Mozilla/5.0').slice(0, 250),
+        description: String(desc || '').slice(0, 250), notes: { txnid: String(txnid) }, upi: { flow: 'intent' } });
+      const link = String(p.link || p.intent_url || p?.next?.find?.((x) => /intent|upi/.test(x.action))?.url || '');
+      if (/^upi:\/\/pay\?/i.test(link)) intent = { uri: link, payment_id: p.razorpay_payment_id || p.id || '' };
+      else console.error('rzp intent: no link', JSON.stringify(p).slice(0, 300));
+    } catch (e) { console.error('rzp intent', e.message); }
+  }
   const pm = { upi: 'upi', upiid: 'upi', card: 'card', nb: 'netbanking' }[method] || '';
   return { rzp: { key: rzpKeyId(env), order_id: o.id, amount: o.amount, currency: 'INR', name: 'Ink Kulture', description: String(desc || '').slice(0, 250),
     prefill: { name: String(buyer.firstName || '').slice(0, 60), contact: '+91' + String(buyer.phone || '').slice(-10), email: buyer.email || '', ...(pm ? { method: pm } : {}) },
-    notes: { txnid: String(txnid) } } };
+    notes: { txnid: String(txnid) } }, upi: intent };
 }
 
 async function hmacHex(secret, msg) {

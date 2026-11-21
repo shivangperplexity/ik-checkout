@@ -247,8 +247,10 @@ async function handleOrder(req, env, ctx) {
   if ((partial || method === 'prepaid') && rzpOn(env)) {
     const paise = partial ? partial.advance : draft.total;
     const [, ck] = await Promise.all([saveOrder(env, row, null, 'pending_payment'),
-      rzpCheckout(env, { txnid, paise, desc: `${draft.name}${partial ? ' advance' : ''}`, buyer, draftId: draft.id.split('/').pop(), method: String(b.pay || b.payMethod || (b.vpa ? 'upiid' : b.upi ? 'upi' : '')) })]);
-    return json(partial ? { ok: true, method: 'partial', payu: ck, upi: null, txnid, advance: partial.advance, balance: draft.total - partial.advance } : { ok: true, method, payu: ck, upi: null, txnid });
+      rzpCheckout(env, { txnid, paise, desc: `${draft.name}${partial ? ' advance' : ''}`, buyer, draftId: draft.id.split('/').pop(), method: String(b.pay || b.payMethod || (b.vpa ? 'upiid' : b.upi ? 'upi' : '')),
+        upi: !!b.upi && !b.vpa, ip: ip === 'unknown' ? '' : ip, ua: req.headers.get('User-Agent'), referer: req.headers.get('Referer') || String(a.landing || '') })]);
+    const upi = ck.upi; delete ck.upi;
+    return json(partial ? { ok: true, method: 'partial', payu: ck, upi, txnid, advance: partial.advance, balance: draft.total - partial.advance } : { ok: true, method, payu: ck, upi, txnid });
   }
 
   if (partial) {
