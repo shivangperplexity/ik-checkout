@@ -27,6 +27,7 @@ test('shows real comments, hides link asks, tags and our own', () => {
   assert.equal(worthShowing(cm('Lonk'), c), false);
   assert.equal(worthShowing(cm('lnk pls'), c), false);
   assert.equal(worthShowing(cm('Like'), c), true);
+  assert.equal(worthShowing(cm('0'), c), false);
   assert.equal(worthShowing(cm('How to remove this ??'), c), true);
   assert.equal(worthShowing(cm('Thank you!', 'inkkulture.in'), c), false);
 });

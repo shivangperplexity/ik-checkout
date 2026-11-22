@@ -30,6 +30,7 @@ export function worthShowing(cm, c) {
   /* strip @mentions first: "@friend look" is a real comment, "@friend" alone is just a tag */
   const plain = String(cm.text).replace(/@[\w.]+/g, ' ');
   if (emojiOnly(plain)) return false;
+  if (!/\p{L}/u.test(plain)) return false; /* "0", "100" — numbers only */
   if (linkTypo(plain)) return false;
   return !wantsLink(plain, { ...c, mode: 'keywords' });
 }
@@ -76,7 +77,8 @@ export async function commentsFeed(env, { reels = 25, all = false } = {}) {
   const rows = per.flat().map((x) => {
     const replies = (x.replies?.data || []).map((r) => {
       const u = r.username || r.from?.username || '';
-      const ours = (u && u === c.username) || (r.from?.id && String(r.from.id) === String(c.user_id));
+      /* Instagram leaves username/from out of nested replies written by the account itself, so a blank author is us */
+      const ours = (u && u === c.username) || (r.from?.id && String(r.from.id) === String(c.user_id)) || (!u && !r.from?.id);
       return { id: r.id, text: r.text, username: u || (ours ? c.username : ''), at: r.timestamp, ours: !!ours };
     });
     const who = x.username || x.from?.username || '';
