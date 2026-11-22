@@ -2614,6 +2614,32 @@ const ACTIONS = {
     return { ok: true, cfg: A.autoCfg(f), hour_ist: A.istHour(), night: m.ads_night || null, log: (m.ads_auto || {}).log || [], reels: (m.ads_auto || {}).reels || {} };
   },
   /** Any Marketing API read, or a POST (create / update). No DELETE: removals stay with the owner. */
+  /** Scale / test split: new campaign "Scale" (ABO) with a copy of the test ad set holding only the winning ads;
+      winners paused in the test ad set; budgets moved. { from_adset, ads:[ids], scale_daily, test_daily, name }. */
+  async ads_scale_setup(env, b) {
+    const A = await import('./meta-ads.js'); const e = await withSettingsFresh(env); const g = (m, p, x) => A.graph(e, m, p, x || {});
+    const acct = (await g('GET', String(b.from_adset), { fields: 'account_id' })).account_id;
+    const steps = [];
+    const camp = await g('POST', `act_${acct}/campaigns`, { name: String(b.name || 'Scale'), objective: 'OUTCOME_SALES', status: 'PAUSED', special_ad_categories: [], buying_type: 'AUCTION', is_adset_budget_sharing_enabled: false });
+    steps.push({ campaign: camp.id });
+    const cp = await g('POST', `${b.from_adset}/copies`, { campaign_id: camp.id, deep_copy: false, status_option: 'PAUSED' });
+    const adset = cp.copied_adset_id || cp.ad_object_ids?.find((o) => o.ad_object_type === 'ad_set')?.copied_id;
+    if (!adset) return { ok: false, steps, raw: cp };
+    await g('POST', adset, { name: `${b.name || 'Scale'} - Maharashtra` });
+    await A.setBudget(e, adset, Number(b.scale_daily));
+    steps.push({ adset });
+    for (const id of b.ads || []) {
+      const c = await g('POST', `${id}/copies`, { adset_id: adset, status_option: 'ACTIVE' });
+      const nid = c.copied_ad_id || c.ad_object_ids?.find((o) => o.ad_object_type === 'ad')?.copied_id;
+      steps.push({ from: id, ad: nid || c });
+    }
+    await g('POST', adset, { status: 'ACTIVE' });
+    await g('POST', camp.id, { status: 'ACTIVE' });
+    for (const id of b.ads || []) await g('POST', id, { status: 'PAUSED' });
+    await A.setBudget(e, String(b.from_adset), Number(b.test_daily));
+    steps.push({ test_budget: b.test_daily, paused_in_test: (b.ads || []).length });
+    return { ok: true, steps };
+  },
   async ads_api(env, b) {
     const A = await import('./meta-ads.js');
     const m = String(b.method || 'GET').toUpperCase();
