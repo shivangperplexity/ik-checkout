@@ -2620,11 +2620,17 @@ const ACTIONS = {
     const A = await import('./meta-ads.js'); const e = await withSettingsFresh(env); const g = (m, p, x) => A.graph(e, m, p, x || {});
     const acct = (await g('GET', String(b.from_adset), { fields: 'account_id' })).account_id;
     const steps = [];
-    const camp = await g('POST', `act_${acct}/campaigns`, { name: String(b.name || 'Scale'), objective: 'OUTCOME_SALES', status: 'PAUSED', special_ad_categories: [], buying_type: 'AUCTION', is_adset_budget_sharing_enabled: false });
+    await A.setBudget(e, String(b.from_adset), Number(b.test_daily)); /* lower the test ad set first (daily cap guard) */
+    steps.push({ test_budget: b.test_daily });
+    let campId = b.campaign, adset = b.adset;
+    if (!campId) { campId = (await g('POST', `act_${acct}/campaigns`, { name: String(b.name || 'Scale'), objective: 'OUTCOME_SALES', status: 'PAUSED', special_ad_categories: [], buying_type: 'AUCTION', is_adset_budget_sharing_enabled: false })).id; }
+    const camp = { id: campId };
     steps.push({ campaign: camp.id });
-    const cp = await g('POST', `${b.from_adset}/copies`, { campaign_id: camp.id, deep_copy: false, status_option: 'PAUSED' });
-    const adset = cp.copied_adset_id || cp.ad_object_ids?.find((o) => o.ad_object_type === 'ad_set')?.copied_id;
-    if (!adset) return { ok: false, steps, raw: cp };
+    if (!adset) {
+      const cp = await g('POST', `${b.from_adset}/copies`, { campaign_id: camp.id, deep_copy: false, status_option: 'PAUSED' });
+      adset = cp.copied_adset_id || cp.ad_object_ids?.find((o) => o.ad_object_type === 'ad_set')?.copied_id;
+      if (!adset) return { ok: false, steps, raw: cp };
+    }
     await g('POST', adset, { name: `${b.name || 'Scale'} - Maharashtra` });
     await A.setBudget(e, adset, Number(b.scale_daily));
     steps.push({ adset });
@@ -2636,8 +2642,7 @@ const ACTIONS = {
     await g('POST', adset, { status: 'ACTIVE' });
     await g('POST', camp.id, { status: 'ACTIVE' });
     for (const id of b.ads || []) await g('POST', id, { status: 'PAUSED' });
-    await A.setBudget(e, String(b.from_adset), Number(b.test_daily));
-    steps.push({ test_budget: b.test_daily, paused_in_test: (b.ads || []).length });
+    steps.push({ paused_in_test: (b.ads || []).length });
     return { ok: true, steps };
   },
   async ads_api(env, b) {
