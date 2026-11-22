@@ -152,6 +152,8 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS ig_dm_media ON ig_dm (media_id, from_id)`,
   /* Nov 2026: Instagram blocked DMs for the account; failed ones get a public "link is in bio" reply instead */
   `ALTER TABLE ig_dm ADD COLUMN IF NOT EXISTS bio_at BIGINT`,
+  /* IG comments tab (lib/ig-comments.js): follower count + follows-us per person, rechecked weekly */
+  `CREATE TABLE IF NOT EXISTS ig_people (igsid TEXT PRIMARY KEY, username TEXT, name TEXT, followers INT, follows_us SMALLINT, verified SMALLINT, pic TEXT, err TEXT, checked_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS ref_codes (phone TEXT PRIMARY KEY, code TEXT UNIQUE, name TEXT, created_at BIGINT, invited_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS referrals (idem TEXT PRIMARY KEY, code TEXT, referrer_phone TEXT, friend_phone TEXT, order_id TEXT, order_name TEXT, amount BIGINT, status TEXT, note TEXT, created_at BIGINT, placed_at BIGINT, credited_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS referrals_status ON referrals (status)`,

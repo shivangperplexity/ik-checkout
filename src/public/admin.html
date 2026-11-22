@@ -345,7 +345,7 @@ function logout(){token='';ls('ik_admin_tok',null);clearInterval(timer);$('#app'
 var AS={msgs:[],busy:false,props:{},loaded:false};
 function asSave(){}
 function asLoad(){if(AS.loaded)return;AS.loaded=true;ls('ik_as_msgs',null);rpc('assistant_history').then(function(j){if(AS.msgs.length)return;AS.msgs=(j.messages||[]).map(function(m){return {role:m.role,content:String(m.content||'').replace(/\n\[[^\]]*\]$/,'')}});asDraw()}).catch(function(){AS.loaded=false})}
-var MORE=[['ads','Meta ads','Every campaign, ad set and ad with numbers; pause or delete; upload a Reel ad'],['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['creators','Creators','Creator program: applications, approvals, orders, payouts'],['broadcast','Video broadcast','Send a video offer on WhatsApp to people who left the checkout'],['barter','Barter collabs','Free orders from the /collab page: check the Instagram DM, approve or reject'],['referrals','Refer and earn','Referral codes, friend orders, store credit given and used'],['webchat','Website chats','What visitors ask the help chat on inkkulture.in, track page admin key, tracking-link send'],['ig','Instagram DM','Comment on a reel, get the design link in DM: setup, links per post, orders'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
+var MORE=[['ads','Meta ads','Every campaign, ad set and ad with numbers; pause or delete; upload a Reel ad'],['revenue','Real revenue','Money from delivered orders, RTO losses, by courier'],['creators','Creators','Creator program: applications, approvals, orders, payouts'],['broadcast','Video broadcast','Send a video offer on WhatsApp to people who left the checkout'],['barter','Barter collabs','Free orders from the /collab page: check the Instagram DM, approve or reject'],['referrals','Refer and earn','Referral codes, friend orders, store credit given and used'],['webchat','Website chats','What visitors ask the help chat on inkkulture.in, track page admin key, tracking-link send'],['ig','Instagram DM','Comment on a reel, get the design link in DM: setup, links per post, orders'],['igc','IG comments','Real comments from all reels (no emoji-only, no link asks), reply from here; followers with 10k+'],['couriers','Courier report','RTO, speed and cost per courier, NimbusPost and Shiprocket, same states side by side'],['live','Live visitors','Who is on the store and in the checkout right now'],['analytics','Analytics','Sales, checkout funnel, traffic sources'],['reviews','Reviews','Customer reviews and the website section'],['wa','WhatsApp','Automatic messages, templates, how-to-apply video'],['recovery','Abandoned checkouts','People who left without ordering'],['upsell','Upsells','Add-ons shown in the checkout'],['settings','Settings','Shipping, AI, payments, NDR rules, printer']];
 function moreName(t){var m=MORE.filter(function(x){return x[0]===t})[0];return m?m[1]:''}
 function loadMore(){$('#main').innerHTML='<div class="morelist">'+MORE.map(function(m){return '<button class="card moreit" data-go="'+m[0]+'"><b>'+esc(m[1])+(m[0]==='live'?' <span class="dot" id="livedot2" style="vertical-align:1px">…</span>':'')+'</b><span class="small mut">'+esc(m[2])+'</span></button>'}).join('')+'</div>';
  $('#main').onclick=function(e){var b=e.target.closest('[data-go]');if(b)go(b.dataset.go)};
@@ -629,7 +629,7 @@ function go(t){if(t!=='more'&&t!=='home'&&!moreName(t)&&!TABS.some(function(x){r
  [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('on',b.dataset.t===t||(inMore&&b.dataset.t==='more'))});
  var ml=$('#morelbl');if(ml)ml.textContent=moreName(t)?'More · '+moreName(t):'More';$('#main').onclick=null;
  $('#main').innerHTML='<p class="mut">Loading…</p>';if(t==='unshipped'){S.filter='unshipped';S.sel={}}else if(t==='orders'&&S.filter==='unshipped'){S.filter='all';S.sel={}}
- ({ads:loadAds,revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,ig:loadIg,webchat:loadWebchat,barter:loadBarter,broadcast:loadBroadcast,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
+ ({ads:loadAds,revenue:loadRevenue,creators:loadCreators,referrals:loadRefs,ig:loadIg,igc:loadIgc,webchat:loadWebchat,barter:loadBarter,broadcast:loadBroadcast,couriers:loadCour,home:loadHome,more:loadMore,live:loadLive,chats:loadChats,orders:loadOrders,unshipped:loadOrders,recovery:loadRecovery,analytics:loadAnalytics,upsell:loadUpsell,ship:loadShip,wa:loadWa,reviews:loadReviews,settings:loadSettings})[t]()}
 /* ---- Meta ads studio (public/ads-admin.js, lib/ads-studio.js) ---- */
 function loadAds(){window.IKA={rpc:rpc,esc:esc,inr:inr,toast:toast};var m=$('#main');
  if(window.IKAds)return IKAds.load(m);var sc=document.createElement('script');sc.src='/ads-admin.js?v=2';sc.onload=function(){IKAds.load(m)};sc.onerror=function(){m.innerHTML='<p class="mut">Could not load the ads page.</p>'};document.head.appendChild(sc)}
@@ -674,6 +674,42 @@ function loadRefs(){rpc('referrals').then(function(r){
 }).catch(fail)}
 
 /* ---- Instagram comment -> DM (lib/ig-dm.js) ---- */
+/* IG comments: real comments from all reels + reply, and followers with 10k+ (lib/ig-comments.js) */
+var IGC={only:true,all:false};
+function loadIgc(){
+ $('#main').innerHTML='<div class="card"><h3 style="margin:0 0 4px">Instagram comments</h3><p class="small mut" style="margin:0">Comments from your recent reels with real text. Emoji-only comments and link / price asks (the auto-DM handles those) are left out.</p>'
+  +'<div class="row" style="gap:12px;flex-wrap:wrap;margin-top:8px"><label><input type="checkbox" id="igc_only"'+(IGC.only?' checked':'')+'> Only ones we have not replied to</label><label><input type="checkbox" id="igc_all"'+(IGC.all?' checked':'')+'> Include photo posts too</label><button class="btn sm ghost" id="igc_re">Refresh</button></div></div>'
+  +'<div id="igc_list"><div class="card mut small">Loading comments…</div></div>'
+  +'<div class="card" style="margin-top:10px"><h3 style="margin:0 0 4px">Followers with 10k+ followers</h3><p class="small mut" style="margin:0 0 8px">Instagram does not share an account\'s full follower list with any app. This checks everyone who messaged you or commented, and lists the ones who follow you and have 10k+ followers. Instagram only answers for people who have messaged you at least once.</p><button class="btn sm" id="igc_chk">Check people now</button><div id="igc_big" style="margin-top:8px"></div></div>';
+ $('#igc_only').onchange=function(){IGC.only=this.checked;igcList(IGC.last)};
+ $('#igc_all').onchange=function(){IGC.all=this.checked;igcLoad(true)};
+ $('#igc_re').onclick=function(){igcLoad(true)};
+ $('#igc_chk').onclick=function(){igcBig(true)};
+ igcLoad(false);igcBig(false)}
+function igcLoad(force){rpc('ig_comments',{all:IGC.all,refresh:force?1:0}).then(function(r){if(tab!=='igc')return;IGC.last=r;igcList(r)}).catch(function(e){var el=$('#igc_list');if(el)el.innerHTML='<div class="card err">'+esc(e.message||e)+'</div>'})}
+function igcList(r){var el=$('#igc_list');if(!el||!r)return;
+ var rows=(r.rows||[]).filter(function(x){return !IGC.only||!x.replied});
+ var h='<div class="small mut" style="margin:10px 2px">'+rows.length+' shown · '+r.reels+' reels · '+r.hidden+' emoji-only / link asks left out'+(r.errors&&r.errors.length?' · <span class="err">'+esc(r.errors[0])+'</span>':'')+'</div>';
+ if(!rows.length)h+='<div class="card mut small">Nothing to reply to right now.</div>';
+ h+=rows.map(function(x){return '<div class="card" style="margin-top:8px"><div class="row" style="gap:10px;align-items:flex-start">'
+  +(x.thumb?'<a target="_blank" rel="noopener" href="'+esc(x.media_url)+'"><img src="'+esc(x.thumb)+'" style="width:48px;height:64px;object-fit:cover;border-radius:6px"></a>':'')
+  +'<div style="flex:1;min-width:0"><div class="small"><a target="_blank" rel="noopener" href="https://instagram.com/'+esc(x.username)+'"><b>@'+esc(x.username)+'</b></a> <span class="mut">· '+ago(Math.floor(Date.parse(x.at)/1000))+(x.likes?' · ♥ '+x.likes:'')+(x.replied?' · <span style="color:#1a7f37">replied</span>':'')+'</span></div>'
+  +'<div style="margin:4px 0;white-space:pre-wrap;word-break:break-word">'+esc(x.text)+'</div>'
+  +(x.replies||[]).map(function(p){return '<div class="small mut" style="border-left:2px solid #ddd;padding-left:8px;margin:2px 0"><b>@'+esc(p.username)+'</b> '+esc(p.text)+'</div>'}).join('')
+  +'<div class="row" style="gap:6px;margin-top:6px"><input data-cid="'+esc(x.id)+'" placeholder="Reply to @'+esc(x.username)+'…" style="flex:1;min-width:0"><button class="btn sm" data-send="'+esc(x.id)+'">Reply</button></div>'
+  +'</div></div></div>'}).join('');
+ el.innerHTML=h;
+ Array.prototype.forEach.call(el.querySelectorAll('[data-send]'),function(b){b.onclick=function(){var id=b.getAttribute('data-send'),inp=el.querySelector('input[data-cid="'+id+'"]'),msg=(inp.value||'').trim();if(!msg){toast('Type a reply');return}
+  b.disabled=true;rpc('ig_reply',{id:id,message:msg}).then(function(){toast('Replied');var x=(IGC.last.rows||[]).filter(function(y){return y.id===id})[0];if(x){x.replied=true;x.replies=(x.replies||[]).concat([{username:IGC.last.username,text:msg}])}igcList(IGC.last)}).catch(function(e){b.disabled=false;toast(e.message||'Failed')})}});
+ Array.prototype.forEach.call(el.querySelectorAll('input[data-cid]'),function(i){i.onkeydown=function(e){if(e.key==='Enter'){var b=el.querySelector('[data-send="'+i.getAttribute('data-cid')+'"]');if(b)b.click()}}})}
+function igcBig(check){var el=$('#igc_big');if(check&&el)el.innerHTML='<div class="small mut">Checking… (up to 60 people per click)</div>';
+ rpc('ig_big',{check:check?1:0,refresh:check?1:0}).then(function(r){el=$('#igc_big');if(!el||tab!=='igc')return;
+  function row(p){return '<div class="row" style="gap:10px;align-items:center;border-top:1px solid var(--line,#eee);padding:6px 0">'+(p.pic?'<img src="'+esc(p.pic)+'" style="width:36px;height:36px;border-radius:50%;object-fit:cover">':'<div style="width:36px;height:36px;border-radius:50%;background:#eee"></div>')
+   +'<div style="flex:1;min-width:0"><a target="_blank" rel="noopener" href="https://instagram.com/'+esc(p.username)+'"><b>@'+esc(p.username)+'</b></a>'+(Number(p.verified)?' ✔︎':'')+'<div class="small mut">'+esc(p.name||'')+'</div></div><div style="font-weight:700">'+Number(p.followers).toLocaleString('en-IN')+'</div></div>'}
+  var h='<div class="small mut">'+r.looked_up+' people looked up, '+r.readable+' readable'+(r.checked?' · '+r.checked+' checked now':'')+(r.left?' · <b>'+r.left+' more to check, click again</b>':'')+'</div>';
+  h+=(r.followers||[]).length?(r.followers||[]).map(row).join(''):'<div class="small mut" style="margin-top:6px">No followers with 10k+ found yet'+(r.looked_up?'':' — click "Check people now"')+'.</div>';
+  if((r.not_following||[]).length)h+='<div class="small mut" style="margin-top:10px"><b>10k+ but not following you</b> ('+r.not_following.length+')</div>'+r.not_following.map(row).join('');
+  el.innerHTML=h}).catch(function(e){if(el)el.innerHTML='<div class="err small">'+esc(e.message||e)+'</div>'})}
 function loadIg(){rpc('ig').then(function(r){if(tab!=='ig')return;$('#main').innerHTML=igHtml(r);igWire(r)}).catch(fail)}
 function igHtml(r){
  function k(v,l,s){return '<div class="card"><div class="small mut">'+l+'</div><div style="font-size:22px;font-weight:700">'+v+'</div>'+(s?'<div class="small mut">'+s+'</div>':'')+'</div>'}

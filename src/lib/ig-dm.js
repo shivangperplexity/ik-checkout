@@ -90,6 +90,7 @@ async function ig(env, c, method, path, body) {
   if (!r.ok || j.error) throw new Error(j.error?.message ? `${j.error.message} (${j.error.code || r.status})` : 'HTTP ' + r.status);
   return j;
 }
+export { ig as igApi };
 
 /** Handle one comment: dedupe, decide, DM, optional public reply, log. */
 export async function handleComment(env, c, cm) {
