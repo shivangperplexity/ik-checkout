@@ -2719,7 +2719,8 @@ const ACTIONS = {
   async set_trigger_tpl(env, b) {
     const s = await getSettings(env, true), t = { ...(s.templates || {}) };
     if (!TRIGGERS[b.key]) throw new Error('unknown trigger');
-    t[b.key] = { ...(t[b.key] || { enabled: true, lang: 'en', vars: TRIGGERS[b.key].vars }), name: String(b.name).trim().slice(0, 100) };
+    t[b.key] = { ...(t[b.key] || { enabled: true, lang: 'en', vars: TRIGGERS[b.key].vars }), ...(b.name ? { name: String(b.name).trim().slice(0, 100) } : {}) };
+    if (Array.isArray(b.variants)) t[b.key].variants = b.variants.map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
     await putSetting(env, 'templates', t);
     return { ok: true, trigger: t[b.key] };
   },
