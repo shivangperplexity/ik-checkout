@@ -963,6 +963,19 @@ const ACTIONS = {
   /* Manual nudge from the Abandoned or Live tab. Works even when automatic nudges are switched off. */
   /** Abandoned checkouts whose reminder never reached them (failed / not sent), no order since: send one template.
       { dry, steps: [...], limit, template, days }. Newest first. Marketing STOP opt-outs are skipped by fireTrigger. */
+  /** Abandoned-cart reminders by template: sent, reached (delivered/read), orders within 48 h of the message. */
+  async reminder_stats(env, b) {
+    const since = now() - (Number(b.days) || 60) * 86400;
+    const r = (await env.DB.prepare(`SELECT m.template,
+        count(*)::int AS sent,
+        count(*) FILTER (WHERE m.status IN ('delivered','read'))::int AS reached,
+        count(*) FILTER (WHERE m.status='read')::int AS read,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM orders o WHERE o.phone=m.phone AND o.created_at BETWEEN m.ts AND m.ts+172800 AND o.status NOT IN ('pending_payment','failed')))::int AS orders,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM orders o WHERE o.phone=m.phone AND o.created_at BETWEEN m.ts AND m.ts+172800 AND o.status NOT IN ('pending_payment','failed') AND o.method<>'cod'))::int AS prepaid
+      FROM messages m WHERE m.trigger IN ('abandoned_cart','abandoned_blast') AND m.direction<>'in' AND m.ts>? AND coalesce(m.template,'')<>''
+      GROUP BY 1 ORDER BY 5 DESC`).bind(since).all()).results;
+    return { ok: true, rows: r.map((x) => ({ ...x, conv_pct: x.reached ? Math.round((x.orders * 1000) / x.reached) / 10 : null })) };
+  },
   async msg_stats(env, b) {
     const since = now() - (Number(b.mins) || 30) * 60;
     const r = (await env.DB.prepare(`SELECT trigger, status, substring(coalesce(error,''),1,60) AS err, count(*)::int AS n FROM messages WHERE ts>? AND direction<>'in' GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 40`).bind(since).all()).results;
