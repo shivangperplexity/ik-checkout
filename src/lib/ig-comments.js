@@ -30,7 +30,20 @@ export function worthShowing(cm, c) {
   /* strip @mentions first: "@friend look" is a real comment, "@friend" alone is just a tag */
   const plain = String(cm.text).replace(/@[\w.]+/g, ' ');
   if (emojiOnly(plain)) return false;
+  if (linkTypo(plain)) return false;
   return !wantsLink(plain, { ...c, mode: 'keywords' });
+}
+/** "lonk", "lnk", "linl", "liink": a word one typo away from "link" (real words like "like", "line" don't count). */
+export function linkTypo(text) {
+  const REAL = new Set(['like', 'line', 'lick', 'lint', 'pink', 'sink', 'wink', 'mink', 'rink', 'kink', 'ink', 'lino', 'lin']);
+  const words = String(text || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
+  return words.some((w) => !REAL.has(w) && w !== 'link' && w.length >= 3 && w.length <= 5 && dist(w, 'link') === 1);
+}
+function dist(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
 }
 
 /* ---------------- comments ---------------- */
@@ -51,7 +64,7 @@ export async function commentsFeed(env, { reels = 25, all = false } = {}) {
   const per = await inChunks(media, 5, async (m) => {
     try {
       const rows = [];
-      let path = `${m.id}/comments?fields=id,text,username,timestamp,like_count,from,replies{id,text,username,timestamp}&limit=50`;
+      let path = `${m.id}/comments?fields=id,text,username,timestamp,like_count,from,replies{id,text,username,from,timestamp}&limit=50`;
       for (let page = 0; path && page < 4; page++) {
         const j = await igApi(env, c, 'GET', path);
         rows.push(...(j.data || []));
@@ -61,11 +74,17 @@ export async function commentsFeed(env, { reels = 25, all = false } = {}) {
     } catch (e) { errors.push(e.message); return []; }
   });
   const rows = per.flat().map((x) => {
-    const replies = (x.replies?.data || []).map((r) => ({ id: r.id, text: r.text, username: r.username, at: r.timestamp }));
+    const replies = (x.replies?.data || []).map((r) => {
+      const u = r.username || r.from?.username || '';
+      const ours = (u && u === c.username) || (r.from?.id && String(r.from.id) === String(c.user_id));
+      return { id: r.id, text: r.text, username: u || (ours ? c.username : ''), at: r.timestamp, ours: !!ours };
+    });
+    const who = x.username || x.from?.username || '';
     return {
-      id: x.id, text: String(x.text || ''), username: x.username || x.from?.username || '', from_id: x.from?.id || '',
+      id: x.id, text: String(x.text || ''), username: who, from_id: x.from?.id || '',
       at: x.timestamp, likes: x.like_count || 0, replies,
-      replied: replies.some((r) => r.username && r.username === c.username),
+      /* our replies start with "@<commenter>" (auto-DM / bio replies); a reply by the commenter themself is not ours */
+      replied: replies.some((r) => r.ours || (!r.username && who && String(r.text || '').startsWith('@' + who))),
       media_id: x.media.id, media_url: x.media.permalink, thumb: x.media.thumbnail_url || '',
       caption: String(x.media.caption || '').replace(/\s+/g, ' ').slice(0, 60),
     };
