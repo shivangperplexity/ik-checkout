@@ -437,6 +437,32 @@ async function handlePayuReturn(req, env, ctx) {
   return done.ok ? ok(done) : fail(done.why);
 }
 
+/** Razorpay webhook (payment.captured / order.paid): confirms the order even when the shopper never comes back from
+    the UPI app. Secret: Settings > Online payments > webhook secret (same as in Razorpay Dashboard > Webhooks). */
+async function handleRzpWebhook(req, env, ctx) {
+  const raw = await req.text();
+  const secret = String(env.SETTINGS?.pay?.rzp_webhook_secret || '').trim();
+  if (!secret) return new Response('no secret', { status: 401 });
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const want = [...new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(raw)))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  if (want !== String(req.headers.get('X-Razorpay-Signature') || '')) return new Response('bad signature', { status: 401 });
+  let j; try { j = JSON.parse(raw); } catch { return new Response('ok'); }
+  if (!['payment.captured', 'order.paid'].includes(j.event)) return new Response('ok');
+  const oid = j.payload?.order?.entity?.id || j.payload?.payment?.entity?.order_id;
+  if (!oid) return new Response('ok');
+  const work = (async () => {
+    const v = await verifyRzpOrder(env, oid);
+    if (!v?.receipt || v.status !== 'success') return;
+    const row = await env.DB.prepare('SELECT * FROM orders WHERE txnid=?').bind(v.receipt).first();
+    if (!row || isDone(row)) return;
+    if (v.amount !== rupees(payable(row))) { console.error('rzp webhook amount mismatch', v.receipt, v.amount); return; }
+    const done = await completePaid(env, ctx, req, row);
+    console.log('rzp webhook', v.receipt, done.ok ? 'confirmed ' + (done.order_name || '') : 'not confirmed: ' + done.why);
+  })().catch((e) => console.error('rzp webhook', oid, e.message));
+  await work;
+  return new Response('ok');
+}
+
 /** Razorpay Checkout success: { razorpay_order_id, razorpay_payment_id, razorpay_signature }. Same answer as the PayU json return. */
 async function handleRzpVerify(req, env, ctx) {
   const b = await req.json().catch(() => ({}));
@@ -620,6 +646,7 @@ export async function handle(req, env0, ctx) {
       }
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
       else if (path === '/api/rzp/verify' && req.method === 'POST') res = await handleRzpVerify(req, env, ctx);
+      else if (path === '/api/rzp/webhook' && req.method === 'POST') res = await handleRzpWebhook(req, env, ctx);
       /* Build 066: check a UPI ID (and show its holder's name) before sending a payment request to it */
       else if (path === '/api/upi/verify' && req.method === 'POST') {
         const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
@@ -694,7 +721,7 @@ export async function runCron(env0, via = 'vercel') {
 /** Build 060 (4 Nov 2026): PayU tells us about a UPI payment only through the shopper's page (the status poll or the
  * return). A shopper who pays in GPay and never comes back to the browser left a paid attempt with no order. Every
  * cron run asks PayU about recent unpaid attempts: paid → the order is created as usual; refused for 2 h+ → 'failed'. */
-export async function payuSweep(env, { maxAge = 48 * 3600, minAge = 6 * 60, limit = 25 } = {}) {
+export async function payuSweep(env, { maxAge = 48 * 3600, minAge = 2 * 60, limit = 25 } = {}) {
   if (!env.DB || !env.PAYU_KEY) return { skipped: true };
   const t = now();
   const rows = (await env.DB.prepare("SELECT * FROM orders WHERE status='pending_payment' AND (method='prepaid' OR COALESCE(advance_paise,0)>0) AND txnid IS NOT NULL AND draft_id IS NOT NULL AND created_at>? AND created_at<? ORDER BY created_at DESC LIMIT ?")

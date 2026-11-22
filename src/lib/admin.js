@@ -1170,7 +1170,7 @@ const ACTIONS = {
   async pay_settings(env) {
     const s = await getSettings(env, true), p = s.pay || {};
     const m = (x) => (x ? '••••••' + String(x).slice(-4) : '');
-    return { ok: true, gateway: p.gateway === 'razorpay' ? 'razorpay' : 'payu', rzp_key_id: p.rzp_key_id || '', rzp_key_secret: m(p.rzp_key_secret), rzp_ok: !!(p.rzp_key_id && p.rzp_key_secret), payu_ok: !!env.PAYU_KEY };
+    return { ok: true, gateway: p.gateway === 'razorpay' ? 'razorpay' : 'payu', rzp_key_id: p.rzp_key_id || '', rzp_key_secret: m(p.rzp_key_secret), rzp_webhook_secret: m(p.rzp_webhook_secret), webhook_url: 'https://ik-checkout.vercel.app/api/rzp/webhook', rzp_ok: !!(p.rzp_key_id && p.rzp_key_secret), payu_ok: !!env.PAYU_KEY };
   },
   async rzp_debug(env) {
     const { rzp } = await import('./razorpay.js'); const e = await withSettingsFresh(env);
@@ -1182,6 +1182,7 @@ const ACTIONS = {
     const s = await getSettings(env, true), p = { ...(s.pay || {}) };
     if (b.rzp_key_id !== undefined) p.rzp_key_id = String(b.rzp_key_id).trim().slice(0, 60);
     if (b.rzp_key_secret !== undefined && !String(b.rzp_key_secret).startsWith('••')) p.rzp_key_secret = String(b.rzp_key_secret).trim().slice(0, 100);
+    if (b.rzp_webhook_secret !== undefined && !String(b.rzp_webhook_secret).startsWith('••')) p.rzp_webhook_secret = String(b.rzp_webhook_secret).trim().slice(0, 200);
     if (b.gateway !== undefined) p.gateway = b.gateway === 'razorpay' ? 'razorpay' : 'payu';
     if (p.gateway === 'razorpay') {
       if (!p.rzp_key_id || !p.rzp_key_secret) throw new Error('Add the Razorpay Key ID and Key Secret first');
