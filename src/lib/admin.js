@@ -1603,6 +1603,11 @@ const ACTIONS = {
   },
   /** Cancel shipments that are not picked up yet. The order goes back to "To ship"; it is not cancelled. */
   /** Shadowfax parcels not picked up yet: cancel at Shadowfax, book again on ShipPrime (tpl, default Delhivery Air). { dry, tpl, limit } */
+  async order_flags(env, b) {
+    const names = (b.names || []).map((n) => '#' + String(n).replace(/^#/, ''));
+    const r = (await env.DB.prepare(`SELECT o.order_name, o.packed_at, s.provider, s.awb, s.courier, s.status FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id WHERE o.order_name = ANY(?)`).bind(names).all()).results;
+    return { ok: true, rows: r.map((x) => ({ ...x, packed: !!x.packed_at, packed_ist: x.packed_at ? new Date((Number(x.packed_at) + 19800) * 1000).toISOString().slice(0, 16).replace('T', ' ') : '' })) };
+  },
   async sfx_to_sp(env, b) {
     const rows = (await env.DB.prepare(`SELECT order_id, order_name, awb, status, stage, picked_at FROM shipments WHERE provider='shadowfax' AND status<>'cancelled' ORDER BY created_at`).all()).results;
     const todo = rows.filter((r) => !r.picked_at && !['picked', 'in_transit', 'ofd', 'delivered', 'rto', 'ndr'].includes(String(r.stage || '')));
