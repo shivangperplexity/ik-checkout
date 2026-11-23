@@ -1610,7 +1610,8 @@ const ACTIONS = {
     const fresh = await withSettingsFresh(env), out = [], t0 = Date.now();
     for (const r of todo.slice(0, Number(b.limit) || 20)) {
       if (Date.now() - t0 > 50000) { out.push({ name: r.order_name, ok: false, note: 'time up, run again' }); break; }
-      const x = await stopShipment(fresh, r.order_id, 'Moved from Shadowfax to ShipPrime').catch((e) => ({ state: 'error', note: e.message }));
+      const x = !r.awb ? await env.DB.prepare("DELETE FROM shipments WHERE order_id=? AND provider='shadowfax' AND COALESCE(awb,'')=''").bind(r.order_id).run().then(() => ({ state: 'cancelled' }))
+        : await stopShipment(fresh, r.order_id, 'Moved from Shadowfax to ShipPrime').catch((e) => ({ state: 'error', note: e.message }));
       if (x.state !== 'cancelled') { out.push({ name: r.order_name, ok: false, note: 'cancel: ' + (x.note || x.state) }); continue; }
       try {
         const k = await ACTIONS.ship_book_now(env, { id: r.order_id, provider: 'shipprime', tpl: String(b.tpl || 'DELHIVERY_AIR') });
