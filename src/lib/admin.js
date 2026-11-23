@@ -1603,6 +1603,11 @@ const ACTIONS = {
   },
   /** Cancel shipments that are not picked up yet. The order goes back to "To ship"; it is not cancelled. */
   /** Shadowfax parcels not picked up yet: cancel at Shadowfax, book again on ShipPrime (tpl, default Delhivery Air). { dry, tpl, limit } */
+  async sfx_cancel_awb(env, b) {
+    const { sfxCancel } = await import('./shadowfax.js');
+    await sfxCancel(await withSettingsFresh(env), { awb: String(b.awb) });
+    return { ok: true, cancelled: String(b.awb) };
+  },
   async order_flags(env, b) {
     const names = (b.names || []).map((n) => '#' + String(n).replace(/^#/, ''));
     const r = (await env.DB.prepare(`SELECT o.order_name, o.packed_at, s.provider, s.awb, s.courier, s.status FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id WHERE o.order_name = ANY(?)`).bind(names).all()).results;
