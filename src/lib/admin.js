@@ -977,7 +977,7 @@ const ACTIONS = {
     return { ok: true, rows: r.map((x) => ({ ...x, conv_pct: x.reached ? Math.round((x.orders * 1000) / x.reached) / 10 : null })) };
   },
   /** Inbound WhatsApp messages asking to cancel, with the phone's latest orders + shipment state. Read-only. */
-  async cancel_requests(env, b = {}) {
+  async wa_cancel_msgs(env, b = {}) {
     const since = now() - (Number(b.days) || 7) * 86400;
     const msgs = (await env.DB.prepare(`SELECT phone, ts, substring(coalesce(preview,''),1,140) AS p FROM messages WHERE direction='in' AND ts>?
       AND (preview ~* '(cancel|cancle|cancal|cansel|nahi chahiye|nhi chahiye|nahi chaiye|nhi chaiye|don.?t want|not want|रद्द|band karo|mat bhejo)') ORDER BY ts DESC LIMIT 80`).bind(since).all()).results;
