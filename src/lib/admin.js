@@ -1602,6 +1602,23 @@ const ACTIONS = {
     return { ok: true, results: await requestPickup(await withSettingsFresh(env), recs, date) };
   },
   /** Cancel shipments that are not picked up yet. The order goes back to "To ship"; it is not cancelled. */
+  /** Shadowfax parcels not picked up yet: cancel at Shadowfax, book again on ShipPrime (tpl, default Delhivery Air). { dry, tpl, limit } */
+  async sfx_to_sp(env, b) {
+    const rows = (await env.DB.prepare(`SELECT order_id, order_name, awb, status, stage, picked_at FROM shipments WHERE provider='shadowfax' AND status<>'cancelled' ORDER BY created_at`).all()).results;
+    const todo = rows.filter((r) => !r.picked_at && !['picked', 'in_transit', 'ofd', 'delivered', 'rto', 'ndr'].includes(String(r.stage || '')));
+    if (b.dry) return { ok: true, total: rows.length, movable: todo.map((r) => `${r.order_name} ${r.awb} ${r.stage || ''}`), skipped: rows.filter((r) => !todo.includes(r)).map((r) => `${r.order_name} ${r.stage}`) };
+    const fresh = await withSettingsFresh(env), out = [], t0 = Date.now();
+    for (const r of todo.slice(0, Number(b.limit) || 20)) {
+      if (Date.now() - t0 > 50000) { out.push({ name: r.order_name, ok: false, note: 'time up, run again' }); break; }
+      const x = await stopShipment(fresh, r.order_id, 'Moved from Shadowfax to ShipPrime').catch((e) => ({ state: 'error', note: e.message }));
+      if (x.state !== 'cancelled') { out.push({ name: r.order_name, ok: false, note: 'cancel: ' + (x.note || x.state) }); continue; }
+      try {
+        const k = await ACTIONS.ship_book_now(env, { id: r.order_id, provider: 'shipprime', tpl: String(b.tpl || 'DELHIVERY_AIR') });
+        out.push({ name: r.order_name, ok: true, awb: k.shipment?.awb || '', courier: k.shipment?.courier || '' });
+      } catch (e) { out.push({ name: r.order_name, ok: false, note: 'book: ' + String(e.message).slice(0, 160) }); }
+    }
+    return { ok: true, results: out };
+  },
   async ship_cancel(env, b) {
     const recs = await shipRecs(env, b.ids, 100), fresh = await withSettingsFresh(env), results = [];
     for (const r of recs) {
