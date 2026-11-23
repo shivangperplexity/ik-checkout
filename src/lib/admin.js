@@ -976,6 +976,24 @@ const ACTIONS = {
       GROUP BY 1 ORDER BY 5 DESC`).bind(since).all()).results;
     return { ok: true, rows: r.map((x) => ({ ...x, conv_pct: x.reached ? Math.round((x.orders * 1000) / x.reached) / 10 : null })) };
   },
+  /** Inbound WhatsApp messages asking to cancel, with the phone's latest orders + shipment state. Read-only. */
+  async cancel_requests(env, b = {}) {
+    const since = now() - (Number(b.days) || 7) * 86400;
+    const msgs = (await env.DB.prepare(`SELECT phone, ts, substring(coalesce(preview,''),1,140) AS p FROM messages WHERE direction='in' AND ts>?
+      AND (preview ~* '(cancel|cancle|cancal|cansel|nahi chahiye|nhi chahiye|nahi chaiye|nhi chaiye|don.?t want|not want|रद्द|band karo|mat bhejo)') ORDER BY ts DESC LIMIT 80`).bind(since).all()).results;
+    const out = {};
+    for (const m of msgs) {
+      const p = String(m.phone);
+      if (!out[p]) {
+        const ph = p.slice(-10);
+        const orders = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.method, o.total_paise, o.status, o.created_at, s.awb, s.courier, s.status AS ship, s.pickup, s.pack
+          FROM orders o LEFT JOIN shipments s ON s.order_id=o.order_id WHERE right(o.phone,10)=? AND o.order_id IS NOT NULL ORDER BY o.created_at DESC LIMIT 3`).bind(ph).all()).results;
+        out[p] = { msgs: [], orders };
+      }
+      out[p].msgs.push({ ts: m.ts, p: m.p });
+    }
+    return { ok: true, n: Object.keys(out).length, rows: out };
+  },
   async msg_stats(env, b) {
     const since = now() - (Number(b.mins) || 30) * 60;
     const r = (await env.DB.prepare(`SELECT trigger, status, substring(coalesce(error,''),1,60) AS err, count(*)::int AS n FROM messages WHERE ts>? AND direction<>'in' GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 40`).bind(since).all()).results;
