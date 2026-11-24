@@ -87,12 +87,12 @@ export async function ordersCancelState(env, ids) {
 export async function packingItems(env, ids) {
   const out = {};
   for (let i = 0; i < ids.length; i += 50) {
-    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Order { legacyResourceId name shippingAddress{ firstName city }
+    const d = await gql(env, `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Order { legacyResourceId name shippingAddress{ firstName lastName address1 address2 city province zip phone }
       lineItems(first:30){ nodes{ title quantity variantTitle sku image{ url } product{ productType tags featuredImage{ url } } variant{ inventoryItem{ measurement{ weight{ value unit } } } } } } } } }`,
       { ids: ids.slice(i, i + 50).map((x) => `gid://shopify/Order/${x}`) });
     for (const n of d.nodes || []) {
       if (!n || !n.legacyResourceId) continue;
-      out[String(n.legacyResourceId)] = { name: n.name, first_name: n.shippingAddress?.firstName || '', city: n.shippingAddress?.city || '',
+      out[String(n.legacyResourceId)] = { name: n.name, first_name: n.shippingAddress?.firstName || '', city: n.shippingAddress?.city || '', addr: n.shippingAddress || null,
         items: (n.lineItems?.nodes || []).map((l) => {
           const w = l.variant?.inventoryItem?.measurement?.weight;
           return { title: l.title, quantity: l.quantity, variantTitle: l.variantTitle || '', sku: l.sku || '', image: l.image?.url || l.product?.featuredImage?.url || '',

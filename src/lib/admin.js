@@ -882,7 +882,7 @@ const ACTIONS = {
       if (!it) return { id, missing: true };
       let parcel = ''; try { parcel = packOrder(it.items, cfg).label; } catch { parcel = ''; }
       const s = booked[id] || null;
-      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: codDue(o) > 0, advance: num(o.advance_paise) / 100, packed_at: num(o.packed_at) || null, parcel, awb: s ? s.awb : '', courier: s ? s.courier : '',
+      return { id, name: it.name, first_name: it.first_name, city: it.city || o.city || '', pincode: o.pincode || '', cod: codDue(o) > 0, advance: num(o.advance_paise) / 100, packed_at: num(o.packed_at) || null, parcel, awb: s ? s.awb : '', courier: s ? s.courier : '', provider: s ? (s.provider || 'shiprocket') : '', addr: it.addr || null,
         items: it.items.map((x) => ({ title: x.title, qty: x.quantity, size: x.variantTitle, sku: x.sku, image: x.image })) };
     }) };
   },
@@ -910,7 +910,8 @@ const ACTIONS = {
       const name = o?.order_name || id;
       if (!o) { results.push({ id, name, ok: false, note: 'Order not found' }); continue; }
       if (o.status === 'cancelled') { results.push({ id, name, ok: false, note: 'Already cancelled' }); continue; }
-      try { const c = await cancelOne(fresh, id); results.push({ id, name, ok: true, queued: !!c?.queued, note: c?.queued ? c.note : 'Cancelled' }); }
+      try { const c = await cancelOne(fresh, id); results.push({ id, name, ok: true, queued: !!c?.queued, note: c?.queued ? c.note : 'Cancelled' });
+        if (b.reason) { try { await addTags(env, `gid://shopify/Order/${id}`, ['cancel: ' + String(b.reason).slice(0, 40)]); } catch { /* best effort */ } } }
       catch (e) { results.push({ id, name, ok: false, note: String(e.message || e).slice(0, 200) }); }
     }
     return { ok: true, results };
