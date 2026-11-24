@@ -90,6 +90,33 @@ async function handleLead(req, env) {
   return json({ ok: true, db: !!env.DB });
 }
 
+/* GoKwik abandoned-cart webhook (24 Nov 2026). GoKwik POSTs abandoned carts here; each payload is kept in gk_events
+   (raw, to learn the format) and, when a phone is found, the cart becomes a lead so our abandoned-cart WhatsApp runs. */
+const GK_KEY = 'gk_bfc62dc43aee83a4ad5f164b';
+function gkPick(o, keys) { for (const k of keys) { const v = k.split('.').reduce((a, p) => (a == null ? a : a[p]), o); if (v != null && v !== '') return v; } return ''; }
+async function handleGokwik(req, env) {
+  const u = new URL(req.url);
+  if ((u.searchParams.get('k') || '') !== (env.GK_WEBHOOK_KEY || GK_KEY)) return json({ ok: false }, 401);
+  const raw = await req.text(); let b = {}; try { b = JSON.parse(raw); } catch { b = {}; }
+  const d = b.data || b.payload || b.cart || b;
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS gk_events (id SERIAL PRIMARY KEY, at BIGINT, phone TEXT, body TEXT)').run().catch(() => {});
+  const phone = cleanPhone(String(gkPick(d, ['phone', 'phone_number', 'mobile', 'customer.phone', 'customer.phone_number', 'customer.mobile', 'shipping_address.phone', 'billing_address.phone', 'address.phone'])));
+  await env.DB.prepare('INSERT INTO gk_events (at, phone, body) VALUES (?,?,?)').bind(now(), phone || '', raw.slice(0, 20000)).run().catch(() => {});
+  if (!phone) return json({ ok: true, lead: false });
+  const items = gkPick(d, ['line_items', 'items', 'cart.items', 'cart.line_items', 'products']) || [];
+  const lines = (Array.isArray(items) ? items : []).slice(0, 30).map((x) => ({ variant_id: String(x.variant_id || x.variantId || x.id || ''), quantity: Number(x.quantity || x.qty || 1), title: String(x.title || x.name || x.product_title || '').slice(0, 120), price: Number(x.price || 0) }));
+  const name = String(gkPick(d, ['name', 'customer.name', 'customer.first_name', 'first_name', 'shipping_address.first_name']) || '').slice(0, 80);
+  const pin = String(gkPick(d, ['pincode', 'zip', 'shipping_address.zip', 'shipping_address.pincode', 'address.pincode', 'address.zip']) || '').replace(/\D/g, '').slice(0, 6);
+  const t = now();
+  await env.DB.prepare(
+    `INSERT INTO leads (phone,name,pincode,cart_json,utm_json,step,status,created_at,updated_at) VALUES (?,?,?,?,?,?, 'open',?,?)
+     ON CONFLICT(phone) DO UPDATE SET name=COALESCE(NULLIF(excluded.name,''),leads.name),pincode=COALESCE(NULLIF(excluded.pincode,''),leads.pincode),
+     cart_json=CASE WHEN excluded.cart_json='[]' THEN leads.cart_json ELSE excluded.cart_json END,step=excluded.step,
+     status=CASE WHEN leads.status='ordered' AND ?<leads.updated_at+86400 THEN 'ordered' ELSE 'open' END,updated_at=excluded.updated_at`,
+  ).bind(phone, name, pin, JSON.stringify(lines).slice(0, 4000), JSON.stringify({ source: 'gokwik' }), 'gokwik', t, t, t).run();
+  return json({ ok: true, lead: true });
+}
+
 async function handlePincode(pin) {
   if (!/^\d{6}$/.test(pin)) return json({ ok: false }, 400);
   const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { cf: { cacheTtl: 86400, cacheEverything: true } });
@@ -647,6 +674,7 @@ export async function handle(req, env0, ctx) {
       else if (path === '/api/payu/status' && req.method === 'POST') res = await handlePayuStatus(req, env, ctx);
       else if (path === '/api/rzp/verify' && req.method === 'POST') res = await handleRzpVerify(req, env, ctx);
       else if (path === '/api/rzp/webhook' && req.method === 'POST') res = await handleRzpWebhook(req, env, ctx);
+      else if (path === '/api/gokwik/webhook' && req.method === 'POST') res = await handleGokwik(req, env);
       /* Build 066: check a UPI ID (and show its holder's name) before sending a payment request to it */
       else if (path === '/api/upi/verify' && req.method === 'POST') {
         const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
