@@ -1356,8 +1356,31 @@ const ACTIONS = {
         const x = await spBook(fresh, order, row, { tpl: nc.fallback }); r = { ...x, shipment: publicRec(x.rec), note: [routeNote, x.note].filter(Boolean).join('; ') };
       }
     }
+    /* automatic booking (owner, 24 Nov 2026): Shiprocket when its cheapest non-DTDC courier costs under
+       shipping.sr_auto_max (₹90), else ShipPrime. DTDC is never used. */
+    const srMax = Number(fresh.SETTINGS.shipping.sr_auto_max ?? 90);
+    if (!r && b.auto && srMax > 0 && srConnected(fresh) && fresh.SETTINGS.shipping.sr_pickup) {
+      try {
+        const { planShipment } = await import('./shiprocket.js');
+        const p = await planShipment(fresh, order, row, { pickOption, want: /^(?!.*\bdtdc\b)/i });
+        if (p.pick && Number(p.pick.charge) > 0 && Number(p.pick.charge) < srMax) {
+          r = await bookShipment(fresh, order, row, { pickOption, courierId: String(p.pick.id) });
+          r.note = [`Shiprocket ${p.pick.courier} ₹${p.pick.charge} (under ₹${srMax})`, r.note].filter(Boolean).join('; ');
+        }
+      } catch (e) {
+        const rec = await env.DB.prepare('SELECT * FROM shipments WHERE order_id=?').bind(String(row.order_id)).first();
+        if (rec?.awb && rec.status !== 'cancelled') throw e;
+        if (rec && rec.provider !== 'shipprime') {
+          if (rec.sr_order_id) await cancelShipment(fresh, rec).catch(() => {});
+          await env.DB.prepare("DELETE FROM shipments WHERE order_id=? AND COALESCE(awb,'')=''").bind(String(row.order_id)).run();
+        }
+        routeNote = `Shiprocket failed (${String(e.message || e).slice(0, 120)}), booked ShipPrime`;
+        r = null;
+      }
+    }
+    if (r) { /* booked above */ }
     else if (provider === 'shadowfax') { const { sfxBook } = await import('./shadowfax.js'); const x = await sfxBook(fresh, order, row); r = { ...x, shipment: publicRec(x.rec) }; }
-    else if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec) }; }
+    else if (provider === 'shipprime') { const x = await spBook(fresh, order, row, { tpl: String(b.tpl || '') }); r = { ...x, shipment: publicRec(x.rec), note: [routeNote, x.note].filter(Boolean).join('; ') }; }
     else r = await bookShipment(fresh, order, row, { pickOption, allowNever: !!b.allow_never, courierId: String(b.courier_id || '') });
     /* the AWB exists with the carrier either way; Shopify is fulfilled now, or the reason is kept and the cron retries */
     const fulfil = r.already && row.shipped_at ? '' : await fulfilBooked(env, b.id);

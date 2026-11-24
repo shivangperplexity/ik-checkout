@@ -313,6 +313,15 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
 
   const plan = await spPlan(env, order, row);
   const want = String(tpl || '').toUpperCase();
+  /* DTDC is never used (owner, 24 Nov 2026), unless chosen by hand */
+  if (!/^DTDC/.test(want)) {
+    plan.rates = (plan.rates || []).filter((r) => !/^DTDC/i.test(String(r.code || '')));
+    if (plan.pick && /^DTDC/i.test(String(plan.pick.code || ''))) {
+      const ss = env.SETTINGS?.shipping || {};
+      plan.pick = spPriorityPick(plan.rates, spPriority(ss)) || spPick(plan.rates.filter(usable), spPrefer(ss)) || null;
+      if (!plan.pick && !want) throw new Error('Only DTDC delivers to this PIN on ShipPrime, and DTDC is off. Book it by hand with another carrier.');
+    }
+  }
   const chosen = want ? plan.rates.find((r) => r.code.toUpperCase() === want) || { code: want, courier: courierLabel(want), charge: null } : plan.pick;
   if (!chosen && plan.error) throw new Error(plan.error);
   const ref = String(rec?.sp_ref || (String(row.order_name || id).replace(/^#/, '') + rebook));
@@ -331,7 +340,7 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
     if (e.code === 'NOT_SERVICEABLE' && body.preferredTpls?.length === 1) {
       const ss = env.SETTINGS?.shipping || {}, first = body.preferredTpls[0];
       const pr = spPriorityOrder(plan.rates, spPriority(ss), first);
-      const rest = [...pr, ...spFallbacks(plan.rates, spPrefer(ss), first).filter((c) => !pr.includes(c))];
+      const rest = [...pr, ...spFallbacks(plan.rates, spPrefer(ss), first).filter((c) => !pr.includes(c))].filter((c) => !/^DTDC/i.test(c));
       if (rest.length) {
         try { j = await sp(env, 'POST', '/v1/forward', { ...body, preferredTpls: rest }); e = null; note = `${courierLabel(body.preferredTpls[0])} refused (${String(e0.message || '').slice(0, 160)}), so ShipPrime used the next courier`; }
         catch (e2) { e = e2; }
