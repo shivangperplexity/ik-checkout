@@ -205,10 +205,18 @@ async function handleOrder(req, env, ctx) {
     } catch (e) { console.error('dup check', e.message); }
   }
   applyUpsells(env, raw, lines);
-  const price = priceCart(lines, method, pricingCfg(env, b));
+  /* Build 087 (26 Nov 2026): "Partial COD" as its own choice (b.pp): online price (10% off, free delivery, no COD fee),
+     the advance (Settings > partial advance, ₹99) paid online now, the rest collected by the courier. Offered to everyone. */
+  const pp = wantPartial && !!b.pp;
+  const price = priceCart(lines, pp ? 'prepaid' : method, pricingCfg(env, b));
   /* Partial COD: the server decides again with the real total; a stale checkout gets told to switch. */
   let partial = null;
-  if (method === 'cod') {
+  if (pp) {
+    const { cfg: pcCfg } = await import('./partial-cod.js');
+    const adv = (pcCfg(env).advance || 99) * 100;
+    if (price.total <= adv) return json({ ok: false, error: 'Please pay online for this order.' }, 409);
+    partial = { advance: adv, reasons: ['chosen'] };
+  } else if (method === 'cod') {
     const d = await decide(env, buyer, price.total);
     if (wantPartial && d.mode === 'off') return json({ ok: false, error: 'Please choose your payment method again.' }, 409);
     /* A checkout that cannot take the advance (older theme, no b.pc) keeps placing full COD orders. */
@@ -246,6 +254,7 @@ async function handleOrder(req, env, ctx) {
     { key: 'Payment choice', value: partial ? `Partial COD (₹${partial.advance / 100} online + rest on delivery)` : method === 'cod' ? 'COD' : 'Prepaid' },
     ...(method === 'prepaid' || partial ? [{ key: rzpOn(env) ? 'Payment ref' : 'PayU txn id', value: txnid }] : []),
     ...(partial ? [{ key: 'Advance paid online', value: '₹' + partial.advance / 100 }, { key: 'Collect on delivery', value: '₹' + (price.total - partial.advance) / 100 }, { key: 'Partial COD reason', value: partial.reasons.map(reasonText).join('; ').slice(0, 200) }] : []),
+    ...(pp ? [{ key: 'Advance policy', value: 'Non-refundable if the buyer cancels or refuses the parcel (refunded if we cancel)' }] : []),
     ...(otpOk ? [{ key: 'COD verified', value: 'WhatsApp OTP at checkout' }] : []),
     ...(price.ref ? [{ key: refBits.offer.kind === 'promo' ? 'Promo code' : refBits.offer.kind === 'creator' ? 'Creator code' : refBits.offer.kind === 'voucher' ? 'Creator voucher' : 'Referral code', value: `${refBits.offer.code} (₹${price.ref / 100} off)` }] : []),
     ...(!price.ref && a.ref ? [{ key: 'Code', value: String(a.ref).slice(0, 20) }] : []),
