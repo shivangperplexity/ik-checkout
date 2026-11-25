@@ -995,6 +995,13 @@ const ACTIONS = {
     }
     return { ok: true, n: Object.keys(out).length, rows: out };
   },
+  /** Thumbnails (base64 JPEG) of PUBLISHED review photos, for design mockups. Read-only. */
+  async review_thumbs(env, b = {}) {
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number).filter(Boolean).slice(0, 8);
+    if (!ids.length) return { ok: false, error: 'ids' };
+    const rows = (await env.DB.prepare(`SELECT p.id, p.thumb_b64 FROM review_photos p JOIN reviews r ON r.id=p.review_id WHERE r.status='published' AND p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results;
+    return { ok: true, rows: rows.map((r) => ({ id: r.id, b64: String(r.thumb_b64 || '').replace(/^data:[^,]*,/, '') })) };
+  },
   async msg_stats(env, b) {
     const since = now() - (Number(b.mins) || 30) * 60;
     const r = (await env.DB.prepare(`SELECT trigger, status, substring(coalesce(error,''),1,60) AS err, count(*)::int AS n FROM messages WHERE ts>? AND direction<>'in' GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 40`).bind(since).all()).results;
