@@ -309,7 +309,13 @@ export async function spBook(env, order, row, { tpl = '' } = {}) {
     await db.prepare('DELETE FROM shipments WHERE order_id=?').bind(id).run(); rec = null;
   }
   if (rec?.awb) return { ok: true, already: true, rec };
-  if (rec && rec.provider !== 'shipprime' && (rec.sr_shipment_id || rec.sr_order_id)) throw new Error('This order already has a Shiprocket booking in progress. Finish or cancel it first.');
+  /* A Shiprocket order that never got an AWB (a booking that failed half way) used to block ShipPrime here
+     ("booking in progress"). Nothing is on the pickup without an AWB, so cancel that Shiprocket order (best effort)
+     and clear the row, then book with ShipPrime. (26 Nov 2026) */
+  if (rec && rec.provider !== 'shipprime' && (rec.sr_shipment_id || rec.sr_order_id)) {
+    try { const { cancelShipment } = await import('./shiprocket.js'); await cancelShipment(env, rec); } catch (e) { console.log('stale shiprocket order cancel', rec.sr_order_id, e.message); }
+    await db.prepare("DELETE FROM shipments WHERE order_id=? AND COALESCE(awb,'')=''").bind(id).run(); rec = null;
+  }
 
   const plan = await spPlan(env, order, row);
   const want = String(tpl || '').toUpperCase();
