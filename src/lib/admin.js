@@ -1021,6 +1021,20 @@ const ACTIONS = {
     await env.DB.prepare("INSERT INTO settings (k,v) VALUES ('manual_orders',?) ON CONFLICT (k) DO UPDATE SET v=excluded.v").bind(JSON.stringify(list)).run();
     return { ok: true, order: next };
   },
+  /** RTO by order week x provider x courier x method (read-only, for trend analysis). */
+  async rto_trend(env) {
+    const rows = (await env.DB.prepare(`SELECT to_char(to_timestamp(o.created_at) AT TIME ZONE 'Asia/Kolkata','IYYY-IW') AS wk,
+        COALESCE(s.provider,'shiprocket') AS prov, COALESCE(s.courier,'') AS courier, o.method,
+        (o.confirmed_at IS NOT NULL) AS conf, COUNT(*) AS n,
+        SUM(CASE WHEN s.stage='delivered' THEN 1 ELSE 0 END) AS dl,
+        SUM(CASE WHEN s.stage='rto' OR s.rto THEN 1 ELSE 0 END) AS rto,
+        SUM(CASE WHEN COALESCE(s.stage,'') NOT IN ('delivered','rto','cancelled') AND NOT COALESCE(s.rto,false) THEN 1 ELSE 0 END) AS open,
+        ROUND(AVG(o.total_paise)/100) AS aov
+      FROM orders o JOIN shipments s ON s.order_id=o.order_id
+      WHERE COALESCE(s.awb,'')<>'' AND COALESCE(s.status,'')<>'cancelled' AND o.created_at > ?
+      GROUP BY 1,2,3,4,5 ORDER BY 1`).bind(now() - 120 * 86400).all()).results;
+    return { ok: true, rows };
+  },
   async msg_stats(env, b) {
     const since = now() - (Number(b.mins) || 30) * 60;
     const r = (await env.DB.prepare(`SELECT trigger, status, substring(coalesce(error,''),1,60) AS err, count(*)::int AS n FROM messages WHERE ts>? AND direction<>'in' GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 40`).bind(since).all()).results;
