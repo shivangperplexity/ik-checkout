@@ -1002,6 +1002,17 @@ const ACTIONS = {
     const rows = (await env.DB.prepare(`SELECT p.id, p.thumb_b64 FROM review_photos p JOIN reviews r ON r.id=p.review_id WHERE r.status='published' AND p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results;
     return { ok: true, rows: rows.map((r) => ({ id: r.id, b64: String(r.thumb_b64 || '').replace(/^data:[^,]*,/, '') })) };
   },
+  /** Add or update an order taken outside the checkout (track page only; see site.js manualOrders). */
+  async manual_order_set(env, b = {}) {
+    const r = await env.DB.prepare("SELECT v FROM settings WHERE k='manual_orders'").first().catch(() => null);
+    let list = []; try { list = JSON.parse(r?.v || '[]'); } catch { list = []; }
+    const name = String(b.name || '').trim(); if (!/^#\d+$/.test(name) || !b.phone) return { ok: false, error: 'name (#1234) and phone needed' };
+    const i = list.findIndex((m) => m.name === name), cur = i >= 0 ? list[i] : { created_at: now() };
+    const next = { ...cur, ...b, phone: String(b.phone || cur.phone).replace(/\D/g, '').slice(-10) };
+    if (i >= 0) list[i] = next; else list.push(next);
+    await env.DB.prepare("INSERT INTO settings (k,v) VALUES ('manual_orders',?) ON CONFLICT (k) DO UPDATE SET v=excluded.v").bind(JSON.stringify(list)).run();
+    return { ok: true, order: next };
+  },
   async msg_stats(env, b) {
     const since = now() - (Number(b.mins) || 30) * 60;
     const r = (await env.DB.prepare(`SELECT trigger, status, substring(coalesce(error,''),1,60) AS err, count(*)::int AS n FROM messages WHERE ts>? AND direction<>'in' GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 40`).bind(since).all()).results;

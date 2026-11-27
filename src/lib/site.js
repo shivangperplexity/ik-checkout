@@ -44,7 +44,25 @@ async function liveTrack(env, o) {
   } catch { return null; }
 }
 
+/* Orders taken outside the checkout (Settings key manual_orders): shown only to that customer on the track page,
+   never in Shopify or the dashboard's order lists. [{phone, name, items:[{title,qty}], total, created_at, awb, courier, provider, stage}] */
+async function manualOrders(env, phone) {
+  const r = await env.DB.prepare("SELECT v FROM settings WHERE k='manual_orders'").first().catch(() => null);
+  let list = []; try { list = JSON.parse(r?.v || '[]'); } catch { list = []; }
+  const { trackUrlOf } = await import('./shipprime.js');
+  return list.filter((m) => String(m.phone).slice(-10) === String(phone).slice(-10)).map((m) => {
+    const st = customerStatus({ status: m.status || 'paid', stage: m.stage || '', awb: m.awb || '', method: 'prepaid', delivered_at: m.delivered_at });
+    return { name: m.name, date: Number(m.created_at), total: Number(m.total), pay: 'Paid online', status: st.text, key: st.key, step: st.step,
+      edd: ['delivered', 'returned', 'cancelled'].includes(st.key) ? '' : String(m.edd || ''), awb: m.awb || '',
+      track_url: m.awb ? trackUrlOf({ awb: m.awb, courier: m.courier || '', provider: m.provider || 'shipprime' }) : '', scans: [],
+      items: (m.items || []).map((x) => ({ title: x.title, qty: x.qty || 1, image: '' })), can_cancel: false, cancel_by: 'code' };
+  });
+}
 export async function customerOrders(env, phone) {
+  const manual = await manualOrders(env, phone).catch(() => []);
+  return manual.concat(await customerOrders0(env, phone));
+}
+async function customerOrders0(env, phone) {
   const rows = (await env.DB.prepare(`SELECT o.order_id, o.order_name, o.status, o.method, o.total_paise, o.confirmed_at, o.created_at, o.contents_json, o.pincode, o.city, o.advance_paise, o.converted_at,
       s.awb, s.courier, s.stage, s.edd, s.delivered_at, s.rto, s.provider, s.picked_at
     FROM orders o LEFT JOIN shipments s ON s.order_id = o.order_id AND COALESCE(s.status,'')<>'cancelled'
