@@ -69,6 +69,14 @@ export async function handleTrack(req, env) {
   const sid = String(b.sid || '').slice(0, 40);
   const type = String(b.type || '').slice(0, 20);
   if (!sid || !STEPS.concat(['left', 'fail', 'method', 'upi', 'ping', 'view']).includes(type)) return json({ ok: false }, 400);
+  /* 27 Nov 2026: a scraper network opens product pages from ~150 foreign IPs a minute (desktop, 1 view, no referrer).
+     Shopify drops it from its analytics; we drop it here: page views / pings from outside India, or from a
+     headless / bot browser, are not stored unless the visitor has given a phone (a real checkout). */
+  {
+    const cc = String(req.headers.get('x-vercel-ip-country') || '').toUpperCase();
+    const uaBot = /headless|bot\b|crawl|spider|slurp|lighthouse|python|curl|wget|phantom|puppeteer|playwright/i.test(String(req.headers.get('user-agent') || ''));
+    if ((type === 'view' || type === 'ping') && !cleanPhone(b.phone) && ((cc && cc !== 'IN') || uaBot)) return json({ ok: true, skipped: true });
+  }
   /* Build 071x: every visitor (page views), with IP + browser so the same person in two tabs shows once */
   const ip = String(req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '').split(',')[0].trim().slice(0, 64) || null;
   const ua = String(req.headers.get('user-agent') || '').slice(0, 160) || null;
