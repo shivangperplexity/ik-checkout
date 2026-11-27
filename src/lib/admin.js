@@ -1193,9 +1193,19 @@ const ACTIONS = {
     const e = await withSettingsFresh(env);
     const to = String(b.to || e.SETTINGS.wa?.admin_phone || '').replace(/\D/g, '').slice(-10);
     if (!to) throw new Error('No phone to test with');
+    if (b.raw && b.log_only) { /* record a message already sent (no new send) */
+      await env.DB.prepare('INSERT INTO messages (ts,direction,phone,trigger,template,status,order_name,wamid,error,preview) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .bind(now(), 'out', to, 'manual', String(b.raw.name || ''), 'sent', String(b.order || ''), String(b.id || ''), '', String(b.log || '').slice(0, 1000)).run();
+      return { ok: true, logged: true };
+    }
     if (b.raw) {
       const r = await fetch('https://api.interakt.ai/v1/public/message/', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + e.SETTINGS.wa.interakt_key }, body: JSON.stringify({ countryCode: '+91', phoneNumber: to, type: 'Template', template: b.raw }) });
-      return { ok: true, status: r.status, body: await r.text() };
+      const body = await r.text();
+      /* b.log: also show the message in Chats (preview text), as a sent template */
+      if (b.log && r.ok) { let id = ''; try { id = JSON.parse(body).id || ''; } catch { /* */ }
+        await env.DB.prepare('INSERT INTO messages (ts,direction,phone,trigger,template,status,order_name,wamid,error,preview) VALUES (?,?,?,?,?,?,?,?,?,?)')
+          .bind(now(), 'out', to, 'manual', String(b.raw.name || ''), 'sent', String(b.order || ''), id, '', String(b.log).slice(0, 1000)).run(); }
+      return { ok: true, status: r.status, body };
     }
     if (b.template) {
       const r = await fetch(`https://graph.facebook.com/v21.0/${e.WA_PHONE_ID}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${e.WA_TOKEN}` },
